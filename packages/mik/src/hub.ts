@@ -241,7 +241,13 @@ export class ModelInfra {
     this.maxRetries = deps.maxRetries
 
     const forward = createMikFetch({
-      resolveProvider: (providerId) => this.providerRegistry.resolve(providerId),
+      // Checked here as well as in `resolveModel`: the adapter resolves the
+      // provider a second time, and a disabled provider must never reach the
+      // transport even if a future caller addresses one without a model ref.
+      resolveProvider: (providerId) => {
+        this.assertProvider(providerId)
+        return this.providerRegistry.resolve(providerId)
+      },
       resolveModel: (model) => this.resolveModel(model),
       onCall: (call) => this.recordForwarded(call),
       baseUrl: () => this.baseUrlValue,
@@ -293,7 +299,13 @@ export class ModelInfra {
    * malformed explicit configuration is fatal.
    */
   static async init(config: ModelInfraOptions = {}): Promise<ModelInfra> {
-    const onWarn = config.onWarn ?? (() => {})
+    // S4: a silent default means a host that forgets `onWarn` never learns that
+    // metering failed. Default to one redacted line on stderr instead.
+    const onWarn =
+      config.onWarn ??
+      ((message: string): void => {
+        process.stderr.write(`[model-infra-kit] ${redact(message)}\n`)
+      })
     const lifecycle: Lifecycle = { closed: false }
     /** Every warning goes through the lifecycle gate, so `close()` silences the instance. */
     const warn = (message: string, error?: unknown): void => {
@@ -306,6 +318,9 @@ export class ModelInfra {
     try {
       store = await Store.open({ path: config.db })
     } catch (error) {
+      // `Store.open` already reports storage failures as ModelInfraError with a
+      // precise message; re-wrapping only buries it behind a second prefix.
+      if (error instanceof ModelInfraError) throw error
       throw new ModelInfraError(`Could not open the usage database: ${messageOf(error)}`, {
         code: "STORAGE",
         cause: error,
@@ -806,8 +821,11 @@ export class ModelInfra {
     } finally {
       // The consumer abandoned the stream before the accounting above could run
       // (`return()` on a generator resumes it with a return completion, which
-      // runs this block). Meter the call with whatever is known by now, so an
-      // abandoned stream still leaves exactly one usage row behind.
+      // runs this block). Such a call never reached `finish`, so it is never a
+      // success (S6): recording `ok` here overstated the success rate and priced
+      // an unfinished call at $0. The provider's own code is kept when one was
+      // seen; a plain early exit is `ABANDONED`. `cost` stays `source: "missing"`
+      // because the call was never billed end to end.
       if (!recorded) {
         recordOnce({
           requestId,
@@ -819,8 +837,8 @@ export class ModelInfra {
           cost: MISSING_COST(),
           latencyMs: Date.now() - startedAt,
           firstTokenMs,
-          status: failure ? "error" : "ok",
-          errorCode: failure?.code,
+          status: "error",
+          errorCode: failure?.code ?? "ABANDONED",
           isStreaming: true,
           request,
         })
@@ -844,13 +862,31 @@ export class ModelInfra {
     )
   }
 
-  private assertProvider(providerId: string, requested: string): void {
-    if (this.providers.get(providerId)) return
-    throw new ModelInfraError(`Provider "${providerId}" is not configured.`, {
-      code: "PROVIDER_NOT_FOUND",
-      providerId,
-      model: requested,
-    })
+  /**
+   * Refuse a provider that is not routable: never configured, or switched off.
+   *
+   * `enabled: false` is the "take this provider offline" switch the README
+   * documents, so it has to be a hard constraint at routing time (S3). Before
+   * this, it only skipped the background catalogue sync, which let a disabled
+   * provider still receive real, billable traffic through `generate`, `stream`
+   * and `fetch`. The check runs before any credential is read and before any
+   * transport is opened, so a disabled provider never reaches the network.
+   */
+  private assertProvider(providerId: string, requested?: string): void {
+    const record = this.providers.get(providerId)
+    if (!record) {
+      throw new ModelInfraError(`Provider "${providerId}" is not configured.`, {
+        code: "PROVIDER_NOT_FOUND",
+        providerId,
+        model: requested,
+      })
+    }
+    if (!record.enabled) {
+      throw new ModelInfraError(
+        `Provider "${providerId}" is disabled. Enable it with providers.setEnabled("${providerId}", true) before routing requests to it.`,
+        { code: "PROVIDER_NOT_FOUND", providerId, model: requested },
+      )
+    }
   }
 
   /** Meter one call that came in through the `fetch` adapter. */

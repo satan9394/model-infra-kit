@@ -112,8 +112,32 @@ export class ProviderRegistry {
     )
   }
 
+  /**
+   * Remove a provider.
+   *
+   * When the removed provider was the one behind the configured default model,
+   * that setting is cleared as well: leaving it behind would turn every later
+   * request that omits `model` into a dangling `provider:model` reference and a
+   * confusing `PROVIDER_NOT_FOUND`. The host is warned exactly once so it can
+   * choose a new default.
+   */
   remove(id: string): boolean {
-    return this.deps.store.providers.remove(id)
+    if (!this.deps.store.providers.remove(id)) return false
+    this.dropDefaultModelOf(id)
+    return true
+  }
+
+  /** Clear `default_model` when it points at `providerId`; warn once if it did. */
+  private dropDefaultModelOf(providerId: string): void {
+    const ref = this.deps.store.settings.get(DEFAULT_MODEL_SETTING)
+    const parsed = ref ? splitModelRef(ref) : null
+    if (!parsed || parsed.providerId !== providerId) return
+
+    this.deps.store.settings.delete(DEFAULT_MODEL_SETTING)
+    this.deps.onWarn?.(
+      `Cleared the default model "${ref}" because provider "${providerId}" was removed. ` +
+        `Set a new default with providers.setDefaultModel("provider:model").`,
+    )
   }
 
   setEnabled(id: string, enabled: boolean): void {
