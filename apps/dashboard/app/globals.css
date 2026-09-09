@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* The dashboard is a single dark theme: the numbers are the product. */
+:root {
+  color-scheme: dark;
+  --page: #070b16;
+  --panel: #0d1424;
+  --line: #1e293b;
+}
+
+html,
+body {
+  background-color: var(--page);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: #1d4ed8;
+  color: #f8fafc;
+}
+
+/* Recharts renders an SVG with a transparent background; keep it readable. */
+.recharts-cartesian-axis-tick text {
+  fill: #94a3b8;
+  font-size: 11px;
+}
+
+.recharts-default-tooltip {
+  border-radius: 8px;
+}

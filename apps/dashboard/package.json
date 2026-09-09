@@ -1,0 +1,29 @@
+{
+  "name": "@mik/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Usage dashboard for model-infra-kit: cost, tokens and request logs over the mik HTTP API.",
+  "scripts": {
+    "dev": "node scripts/check-port.mjs 3210 && next dev -p 3210",
+    "build": "next build",
+    "start": "node scripts/check-port.mjs 3210 && next start -p 3210",
+    "typecheck": "tsc --noEmit",
+    "seed": "node scripts/seed.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.25",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "model-infra-kit": "workspace:*",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.2"
+  }
+}
