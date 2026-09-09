@@ -9,7 +9,7 @@ import { CredentialStore } from "../src/credential/store.js"
 import { ModelInfraError } from "../src/errors.js"
 import { ProviderRegistry } from "../src/registry/registry.js"
 import { Store } from "../src/store/database.js"
-import type { ProviderConfig, ProviderStatus } from "../src/types.js"
+import type { ProviderStatus } from "../src/types.js"
 
 const TEST_KEY = "sk-bridge-testkey-1234"
 
@@ -40,6 +40,9 @@ const server = createTestServer({
       status: 401,
       body: JSON.stringify({ error: { message: `invalid api key ${TEST_KEY}` } }),
     },
+  },
+  "https://mock-openai.test/v1/forbidden/models": {
+    response: { type: "error", status: 403, body: "forbidden upstream detail that must stay private" },
   },
   "https://mock-openai.test/v1/broken/models": { response: { type: "error", status: 500, body: "upstream exploded" } },
   "https://mock-anthropic.test/v1/models": {
@@ -126,21 +129,20 @@ describe("createAiBridge", () => {
     bridge = createAiBridge({ registry, onWarn: (message) => warnings.push(message) })
 
     const base = { apiKeyRef: "env:MIK_T02_BRIDGE_KEY", enabled: true }
-    registry.add({ ...base, id: "mock-openai", baseUrl: "https://mock-openai.test/v1" } as unknown as ProviderConfig)
+    registry.add({ ...base, id: "mock-openai", baseUrl: "https://mock-openai.test/v1" })
     registry.add({ ...base, id: "mock-anthropic", protocol: "anthropic", baseUrl: "https://mock-anthropic.test/v1" })
     registry.add({ ...base, id: "mock-google", protocol: "google", baseUrl: "https://mock-google.test/v1beta" })
-    registry.add({
-      ...base,
-      id: "mock-bad-key",
-      baseUrl: "https://mock-openai.test/v1/bad-key",
-    } as unknown as ProviderConfig)
-    registry.add({ ...base, id: "mock-broken", baseUrl: "https://mock-openai.test/v1/broken" } as unknown as ProviderConfig)
+    registry.add({ ...base, id: "mock-bad-key", baseUrl: "https://mock-openai.test/v1/bad-key" })
+    registry.add({ ...base, id: "mock-forbidden", baseUrl: "https://mock-openai.test/v1/forbidden" })
+    registry.add({ ...base, id: "mock-broken", baseUrl: "https://mock-openai.test/v1/broken" })
     registry.add({
       ...base,
       id: "mock-slow",
       baseUrl: hangBaseUrl,
       meta: { timeoutMs: 150 },
-    } as unknown as ProviderConfig)
+    })
+    // A local endpoint that needs no key at all: apiKeySource stays "none".
+    registry.add({ id: "mock-no-key", baseUrl: "https://mock-openai.test/v1/bad-key" })
   })
 
   afterEach(() => {
@@ -183,7 +185,7 @@ describe("createAiBridge", () => {
     })
 
     it("throws CREDENTIAL when the referenced secret is missing", async () => {
-      registry.add({ id: "no-secret", presetId: "openai", apiKeyRef: "env:MIK_T02_NOT_SET" } as unknown as ProviderConfig)
+      registry.add({ id: "no-secret", presetId: "openai", apiKeyRef: "env:MIK_T02_NOT_SET" })
       await expect(bridge.languageModel("no-secret", "gpt-4o-mini")).rejects.toMatchObject({ code: "CREDENTIAL" })
     })
   })
@@ -200,14 +202,40 @@ describe("createAiBridge", () => {
       expect(status.message).not.toContain(TEST_KEY)
     })
 
-    it("reports a rejected key without leaking it", async () => {
+    // S9: an auth failure must not echo the upstream body — it contains the key.
+    it("reports a rejected key without leaking it or the upstream body", async () => {
       const status = await bridge.test("mock-bad-key")
       expect(status.ok).toBe(false)
+      expect(status.message).toContain("API key rejected")
       expect(status.message).toContain("401")
-      expect(status.message).toContain("sk-****")
       expect(status.message).not.toContain(TEST_KEY)
+      expect(status.message).not.toContain("sk-****")
+      expect(status.message).not.toContain("invalid api key")
       expect(warnings).toHaveLength(1)
       expect(warnings[0]).not.toContain(TEST_KEY)
+      expect(warnings[0]).not.toContain("invalid api key")
+    })
+
+    it("keeps the upstream body out of a 403 as well", async () => {
+      const status = await bridge.test("mock-forbidden")
+      expect(status.ok).toBe(false)
+      expect(status.message).toContain("403")
+      expect(status.message).toContain("API key rejected")
+      expect(status.message).not.toContain("forbidden upstream detail")
+    })
+
+    // B2: a provider that never had a key must not be told its key was rejected.
+    it("does not blame a missing key for a provider configured without one", async () => {
+      const resolved = registry.resolve("mock-no-key")
+      expect(resolved.apiKey).toBeNull()
+      expect(resolved.apiKeySource).toBe("none")
+
+      const status = await bridge.test("mock-no-key")
+      expect(status.ok).toBe(false)
+      expect(status.message).toContain("401")
+      expect(status.message).toMatch(/without an API key/i)
+      expect(status.message).not.toMatch(/api key rejected/i)
+      expect(status.message).not.toContain(TEST_KEY)
     })
 
     it("reports a server error", async () => {
@@ -309,6 +337,64 @@ describe("createAiBridge", () => {
           .replace(/\/\/.*$/gm, "")
         expect(source).not.toMatch(/providerId\s*===/)
         expect(source).not.toMatch(/(id|provider)\s*===\s*["'](openai|anthropic|google|deepseek|moonshotai|xai|openrouter)["']/)
+      }
+    })
+
+    // S11: every SDK protocol must be able to build a model object offline.
+    it("builds a model for each of the six SDK protocols with the right options", async () => {
+      const { SDK_PROTOCOLS, loadProviderFactory } = await import("../src/ai/protocols.js")
+      const protocols = ["openai", "anthropic", "google", "deepseek", "moonshotai", "xai"] as const
+
+      for (const protocol of protocols) {
+        const id = `opt-${protocol}`
+        registry.add({
+          id,
+          presetId: protocol,
+          apiKeyRef: "env:MIK_T02_BRIDGE_KEY",
+          headers: { "x-mik-test": protocol },
+        })
+        const resolved = registry.resolve(id)
+        expect(resolved.protocol).toBe(protocol)
+        expect(resolved.apiKeySource).toBe("ref")
+
+        const options = SDK_PROTOCOLS[protocol].factoryOptions(resolved)
+        expect(options.apiKey).toBe(TEST_KEY)
+        expect(options.baseURL).toBe(resolved.baseUrl)
+        expect(options.headers).toEqual({ "x-mik-test": protocol })
+
+        const factory = await loadProviderFactory(protocol)
+        const provider = factory(options) as { languageModel(modelId: string): unknown }
+        const model = describeModel(provider.languageModel("mock-model"))
+        expect(model.modelId).toBe("mock-model")
+        expect(model.specificationVersion).toBe("v4")
+        expect(typeof model.doGenerate).toBe("function")
+      }
+    })
+
+    it("omits the headers option when the provider declares none", async () => {
+      const { SDK_PROTOCOLS } = await import("../src/ai/protocols.js")
+      registry.add({ id: "opt-plain", presetId: "deepseek", apiKeyRef: "env:MIK_T02_BRIDGE_KEY" })
+      const options = SDK_PROTOCOLS.deepseek.factoryOptions(registry.resolve("opt-plain"))
+      expect(options.headers).toBeUndefined()
+    })
+
+    // S11: the optional peer packages are loaded lazily, so a missing one has to
+    // become an actionable install hint rather than a startup crash.
+    it("explains a missing provider package with an install hint", async () => {
+      const { SDK_PROTOCOLS, loadProviderFactory } = await import("../src/ai/protocols.js")
+      const original = SDK_PROTOCOLS.openai
+      SDK_PROTOCOLS.openai = { ...original, npmPackage: "@ai-sdk/mik-package-that-does-not-exist" }
+      try {
+        const failure = await loadProviderFactory("openai").then(
+          () => null,
+          (error: unknown) => error,
+        )
+        expect(failure).toBeInstanceOf(ModelInfraError)
+        const mapped = failure as ModelInfraError
+        expect(mapped.code).toBe("PROVIDER")
+        expect(mapped.message).toContain("npm i @ai-sdk/mik-package-that-does-not-exist")
+      } finally {
+        SDK_PROTOCOLS.openai = original
       }
     })
   })

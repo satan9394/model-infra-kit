@@ -1,8 +1,10 @@
 import { mkdtempSync, readdirSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { PricingCatalog, pricingCandidates } from "llm-pricing"
+import type { LanguageModelUsage } from "ai"
+import { PricingCatalog } from "llm-pricing"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { isModelInfraError } from "../src/errors.js"
 import { createFileCache } from "../src/pricing/cache.js"
 import { PricingService } from "../src/pricing/service.js"
 import { Store } from "../src/store/database.js"
@@ -38,6 +40,16 @@ function unreachableCatalog(onWarn: (m: string, e?: unknown) => void = () => {})
 
 function usage(overrides: Partial<TokenUsage> = {}): TokenUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, ...overrides }
+}
+
+/** The value a synchronous throw produced, or `undefined` when it did not throw. */
+function thrownBy(fn: () => unknown): unknown {
+  try {
+    fn()
+    return undefined
+  } catch (error) {
+    return error
+  }
 }
 
 /** `deepseek-chat` in the bundled archive: $0.14/M in, $0.28/M out, $0.0028/M cache. */
@@ -78,7 +90,7 @@ describe("PricingService", () => {
     const spy = vi.spyOn(catalog, "estimate")
     const service = new PricingService({ store, catalog })
 
-    service.estimate({ model: "deepseek-chat", usage: { input: 1000, output: 200 } as TokenUsage })
+    service.estimate({ model: "deepseek-chat", usage: { input: 1000, output: 200 } })
 
     const args = spy.mock.calls[0]![0]
     expect(args.inputTokens).toBe(1000)
@@ -88,6 +100,43 @@ describe("PricingService", () => {
     expect(args.cacheCreationInputTokens).toBeUndefined()
     expect(args.reasoningOutputTokens).toBeUndefined()
     expect(args.at).toBeUndefined()
+  })
+
+  it("accepts the AI SDK's usage shape, cacheWriteTokens included as absent", async () => {
+    const store = await openStore()
+    const catalog = archiveCatalog()
+    const spy = vi.spyOn(catalog, "estimate")
+    const service = new PricingService({ store, catalog })
+
+    // Exactly what `generateText()` reports when the provider does not split
+    // cache writes out: `cacheWriteTokens` is `undefined`, not 0.
+    const aiSdk: LanguageModelUsage = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      totalTokens: 2_000_000,
+      inputTokenDetails: { noCacheTokens: 1_000_000, cacheReadTokens: undefined, cacheWriteTokens: undefined },
+      outputTokenDetails: { textTokens: 1_000_000, reasoningTokens: undefined },
+    }
+
+    // The hub's own mapping, with no cast: `EstimateInput.usage` is `Partial`.
+    const cost = service.estimate({
+      model: "deepseek-chat",
+      usage: {
+        input: aiSdk.inputTokens,
+        output: aiSdk.outputTokens,
+        cacheRead: aiSdk.inputTokenDetails.cacheReadTokens,
+        cacheWrite: aiSdk.inputTokenDetails.cacheWriteTokens,
+        reasoning: aiSdk.outputTokenDetails.reasoningTokens,
+      },
+    })
+
+    expect(cost.usd).toBeCloseTo(0.42, 12)
+    const args = spy.mock.calls[0]![0]
+    expect(args.inputTokens).toBe(1_000_000)
+    expect(args.outputTokens).toBe(1_000_000)
+    expect(args.cacheCreationInputTokens).toBeUndefined()
+    expect(args.cachedInputTokens).toBeUndefined()
+    expect(args.reasoningOutputTokens).toBeUndefined()
   })
 
   it("prices an archive model and reports where the price came from", async () => {
@@ -160,6 +209,39 @@ describe("PricingService", () => {
     expect(cost.pricingModel).toBe("deepseek-chat")
   })
 
+  it("never touches the catalogue at all when a manual price hits", async () => {
+    const store = await openStore()
+    let fetches = 0
+    const catalog = new PricingCatalog({
+      sources: [{ name: "counted", url: "https://offline.invalid/prices.json", parse: () => new Map() }],
+      fetch: (async () => {
+        fetches += 1
+        throw new Error("network disabled in tests")
+      }) as typeof globalThis.fetch,
+    })
+    const ensureLoaded = vi.spyOn(catalog, "ensureLoaded")
+    const estimate = vi.spyOn(catalog, "estimate")
+    const service = new PricingService({ store, catalog })
+
+    store.pricing.set({ modelId: "acme-chat", inputPerM: 1, outputPerM: 2 })
+    const cost = service.estimate({ model: "acme-chat", usage: usage({ input: 1_000_000 }) })
+
+    // `warm()` would have called `ensureLoaded()` synchronously, queueing the
+    // upstream download even though the price never needed it.
+    expect(ensureLoaded).not.toHaveBeenCalled()
+    expect(estimate).not.toHaveBeenCalled()
+    expect(cost.usd).toBeCloseTo(1, 12)
+
+    // Nothing reaches the network either — and the control below proves this
+    // counter would have moved if a load had been queued.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(fetches).toBe(0)
+
+    service.estimate({ model: "deepseek-chat", usage: usage({ input: 1_000_000 }) })
+    expect(ensureLoaded).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(fetches).toBe(1))
+  })
+
   it("matches a manual override from a `provider:model` ref", async () => {
     const store = await openStore()
     const service = new PricingService({ store, catalog: archiveCatalog() })
@@ -186,6 +268,36 @@ describe("PricingService", () => {
     expect(cost.usd).toBeCloseTo((1000 * 2 + 100 * 4) / 1_000_000, 12)
   })
 
+  it("refuses a manual price that states neither an input nor an output rate", async () => {
+    const store = await openStore()
+    const service = new PricingService({ store, catalog: archiveCatalog() })
+
+    const noRates = thrownBy(() => service.setOverride({ modelId: "acme-chat" }))
+    expect(isModelInfraError(noRates) && noRates.code).toBe("INVALID_REQUEST")
+    expect(isModelInfraError(noRates) && noRates.model).toBe("acme-chat")
+
+    // Cache rates alone would still bill every request at $0.
+    expect(() => service.setOverride({ modelId: "acme-chat", cacheReadPerM: 1, cacheWritePerM: 2 })).toThrow(
+      /inputPerM or outputPerM/,
+    )
+    // A negative rate is not a price either.
+    expect(() => service.setOverride({ modelId: "acme-chat", inputPerM: -1 })).toThrow(/inputPerM or outputPerM/)
+    expect(service.listOverrides()).toEqual([])
+
+    // A stated 0 is a real price (a free model), not a missing one.
+    service.setOverride({ modelId: "free-model", inputPerM: 0, outputPerM: 0 })
+    expect(service.priceFor("free-model")).toMatchObject({ source: "manual", inputPerM: 0, outputPerM: 0 })
+    expect(service.estimate({ model: "free-model", usage: usage({ input: 1_000_000 }) }).usd).toBe(0)
+
+    // What the guard is for: the same row written straight to the store bills
+    // every request at $0 while still reporting `source: "manual"`.
+    store.pricing.set({ modelId: "silent-zero" })
+    expect(service.estimate({ model: "silent-zero", usage: usage({ input: 1_000_000 }) })).toMatchObject({
+      usd: 0,
+      source: "manual",
+    })
+  })
+
   it("returns $0 / missing and warns once for an unpriced model", async () => {
     const store = await openStore()
     const warns: string[] = []
@@ -197,6 +309,30 @@ describe("PricingService", () => {
     expect(first).toMatchObject({ usd: 0, low: 0, high: 0, basis: "flat", source: "missing" })
     expect(second.usd).toBe(0)
     expect(warns.filter((m) => m.includes("totally-unknown-model"))).toHaveLength(1)
+  })
+
+  it("keeps the warned-missing set bounded across a long-lived process", async () => {
+    const store = await openStore()
+    const warns: string[] = []
+    const service = new PricingService({ store, catalog: archiveCatalog(), onWarn: (m) => warns.push(m) })
+
+    for (let i = 0; i < 1001; i += 1) {
+      service.estimate({ model: `unknown-model-${i}`, usage: usage({ input: 1 }) })
+    }
+
+    const missing = warns.filter((m) => m.includes("no price for model"))
+    expect(missing).toHaveLength(1001)
+    // Test-only read of the private de-duplicator: the point of S14 is that
+    // this structure cannot grow with the number of distinct model ids.
+    const warned = (service as unknown as { warnedMissing: Set<string> }).warnedMissing
+    expect(warned.size).toBeLessThanOrEqual(1000)
+
+    // The set was reset at the cap, so the first model is no longer remembered...
+    service.estimate({ model: "unknown-model-0", usage: usage({ input: 1 }) })
+    expect(warns.filter((m) => m.includes("no price for model"))).toHaveLength(1002)
+    // ...while a model still in the set is not warned about twice.
+    service.estimate({ model: "unknown-model-1000", usage: usage({ input: 1 }) })
+    expect(warns.filter((m) => m.includes("no price for model"))).toHaveLength(1002)
   })
 
   it("never throws when every source is unreachable, and still prices", async () => {
@@ -248,6 +384,75 @@ describe("PricingService", () => {
     expect(service.priceFor("totally-unknown-model")).toBeNull()
   })
 
+  it("warms the catalogue from `priceFor` the way `estimate` does", async () => {
+    const store = await openStore()
+    const catalog = archiveCatalog()
+    const ensureLoaded = vi.spyOn(catalog, "ensureLoaded")
+    const service = new PricingService({ store, catalog })
+
+    service.priceFor("deepseek-chat")
+
+    expect(ensureLoaded).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports the long-context tier and the thinking card `priceFor` resolved", async () => {
+    const store = await openStore()
+    const service = new PricingService({ store, catalog: archiveCatalog() })
+
+    // `qwen-plus` in the bundled archive: $0.4/M in, $1.2/M out, x3 above
+    // 256k, and $4/M out in thinking mode.
+    expect(service.priceFor("qwen-plus")).toMatchObject({ inputPerM: 0.4, outputPerM: 1.2, source: "fallback" })
+    expect(service.priceFor("qwen-plus")?.contextTierAbove).toBeUndefined()
+    expect(service.priceFor("qwen-plus")?.reasoningMode).toBeUndefined()
+
+    expect(service.priceFor("qwen-plus", undefined, { promptTokens: 300_000 })).toMatchObject({
+      inputPerM: 1.2,
+      outputPerM: 3.6,
+      contextTierAbove: 256_000,
+    })
+    expect(service.priceFor("qwen-plus", undefined, { usedReasoning: true })).toMatchObject({
+      outputPerM: 4,
+      reasoningMode: true,
+    })
+  })
+
+  it("passes the quoting provider through from the resolved card", async () => {
+    const store = await openStore()
+    const card = {
+      inputCostPerToken: 1e-6,
+      outputCostPerToken: 2e-6,
+      cacheCreationInputCostPerToken: 1e-6,
+      cacheReadInputCostPerToken: 1e-6,
+      cachedInputCostPerToken: 1e-6,
+      source: "modelsdev" as const,
+      providerId: "acme",
+      displayName: "Acme Chat",
+      contextTierAbove: 200_000,
+      reasoningMode: true,
+    }
+    // The bundled archive quotes first-party rates only, so a provider id can
+    // only come from a live catalogue; a stub is the only way to cover this.
+    const stub = {
+      state: () => ({ status: "missing" as const, loadedAt: 0, source: "modelsdev", size: 1 }),
+      ensureLoaded: () => Promise.resolve(),
+      getPrice: () => card,
+      estimate: () => ({ cost: 0.5, low: 0.5, high: 0.5, basis: "flat" as const, pricing: card, tokens: 3 }),
+    } as unknown as PricingCatalog
+    const service = new PricingService({ store, catalog: stub })
+
+    expect(service.estimate({ model: "acme-chat", usage: usage({ input: 1_000_000 }) })).toMatchObject({
+      usd: 0.5,
+      source: "modelsdev",
+      providerId: "acme",
+    })
+    expect(service.priceFor("acme-chat")).toMatchObject({
+      source: "modelsdev",
+      providerId: "acme",
+      contextTierAbove: 200_000,
+      reasoningMode: true,
+    })
+  })
+
   it("reports a manual price as such and manages overrides", async () => {
     const store = await openStore()
     const service = new PricingService({ store, catalog: archiveCatalog() })
@@ -265,7 +470,8 @@ describe("PricingService", () => {
     const store = await openStore()
     const service = new PricingService({ store, catalog: archiveCatalog() })
 
-    expect(service.candidates("deepseek-chat")).toEqual(pricingCandidates("deepseek-chat"))
+    // Asserting equality against `pricingCandidates(x)` would just call the
+    // same function twice; the concrete candidate is the real assertion.
     expect(service.candidates("deepseek-chat")).toContain("deepseek-chat")
   })
 

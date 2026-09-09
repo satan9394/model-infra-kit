@@ -105,6 +105,10 @@ export interface ModelPricing {
   source: PriceSource | "manual"
   displayName?: string
   providerId?: string
+  /** The long-context tier this card came from, when one applies. */
+  contextTierAbove?: number
+  /** True when this card is the thinking-mode variant of the model. */
+  reasoningMode?: boolean
 }
 
 /** Token counts as reported by a provider, normalised to one shape. */

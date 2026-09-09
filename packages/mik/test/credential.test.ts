@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -39,11 +39,26 @@ describe("CredentialStore", () => {
   it("writes and reads file: references with 0600 permissions", () => {
     const dir = tempDir()
     const path = join(dir, "key")
-    const store = new CredentialStore()
+    const store = new CredentialStore({ trashDir: join(dir, "trash") })
     store.set(`file:${path}`, "sk-file-abcdef\n")
     expect(store.resolve(`file:${path}`)).toBe("sk-file-abcdef")
     store.delete(`file:${path}`)
     expect(() => store.resolve(`file:${path}`)).toThrowError(ModelInfraError)
+  })
+
+  it("moves deleted credential files to the trash instead of unlinking them", () => {
+    const dir = tempDir()
+    const path = join(dir, "key")
+    const trash = join(dir, "trash")
+    const store = new CredentialStore({ trashDir: trash })
+    store.set(`file:${path}`, "sk-recoverable")
+    store.delete(`file:${path}`)
+
+    expect(existsSync(path)).toBe(false)
+    const salvaged = readdirSync(trash)
+    expect(salvaged).toHaveLength(1)
+    expect(salvaged[0]!.startsWith("key.")).toBe(true)
+    expect(readFileSync(join(trash, salvaged[0]!), "utf8")).toBe("sk-recoverable")
   })
 
   it("refuses a bare secret unless literals are explicitly allowed", () => {

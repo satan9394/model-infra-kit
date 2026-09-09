@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { basename, dirname, join, resolve } from "node:path"
 import { ModelInfraError } from "../errors.js"
 import type { SqlDriver } from "../store/driver.js"
-import { expandPath } from "../util/paths.js"
+import { defaultHomeDir, expandPath } from "../util/paths.js"
 import { maskSecret } from "../util/redact.js"
 
 export type CredentialBackend = "env" | "file" | "keychain" | "literal"
@@ -24,6 +24,11 @@ export interface CredentialStoreOptions {
   allowLiteral?: boolean
   /** When provided, refs are registered in the `credentials` table. */
   driver?: SqlDriver
+  /**
+   * `delete()` moves files here instead of unlinking them, so a mistyped ref
+   * is recoverable. Defaults to `~/.model-infra-kit/trash`.
+   */
+  trashDir?: string
 }
 
 const REF_PATTERN = /^(env|file|keychain):(.+)$/i
@@ -111,9 +116,29 @@ export class CredentialStore {
     const parsed = this.parse(ref)
     if (parsed.backend === "file") {
       const path = this.resolveFilePath(parsed.target)
-      if (existsSync(path)) rmSync(path)
+      if (existsSync(path)) this.moveToTrash(path)
     }
     this.options.driver?.prepare("DELETE FROM credentials WHERE ref = ?").run(parsed.raw)
+  }
+
+  /**
+   * Move a credential file into the trash directory rather than unlinking it.
+   * The project rule is that deletions must be recoverable; a secret file is
+   * exactly the kind of thing that gets deleted by a mistyped reference.
+   */
+  private moveToTrash(path: string): void {
+    const trashDir = expandPath(this.options.trashDir ?? join(defaultHomeDir(), "trash"))
+    mkdirSync(trashDir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+    const target = join(trashDir, `${basename(path)}.${stamp}`)
+    try {
+      renameSync(path, target)
+    } catch {
+      // A cross-device rename can fail; copying then removing keeps the
+      // recoverable-delete promise either way.
+      writeFileSync(target, readFileSync(path), { mode: 0o600 })
+      rmSync(path)
+    }
   }
 
   /** A ref plus whether its secret currently resolves. Never the secret itself. */

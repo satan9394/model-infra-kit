@@ -1,7 +1,7 @@
 import type { CredentialStore } from "../credential/store.js"
 import { ModelInfraError } from "../errors.js"
 import type { Store } from "../store/database.js"
-import type { Protocol, ProviderConfig, ProviderRecord } from "../types.js"
+import type { Protocol, ProviderConfig, ProviderPreset, ProviderRecord } from "../types.js"
 import { PROTOCOL_PACKAGES, getPreset } from "./presets.js"
 
 /** The separator between provider id and model id in a `provider:model` ref. */
@@ -13,15 +13,23 @@ export const DEFAULT_MODEL_SETTING = "default_model"
 /** A provider record plus everything needed to actually talk to it. */
 export interface ResolvedProvider {
   record: ProviderRecord
-  /**
-   * `null` means no credential reference is configured. The `@ai-sdk/*` factory
-   * may still pick up its own conventional environment variable.
-   */
+  /** The resolved secret; `null` only ever happens when `apiKeySource` is `"none"`. */
   apiKey: string | null
+  /**
+   * Where the key came from: an explicit `apiKeyRef`, the preset's conventional
+   * environment variable, or nowhere because this provider needs no key.
+   */
+  apiKeySource: ApiKeySource
   baseUrl?: string
   protocol: Protocol
   npmPackage: string
 }
+
+/** How a provider's secret was found, if at all. */
+export type ApiKeySource = "ref" | "env" | "none"
+
+/** Provider ids double as `provider:model` prefixes, so `:` is not allowed. */
+const PROVIDER_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
 
 export interface ProviderRegistryDeps {
   store: Store
@@ -61,6 +69,14 @@ export class ProviderRegistry {
 
   /** Add or replace a provider, completing it from its preset when one is named. */
   add(config: ProviderConfig): ProviderRecord {
+    if (!PROVIDER_ID_PATTERN.test(config.id)) {
+      throw new ModelInfraError(
+        `Invalid provider id "${config.id}". Use 1-64 characters from A-Za-z0-9._- ` +
+          `("${MODEL_REF_SEPARATOR}" is reserved for provider:model refs).`,
+        { code: "INVALID_REQUEST", providerId: config.id },
+      )
+    }
+
     const preset = config.presetId ? getPreset(config.presetId) : undefined
     if (config.presetId && !preset) {
       throw new ModelInfraError(`Unknown provider preset "${config.presetId}".`, {
@@ -70,10 +86,7 @@ export class ProviderRegistry {
     }
 
     const baseUrl = config.baseUrl ?? preset?.defaultBaseUrl
-    // A caller may legitimately omit `protocol` at runtime (CLI, JSON config),
-    // so it is read as optional even though the type marks it required.
-    const declared = config.protocol as Protocol | undefined
-    const protocol = declared ?? preset?.protocol ?? (baseUrl ? "openai-compatible" : undefined)
+    const protocol = config.protocol ?? preset?.protocol ?? (baseUrl ? "openai-compatible" : undefined)
     if (!protocol) {
       throw new ModelInfraError(
         `Provider "${config.id}" needs a presetId, an explicit protocol or a baseUrl.`,
@@ -127,16 +140,45 @@ export class ProviderRegistry {
       })
     }
 
-    // Throws ModelInfraError(CREDENTIAL) when the ref cannot be resolved.
-    const apiKey = record.apiKeyRef ? this.deps.credentials.resolve(record.apiKeyRef) : null
+    const { apiKey, apiKeySource } = this.resolveApiKey(record, preset)
 
     return {
       record,
       apiKey,
+      apiKeySource,
       baseUrl: record.baseUrl ?? preset?.defaultBaseUrl,
       protocol,
       npmPackage,
     }
+  }
+
+  /**
+   * Resolve the secret for a record.
+   *
+   * An explicit `apiKeyRef` wins and must resolve (a bad ref is a CREDENTIAL
+   * error). Otherwise a preset that names a conventional environment variable
+   * is used as a fallback, and a missing value there is still an error: the
+   * provider was configured to need a key. Providers without either source
+   * (local OpenAI-compatible endpoints) legitimately resolve to `"none"`.
+   */
+  private resolveApiKey(
+    record: ProviderRecord,
+    preset: ProviderPreset | undefined,
+  ): { apiKey: string | null; apiKeySource: ApiKeySource } {
+    if (record.apiKeyRef) {
+      return { apiKey: this.deps.credentials.resolve(record.apiKeyRef), apiKeySource: "ref" }
+    }
+
+    const envKey = preset?.envKey
+    if (!envKey) return { apiKey: null, apiKeySource: "none" }
+
+    const apiKey = this.deps.credentials.tryResolve(`env:${envKey}`)
+    if (apiKey) return { apiKey, apiKeySource: "env" }
+
+    throw new ModelInfraError(
+      `Provider "${record.id}" has no API key. Set ${envKey} or configure apiKeyRef for this provider.`,
+      { code: "CREDENTIAL", providerId: record.id },
+    )
   }
 
   /** The `provider:model` used when a request omits a model. */
@@ -150,6 +192,12 @@ export class ProviderRegistry {
       throw new ModelInfraError(
         `Default model must look like "provider${MODEL_REF_SEPARATOR}model", got "${ref}".`,
         { code: "INVALID_REQUEST" },
+      )
+    }
+    if (!this.deps.store.providers.get(parsed.providerId)) {
+      throw new ModelInfraError(
+        `Cannot set the default model to "${ref}": provider "${parsed.providerId}" is not configured.`,
+        { code: "PROVIDER_NOT_FOUND", providerId: parsed.providerId },
       )
     }
     this.deps.store.settings.set(DEFAULT_MODEL_SETTING, joinModelRef(parsed.providerId, parsed.modelId))
