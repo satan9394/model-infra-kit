@@ -1,0 +1,23 @@
+{
+  "name": "model-infra-kit-monorepo",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "packageManager": "pnpm@11.23.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter model-infra-kit build",
+    "test": "pnpm --filter model-infra-kit test",
+    "typecheck": "pnpm --filter model-infra-kit typecheck",
+    "check": "pnpm --filter model-infra-kit check",
+    "example:cli": "pnpm --filter @mik/example-cli-agent start"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
