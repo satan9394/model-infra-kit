@@ -1,0 +1,76 @@
+{
+  "name": "model-infra-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Embeddable model layer for AI projects: multi-provider access, model catalog, token usage and cost tracking.",
+  "keywords": [
+    "llm",
+    "ai-sdk",
+    "models.dev",
+    "pricing",
+    "usage",
+    "cost-tracking",
+    "openai-compatible"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./server": {
+      "types": "./dist/server.d.mts",
+      "default": "./dist/server.mjs"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.mts",
+      "default": "./dist/cli.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "mik": "./dist/cli.mjs"
+  },
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "dependencies": {
+    "ai": "^7.0.94",
+    "llm-pricing": "^0.17.0"
+  },
+  "peerDependencies": {
+    "@ai-sdk/anthropic": "^4.0.0",
+    "@ai-sdk/deepseek": "^3.0.0",
+    "@ai-sdk/google": "^4.0.0",
+    "@ai-sdk/moonshotai": "^3.0.0",
+    "@ai-sdk/openai": "^4.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.0",
+    "@ai-sdk/xai": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": { "optional": true },
+    "@ai-sdk/deepseek": { "optional": true },
+    "@ai-sdk/google": { "optional": true },
+    "@ai-sdk/moonshotai": { "optional": true },
+    "@ai-sdk/openai": { "optional": true },
+    "@ai-sdk/openai-compatible": { "optional": true },
+    "@ai-sdk/xai": { "optional": true }
+  },
+  "devDependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.45",
+    "@ai-sdk/test-server": "^2.0.1"
+  }
+}
