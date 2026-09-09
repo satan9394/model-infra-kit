@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createTestServer } from "@ai-sdk/test-server"
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { ModelInfra, type ModelInfraOptions, type ProviderConfig } from "../src/index.js"
 import {
   createServer,
@@ -28,6 +28,47 @@ const COMPLETION = {
     total_tokens: 1500,
     prompt_tokens_details: { cached_tokens: 800 },
     completion_tokens_details: { reasoning_tokens: 64 },
+  },
+}
+
+/** An upstream answer that asks the caller to run one tool (F07). */
+const TOOL_COMPLETION = {
+  id: "chatcmpl-t07-tool",
+  object: "chat.completion",
+  created: 1_700_000_000,
+  model: "deepseek-chat",
+  choices: [
+    {
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_weather_1",
+            type: "function",
+            function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+          },
+        ],
+      },
+      finish_reason: "tool_calls",
+    },
+  ],
+  usage: { prompt_tokens: 12, completion_tokens: 7, total_tokens: 19 },
+}
+
+/** The OpenAI tool definition every F07 test sends. */
+const WEATHER_TOOL = {
+  type: "function",
+  function: {
+    name: "get_weather",
+    description: "Look up the weather for a city.",
+    parameters: {
+      type: "object",
+      properties: { city: { type: "string", description: "City name" } },
+      required: ["city"],
+      additionalProperties: false,
+    },
   },
 }
 
@@ -209,6 +250,21 @@ function chat(bodyValue: unknown, token: string | null = TOKEN): Promise<Respons
 
 function messages(): unknown[] {
   return [{ role: "user", content: "hi" }]
+}
+
+/** The JSON the mock provider actually received for call `index` (F07). */
+async function upstreamBody(index = 0): Promise<Record<string, unknown>> {
+  const call = mock.calls[index]
+  if (!call) throw new Error(`no upstream call was recorded at index ${index}`)
+  return (await call.requestBodyJson) as Record<string, unknown>
+}
+
+/** Split an SSE body into its `data:` payloads, `[DONE]` included. */
+function sseFrames(text: string): string[] {
+  return text
+    .split("\n\n")
+    .filter((frame) => frame.startsWith("data: "))
+    .map((frame) => frame.slice(6))
 }
 
 /** Pump an SSE response into a string buffer that can be awaited on. */
@@ -890,5 +946,283 @@ describe("GET /openapi.json", () => {
     const document = await body<Record<string, unknown>>(await fetch(`${open.url}/openapi.json`))
     expect(document.security).toBeUndefined()
     await open.close()
+  })
+})
+
+/** F07 — OpenAI `system`/`developer` messages and `tools` on the proxy endpoint. */
+describe("F07 — system messages and tools", () => {
+  interface UpstreamMessage {
+    role: string
+    content?: unknown
+    tool_calls?: unknown[]
+    tool_call_id?: string
+  }
+
+  interface ToolStreamChunk {
+    choices: Array<{
+      delta: { content?: string | null; tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }> }
+      finish_reason: string | null
+    }>
+  }
+
+  it("accepts a system message and hands it to the hub as `system`, not as a message", async () => {
+    const generate = vi.spyOn(hub, "generate")
+    const response = await chat({
+      model: "ok:deepseek-chat",
+      messages: [
+        { role: "system", content: "You are terse." },
+        { role: "user", content: "hi" },
+      ],
+    })
+
+    expect(response.status).toBe(200)
+    expect((await body<OpenAiCompletion>(response)).choices[0]!.message.content).toBe("hello from the hub")
+
+    // The AI SDK rejects a system message inside `messages`, so the hub must
+    // receive it through `ModelRequest.system` and nowhere else.
+    const request = generate.mock.calls[0]![0]
+    expect(request.system).toBe("You are terse.")
+    expect(request.messages).toEqual([{ role: "user", content: "hi" }])
+
+    // …and the model really sees it: the provider serialises it as the first
+    // upstream message.
+    const upstream = await upstreamBody()
+    const sent = upstream.messages as UpstreamMessage[]
+    expect(sent).toEqual([
+      { role: "system", content: "You are terse." },
+      { role: "user", content: "hi" },
+    ])
+    expect(sent.some((message) => message.role === "developer")).toBe(false)
+  })
+
+  it("merges every system and developer message into one system field", async () => {
+    const generate = vi.spyOn(hub, "generate")
+    const response = await chat({
+      model: "ok:deepseek-chat",
+      messages: [
+        { role: "system", content: "first" },
+        { role: "developer", content: "second" },
+        { role: "system", content: "third" },
+        { role: "user", content: "hi" },
+      ],
+    })
+
+    expect(response.status).toBe(200)
+    expect(generate.mock.calls[0]![0].system).toBe("first\n\nsecond\n\nthird")
+    expect(generate.mock.calls[0]![0].messages).toEqual([{ role: "user", content: "hi" }])
+
+    const sent = (await upstreamBody()).messages as UpstreamMessage[]
+    expect(sent).toEqual([
+      { role: "system", content: "first\n\nsecond\n\nthird" },
+      { role: "user", content: "hi" },
+    ])
+  })
+
+  it("forwards tools to the model and returns tool_calls with finish_reason tool_calls", async () => {
+    mock.urls[`${root}/ok/chat/completions`]!.response = { type: "json-value", body: TOOL_COMPLETION }
+    const generate = vi.spyOn(hub, "generate")
+
+    const response = await chat({
+      model: "ok:deepseek-chat",
+      messages: [{ role: "user", content: "weather in Paris?" }],
+      tools: [WEATHER_TOOL],
+    })
+
+    expect(response.status).toBe(200)
+    const completion = await body<OpenAiCompletion>(response)
+    const choice = completion.choices[0]!
+    expect(choice.finish_reason).toBe("tool_calls")
+    expect(choice.message.content).toBeNull()
+    expect(choice.message.tool_calls).toEqual([
+      {
+        id: "call_weather_1",
+        type: "function",
+        function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+      },
+    ])
+
+    // The hub got an AI SDK ToolSet with a JSON schema and no `execute`: the
+    // proxy hands the call back to the client instead of running it.
+    const tools = generate.mock.calls[0]![0].tools
+    expect(Object.keys(tools ?? {})).toEqual(["get_weather"])
+    expect(tools!.get_weather).toMatchObject({ description: "Look up the weather for a city." })
+    expect(tools!.get_weather).not.toHaveProperty("execute")
+
+    // The model really saw the tool definition.
+    const upstreamTools = (await upstreamBody()).tools as Array<{
+      type: string
+      function: { name: string; description: string; parameters: unknown }
+    }>
+    expect(upstreamTools).toHaveLength(1)
+    expect(upstreamTools[0]).toMatchObject({
+      type: "function",
+      function: {
+        name: "get_weather",
+        description: "Look up the weather for a city.",
+        parameters: WEATHER_TOOL.function.parameters,
+      },
+    })
+  })
+
+  it("round-trips an assistant tool_calls turn and its tool result", async () => {
+    const generate = vi.spyOn(hub, "generate")
+    const response = await chat({
+      model: "ok:deepseek-chat",
+      messages: [
+        { role: "user", content: "weather in Paris?" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_weather_1",
+              type: "function",
+              function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_weather_1", content: '{"tempC":21}' },
+      ],
+      tools: [WEATHER_TOOL],
+    })
+
+    expect(response.status).toBe(200)
+    expect((await body<OpenAiCompletion>(response)).choices[0]!.message.content).toBe("hello from the hub")
+
+    // The hub received AI SDK shaped parts…
+    const request = generate.mock.calls[0]![0]
+    expect(request.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "call_weather_1",
+          toolName: "get_weather",
+          input: { city: "Paris" },
+        },
+      ],
+    })
+    expect(request.messages[2]).toEqual({
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "call_weather_1",
+          toolName: "get_weather",
+          output: { type: "text", value: '{"tempC":21}' },
+        },
+      ],
+    })
+
+    // …and the provider put them back on the wire in OpenAI's shape.
+    const sent = (await upstreamBody()).messages as UpstreamMessage[]
+    expect(sent).toHaveLength(3)
+    expect(sent[1]).toMatchObject({
+      role: "assistant",
+      tool_calls: [
+        {
+          id: "call_weather_1",
+          type: "function",
+          function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+        },
+      ],
+    })
+    expect(sent[2]).toMatchObject({
+      role: "tool",
+      tool_call_id: "call_weather_1",
+      content: '{"tempC":21}',
+    })
+  })
+
+  it("streams with a system message and tools", async () => {
+    mock.urls[`${root}/str/chat/completions`]!.response = {
+      type: "stream-chunks",
+      headers: { "content-type": "text/event-stream" },
+      chunks: sse(
+        JSON.stringify({
+          id: "1",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "deepseek-chat",
+          choices: [
+            {
+              index: 0,
+              delta: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  { index: 0, id: "call_weather_1", type: "function", function: { name: "get_weather", arguments: "" } },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        }),
+        JSON.stringify({
+          id: "1",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "deepseek-chat",
+          choices: [
+            { index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"city":"Paris"}' } }] }, finish_reason: null },
+          ],
+        }),
+        JSON.stringify({
+          id: "1",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "deepseek-chat",
+          choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+          usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+        }),
+        "[DONE]",
+      ),
+    }
+    const stream = vi.spyOn(hub, "stream")
+
+    const response = await chat({
+      model: "str:deepseek-chat",
+      messages: [
+        { role: "system", content: "You are terse." },
+        { role: "user", content: "weather in Paris?" },
+      ],
+      tools: [WEATHER_TOOL],
+      stream: true,
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+
+    const request = stream.mock.calls[0]![0]
+    expect(request.system).toBe("You are terse.")
+    expect(request.messages).toEqual([{ role: "user", content: "weather in Paris?" }])
+    expect(Object.keys(request.tools ?? {})).toEqual(["get_weather"])
+
+    const frames = sseFrames(await response.text())
+    expect(frames.at(-1)).toBe("[DONE]")
+    const chunks = frames.slice(0, -1).map((frame) => JSON.parse(frame) as ToolStreamChunk)
+    const argumentsText = chunks
+      .flatMap((chunk) => chunk.choices[0]!.delta.tool_calls ?? [])
+      .map((call) => call.function?.arguments ?? "")
+      .join("")
+    expect(argumentsText).toBe('{"city":"Paris"}')
+    expect(chunks.flatMap((chunk) => chunk.choices[0]!.delta.tool_calls ?? []).some((call) => call.function?.name === "get_weather")).toBe(true)
+    expect(chunks.at(-1)!.choices[0]!.finish_reason).toBe("tool_calls")
+  })
+
+  it("still rejects an unusable role or a tool message without tool_call_id", async () => {
+    const badRole = await chat({ model: "ok:deepseek-chat", messages: [{ role: "wizard", content: "hi" }] })
+    expect(badRole.status).toBe(400)
+    expect((await body<ErrorBody>(badRole)).error.code).toBe("INVALID_REQUEST")
+
+    const orphanTool = await chat({ model: "ok:deepseek-chat", messages: [{ role: "tool", content: "result" }] })
+    expect(orphanTool.status).toBe(400)
+    expect((await body<ErrorBody>(orphanTool)).error.message).toContain("tool_call_id")
+
+    const badTools = await chat({ model: "ok:deepseek-chat", messages: messages(), tools: [{ type: "function", function: {} }] })
+    expect(badTools.status).toBe(400)
+    expect((await body<ErrorBody>(badTools)).error.message).toContain("name")
+
+    expect(hub.usage.query().total).toBe(0)
   })
 })
