@@ -151,6 +151,17 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
 
+  // A missing `@ai-sdk/*` package is the most common first-run failure: the
+  // providers are optional peers, so `npm i model-infra-kit` alone is not
+  // enough. Say exactly what to install instead of "Cannot find package ...".
+  const missingPackage = /Cannot find package '([^']+)'/.exec(raw) ?? /Cannot find module '([^']+)'/.exec(raw)
+  if (missingPackage?.[1]?.startsWith("@ai-sdk/")) {
+    return fail(
+      `The provider package ${missingPackage[1]} is not installed. Run: npm i ${missingPackage[1]}`,
+      { ...context, code: "PROVIDER", retryable: false, cause: error },
+    )
+  }
+
   return fail(raw || "Unknown provider failure.", { ...context, code: "UNKNOWN", cause: error })
 }
 
