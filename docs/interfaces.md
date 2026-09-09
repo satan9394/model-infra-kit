@@ -38,7 +38,10 @@ export function getPreset(id: string): ProviderPreset | undefined
 // src/registry/registry.ts
 export interface ResolvedProvider {
   record: ProviderRecord
-  apiKey: string | null      // null 表示该供应商无需密钥
+  /** 解析到的密钥；`null` 只在 `apiKeySource === "none"` 时出现。 */
+  apiKey: string | null
+  /** F01 新增：密钥来源，让宿主能区分「不需要密钥」与「忘了配密钥」。 */
+  apiKeySource: "ref" | "env" | "none"
   baseUrl?: string
   protocol: Protocol
   npmPackage: string
@@ -94,7 +97,7 @@ export interface PricingState {
   source?: string
   lastError?: string
 }
-export interface EstimateInput { model: string; at?: number; usage: TokenUsage }
+export interface EstimateInput { model: string; at?: number; usage: Partial<TokenUsage> }
 export class PricingService {
   constructor(deps: PricingDeps)
   /** 永不抛错：失败只把 status 降级为 stale/error 并 onWarn */
@@ -102,7 +105,8 @@ export class PricingService {
   refresh(): Promise<PricingState>
   state(): PricingState
   estimate(input: EstimateInput): CostInfo
-  priceFor(model: string, at?: number): ModelPricing | null
+  /** `facts` 透传给 llm-pricing，用于取到长上下文分档 / 思考模式的卡（F02 增量）。 */
+  priceFor(model: string, at?: number, facts?: import("llm-pricing").RequestFacts): ModelPricing | null
   setOverride(o: { modelId: string; inputPerM?: number; outputPerM?: number; cacheReadPerM?: number; cacheWritePerM?: number; displayName?: string }): void
   removeOverride(modelId: string): boolean
   listOverrides(): PricingOverride[]
@@ -128,7 +132,12 @@ export class UsageService {
   byProvider(query?: UsageQuery): UsageBucket[]
   byModel(query?: UsageQuery): UsageBucket[]
   query(filter?: UsageQuery): UsagePage
-  get(requestId: string): UsageEvent | null
+  /**
+   * F03 收紧：默认只返回本实例 appId 的事件（多 app 共库时不得互相读到明细）；
+   * 传 `{ appId: "" }` 显式关闭过滤（调试用）。
+   */
+  get(requestId: string, options?: { appId?: string }): UsageEvent | null
+  /** 全局维护操作：会把**所有 app** 的过期明细折进 rollup 并删除，不受 appId 限制。 */
   rollupAndPrune(now?: number, retentionDays?: number): number
   clear(): number
 }
@@ -140,8 +149,11 @@ export class UsageService {
 export class ModelInfra {
   static init(config?: ModelInfraConfig): Promise<ModelInfra>
   readonly appId: string
-  readonly baseUrl: string                 // 供 OpenAI 兼容客户端使用，形如 http://127.0.0.1:0/v1 由 server 注入
+  /** 供 OpenAI 兼容客户端使用；T07 起服务后由 setBaseUrl() 注入真实端口。 */
+  readonly baseUrl: string
   readonly fetch: typeof fetch
+  /** T05 追加并经指挥批准：T07 的 provider test 端点需要它。 */
+  readonly ai: AiBridge
   readonly providers: ProviderRegistry
   readonly pricing: PricingService
   readonly usage: UsageService
@@ -150,9 +162,24 @@ export class ModelInfra {
     get(ref: string): ModelInfo | null
     refresh(providerId: string): Promise<ModelInfo[]>
   }
+  /** 把 baseUrl 指向真实监听端口（T07 起服务后调用）。 */
+  setBaseUrl(url: string): void
+  /** 解析 `provider:model` / 裸名 → 具体 provider 与模型。 */
+  resolveModel(ref?: string): { providerId: string; modelId: string; ref: string }
+  /** 后台目录同步的 promise；init 不等它。 */
+  readonly catalogSync: Promise<void>
   generate(request: ModelRequest): Promise<ModelResponse>
   stream(request: ModelRequest): AsyncIterable<StreamEvent>
   close(): void
+}
+
+/** T05 追加（指挥批准）：全部可选，向后兼容。 */
+export interface ModelInfraOptions extends ModelInfraConfig {
+  baseUrl?: string
+  maxRetries?: number
+  pricingCatalog?: import("llm-pricing").PricingCatalog
+  pricingFetch?: typeof globalThis.fetch
+  onUsage?: (event: UsageEvent) => void
 }
 ```
 
@@ -177,3 +204,27 @@ GET  /api/events               （SSE：usage.recorded / catalog.updated / prici
 GET  /openapi.json
 POST /v1/chat/completions      GET /v1/models
 ```
+
+---
+
+## 指挥裁决（R01 评审后，2026-09-09）
+
+| 编号 | 裁决 | 落到哪张卡 |
+|---|---|---|
+| B1 | `UsageService.get()` **必须**默认按 appId 隔离，`{appId:""}` 才放开 | F03 |
+| B2 | `resolve()` 无 `apiKeyRef` 时回退 `preset.envKey`；仍拿不到且 preset 声明了 envKey → 抛 `CREDENTIAL`；`ResolvedProvider.apiKeySource` 标明来源 | F01 |
+| S1 | 手动价判定提到 `warm()` 之前 | F02 |
+| S2 | `EstimateInput.usage` 改为 `Partial<TokenUsage>`，消除强转 | F02 + 指挥改 types |
+| S3 | `setOverride()` 至少给 `inputPerM` 或 `outputPerM`，否则抛 `INVALID_REQUEST` | F02 |
+| S4 | `priceFor()` 也 `warm()`；返回里带 `contextTierAbove` / `reasoningMode` | F02 |
+| S5 | `record()` 内部 try/catch 包住 `onEvent`，异常交 `onWarn` | F03 |
+| S6 | `rollupAndPrune()` 保持全局，但**必须在契约与卡片写明** | F03（仅文档+注释） |
+| S7 | providers 表全局共享，`list()` 不过滤 appId —— **保持现状并写明** | F01（仅注释/文档） |
+| S8 | `add()` 校验 id（`/^[A-Za-z0-9._-]{1,64}$/`，禁 `:`）；`setDefaultModel()` 校验 provider 存在 | F01 |
+| S9 | 401/403 时不把上游 body 拼进 message | F01 |
+| S10 | 删掉恒真断言；守卫测试保留但不夸大其强度 | F01/F02 |
+| S11 | 补漏测：缺包错误分支、其余 6 个协议 factoryOptions、`CostInfo.providerId` | 各修复卡 |
+| S12 | 删除已过时的注释与多余 `as unknown as` | F01 |
+| S13 | 新增公共成员补进本文件 | 各修复卡 |
+| S14 | `warnedMissing` 加上限 | F02 |
+| S15 | `credential/store.ts` 的 `rmSync` 改为移入 `~/.model-infra-kit/trash/` | F04 |

@@ -6,8 +6,10 @@ import {
   type ModelPrice,
   type PricingCatalogState,
   type Rates,
+  type RequestFacts,
   type TokenCounts,
 } from "llm-pricing"
+import { ModelInfraError } from "../errors.js"
 import type { Store } from "../store/database.js"
 import type { PricingOverride } from "../store/pricing-repository.js"
 import type { CostInfo, ModelPricing, TokenUsage } from "../types.js"
@@ -42,10 +44,22 @@ export interface PricingState {
 export interface EstimateInput {
   model: string
   at?: number
-  usage: TokenUsage
+  /**
+   * A count the provider did not report stays absent rather than becoming 0 —
+   * see `docs/SPEC.md` §4. `Partial` is what lets the AI SDK's own usage shape
+   * (`cacheWriteTokens` may be `undefined`) reach this method without a cast.
+   */
+  usage: Partial<TokenUsage>
 }
 
 const MILLION = 1_000_000
+
+/**
+ * How many unpriced models are remembered before the set is reset. Bounded so a
+ * host that passes per-request model ids (versioned or dated suffixes) through
+ * `estimate()` cannot grow this for the life of the process.
+ */
+const MAX_WARNED_MISSING = 1000
 
 /**
  * `missing` means "no live catalogue is loaded", which is the offline case: the
@@ -107,10 +121,13 @@ export class PricingService {
   }
 
   estimate(input: EstimateInput): CostInfo {
-    this.warm()
-
+    // A manual price outranks every catalogue, so a hit must not start a load:
+    // `warm()` would queue models.dev's ~4 MB `api.json` for a model whose
+    // price is already known locally.
     const manual = this.findOverride(input.model)
     if (manual) return this.manualCost(manual, input.usage, input.model)
+
+    this.warm()
 
     const estimate = this.catalog.estimate(this.toArgs(input))
     const pricing = estimate.pricing
@@ -130,13 +147,25 @@ export class PricingService {
     }
   }
 
-  priceFor(model: string, at?: number): ModelPricing | null {
+  /**
+   * `facts` selects a per-request variant of the card — `{ promptTokens }` for a
+   * long-context tier, `{ usedReasoning: true }` for thinking mode — so the
+   * price a UI shows matches what `estimate()` bills. Omitted, the base card is
+   * returned, which is what "what does this model cost" means.
+   */
+  priceFor(model: string, at?: number, facts?: RequestFacts): ModelPricing | null {
     const manual = this.findOverride(model)
     if (manual) return pricingFromOverride(manual)
-    const card = this.catalog.getPrice(model, at)
+    this.warm()
+    const card = this.catalog.getPrice(model, at, facts)
     return card ? pricingFromCard(card) : null
   }
 
+  /**
+   * A manual price with neither `inputPerM` nor `outputPerM` would bill every
+   * request at $0 while still reporting `source: "manual"`, which reads to a
+   * host as "my negotiated rate is applied". Refuse it instead.
+   */
   setOverride(override: {
     modelId: string
     inputPerM?: number
@@ -145,6 +174,12 @@ export class PricingService {
     cacheWritePerM?: number
     displayName?: string
   }): void {
+    if (!isRate(override.inputPerM) && !isRate(override.outputPerM)) {
+      throw new ModelInfraError(
+        `a manual price for "${override.modelId}" needs inputPerM or outputPerM; without one every request would be recorded as $0`,
+        { code: "INVALID_REQUEST", model: override.modelId },
+      )
+    }
     this.store.pricing.set(override)
   }
 
@@ -191,8 +226,13 @@ export class PricingService {
    * rather than becoming 0: `llm-pricing` reads a missing count and a real zero
    * differently when it decides which rate card a request falls under.
    */
-  private counts(usage: TokenUsage): TokenCounts {
+  private counts(usage: Partial<TokenUsage>): TokenCounts {
     const cacheRead = finite(usage.cacheRead)
+    // `TokenCounts` types `inputTokens`/`cachedInputTokens`/`outputTokens` as
+    // required numbers, but llm-pricing reads an absent count as absent
+    // (`count()` in its `index.mjs`), which is what SPEC §4 asks for. The
+    // assertion is the contract's, not ours: a count the provider did not
+    // report must reach the library as `undefined`, never as 0.
     return {
       inputTokens: finite(usage.input),
       cachedInputTokens: cacheRead,
@@ -202,14 +242,14 @@ export class PricingService {
       reasoningOutputTokens: finite(usage.reasoning),
       inputIncludesCache: true,
       reasoningIncludedInOutput: true,
-    } as unknown as TokenCounts
+    } as TokenCounts
   }
 
   private toArgs(input: EstimateInput): EstimateArgs {
     return { ...this.counts(input.usage), model: input.model, at: input.at, perRequest: true }
   }
 
-  private manualCost(override: PricingOverride, usage: TokenUsage, requested: string): CostInfo {
+  private manualCost(override: PricingOverride, usage: Partial<TokenUsage>, requested: string): CostInfo {
     const usd = costFromRates(ratesFromOverride(override), this.counts(usage))
     return {
       usd,
@@ -234,6 +274,10 @@ export class PricingService {
 
   private warnMissing(model: string): void {
     if (this.warnedMissing.has(model)) return
+    // Reset rather than evict one entry: the set is only a de-duplicator, and
+    // the worst case after a reset is one extra warning for a model already
+    // named once. See `MAX_WARNED_MISSING`.
+    if (this.warnedMissing.size >= MAX_WARNED_MISSING) this.warnedMissing.clear()
     this.warnedMissing.add(model)
     this.onWarn(`no price for model "${model}"; cost recorded as $0`)
   }
@@ -241,6 +285,11 @@ export class PricingService {
 
 function finite(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+/** A stated per-million rate. A real 0 is a price; `undefined` is not. */
+function isRate(value: number | undefined): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
 
 /** Per-million USD → per-token USD. `undefined` for anything not a real rate. */
@@ -292,5 +341,10 @@ function pricingFromCard(card: ModelPrice): ModelPricing {
   }
   if (card.displayName !== undefined) pricing.displayName = card.displayName
   if (card.providerId !== undefined) pricing.providerId = card.providerId
+  // Both are part of the card's identity in llm-pricing: dropping them made the
+  // price a UI showed disagree with the one a long-context or thinking request
+  // was actually billed at.
+  if (card.contextTierAbove !== undefined) pricing.contextTierAbove = card.contextTierAbove
+  if (card.reasoningMode !== undefined) pricing.reasoningMode = card.reasoningMode
   return pricing
 }

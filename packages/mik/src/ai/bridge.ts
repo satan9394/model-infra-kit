@@ -46,11 +46,23 @@ function httpFailure(status: number, body: string): Error {
   return error
 }
 
-function failureMessage(mapped: ModelInfraError, cause: unknown): string {
+/**
+ * A human-readable failure line.
+ *
+ * Auth failures deliberately drop the upstream body: it routinely echoes the
+ * rejected key, and `ProviderStatus.message` is surfaced to end users. A
+ * provider that needs no key at all must not be told its key was rejected.
+ */
+function failureMessage(mapped: ModelInfraError, cause: unknown, keyless = false): string {
   const status = typeof mapped.status === "number" ? ` (HTTP ${mapped.status})` : ""
-  const detail = cause instanceof Error ? redact(cause.message).replace(/\s+/g, " ").trim() : ""
+  const isAuth = mapped.code === "AUTH" || mapped.status === 401 || mapped.status === 403
+  const detail = !isAuth && cause instanceof Error ? redact(cause.message).replace(/\s+/g, " ").trim() : ""
   const suffix = detail && detail !== mapped.message ? ` ${truncate(detail, MAX_DETAIL_CHARS)}` : ""
-  return `${redact(mapped.message)}${status}${suffix}`
+  const base =
+    keyless && isAuth
+      ? "The provider rejected the request, and this provider is configured without an API key."
+      : redact(mapped.message)
+  return `${base}${status}${suffix}`
 }
 
 function toModelInfo(providerId: string, discovered: DiscoveredModel, fallback: ModelCapabilities): ModelInfo {
@@ -148,8 +160,9 @@ export function createAiBridge(deps: AiBridgeDeps): AiBridge {
 
     async test(providerId: string): Promise<ProviderStatus> {
       const startedAt = Date.now()
+      let resolved: ResolvedProvider | undefined
       try {
-        const resolved = registry.resolve(providerId)
+        resolved = registry.resolve(providerId)
         const models = await fetchModelList(resolved)
         return {
           providerId,
@@ -161,7 +174,7 @@ export function createAiBridge(deps: AiBridgeDeps): AiBridge {
         }
       } catch (error) {
         const mapped = toModelInfraError(error, { providerId })
-        const message = failureMessage(mapped, error)
+        const message = failureMessage(mapped, error, resolved?.apiKeySource === "none")
         deps.onWarn?.(`Provider check failed for "${providerId}": ${message}`, error)
         return {
           providerId,

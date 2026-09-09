@@ -61,7 +61,9 @@ describe("UsageService.record", () => {
     const event = input({ appId: "app-explicit" })
 
     expect(service.record(event)).toBe(true)
-    expect(service.get(event.requestId)?.appId).toBe("app-explicit")
+    // the row belongs to app-explicit, so this instance cannot read it by default
+    expect(service.get(event.requestId)).toBeNull()
+    expect(service.get(event.requestId, { appId: "app-explicit" })?.appId).toBe("app-explicit")
   })
 
   it("is idempotent per request_id and never overwrites the stored row", async () => {
@@ -106,6 +108,51 @@ describe("UsageService.record", () => {
     service.record(second)
     expect(seen).toHaveLength(2)
     expect(seen[1]?.requestId).toBe(second.requestId)
+  })
+
+  it("swallows a throwing onEvent listener, warns once, and still returns true", async () => {
+    const store = await openStore()
+    const warnings: Array<{ message: string; error: unknown }> = []
+    const service = new UsageService({
+      store,
+      appId: "app-a",
+      enabled: true,
+      onEvent: () => {
+        throw new Error("subscriber exploded")
+      },
+      onWarn: (message, error) => warnings.push({ message, error }),
+    })
+    const event = input()
+
+    // S5: a broken subscriber must not fail metering nor bubble out.
+    let returned = false
+    expect(() => {
+      returned = service.record(event)
+    }).not.toThrow()
+    expect(returned).toBe(true)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]?.message).toContain(event.requestId)
+    expect(warnings[0]?.message).toContain("subscriber exploded")
+    expect(warnings[0]?.error).toBeInstanceOf(Error)
+
+    // the row is committed before the listener ran, so it is fully queryable
+    expect(service.get(event.requestId)?.appId).toBe("app-a")
+    expect(service.summary().requests).toBe(1)
+  })
+
+  it("does not warn when no onWarn sink is configured and onEvent throws", async () => {
+    const store = await openStore()
+    const service = new UsageService({
+      store,
+      appId: "app-a",
+      enabled: true,
+      onEvent: () => {
+        throw new Error("nobody is listening")
+      },
+    })
+
+    expect(service.record(input())).toBe(true)
+    expect(service.summary().requests).toBe(1)
   })
 })
 
@@ -160,15 +207,29 @@ describe("UsageService queries", () => {
     expect(service.query({ limit: 2 }).events).toHaveLength(2)
   })
 
-  it("get is a pass-through by request id", async () => {
+  it("get cannot read another app's event by request id", async () => {
     const store = await openStore()
     const a = new UsageService({ store, appId: "app-a", enabled: true })
     const b = new UsageService({ store, appId: "app-b", enabled: true })
     const event = input()
     b.record(event)
 
-    expect(a.get(event.requestId)?.appId).toBe("app-b")
+    // B1: ids are global but detail rows are app-private; a foreign id reads as null.
+    expect(a.get(event.requestId)).toBeNull()
+    expect(b.get(event.requestId)?.appId).toBe("app-b")
     expect(a.get("does-not-exist")).toBeNull()
+  })
+
+  it("get reads a foreign event only when appId is explicitly opted out", async () => {
+    const store = await openStore()
+    const a = new UsageService({ store, appId: "app-a", enabled: true })
+    const b = new UsageService({ store, appId: "app-b", enabled: true })
+    const event = input()
+    b.record(event)
+
+    expect(a.get(event.requestId, { appId: "" })?.appId).toBe("app-b")
+    expect(a.get(event.requestId, { appId: "app-b" })?.appId).toBe("app-b")
+    expect(a.get(event.requestId, { appId: "app-a" })).toBeNull()
   })
 })
 
@@ -188,6 +249,24 @@ describe("UsageService maintenance", () => {
     expect(service.summary().costUsd).toBeCloseTo(0.03, 9)
 
     expect(service.rollupAndPrune(Date.now(), 30)).toBe(0)
+  })
+
+  it("rollupAndPrune is global: it prunes every app's detail rows, unlike clear", async () => {
+    const store = await openStore()
+    const a = new UsageService({ store, appId: "app-a", enabled: true })
+    const b = new UsageService({ store, appId: "app-b", enabled: true })
+    const yesterday = Date.now() - 86_400_000
+
+    a.record(input({ ts: yesterday, cost: cost(0.01) }))
+    b.record(input({ ts: yesterday, cost: cost(0.02) }))
+
+    // S6: retention is database-wide, so app-a's call also folds app-b's row.
+    expect(a.rollupAndPrune()).toBe(2)
+    expect(a.query().total).toBe(0)
+    expect(b.query().total).toBe(0)
+    expect(a.summary().requests).toBe(1)
+    expect(b.summary().requests).toBe(1)
+    expect(b.summary().costUsd).toBeCloseTo(0.02, 9)
   })
 
   it("clear only deletes this app's rows", async () => {
