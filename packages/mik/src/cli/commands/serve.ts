@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import type { ModelInfra } from "../../hub.js"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
 import { messageOf, resolveEnv, withContext, type RunOptions } from "../context.js"
@@ -21,29 +23,63 @@ export interface ServerModule {
 }
 
 /**
+ * Candidate specifiers for the sibling server bundle, in resolution order.
+ *
+ * The CLI runs from two layouts: `src/cli/commands/serve.ts` while developing
+ * and `dist/cli.mjs` once built, where tsdown emits `dist/server.mjs` right
+ * beside it. Every candidate is resolved against the module that is running, so
+ * a built or installed CLI finds its own bundle instead of walking up into the
+ * host project's tree.
+ */
+const SERVER_CANDIDATES = [
+  "./server.mjs", // built:  dist/cli.mjs         → dist/server.mjs
+  "../server.mjs", // built:  dist/cli/cli.mjs     → dist/cli/server.mjs (nested layout)
+  "../../server/index.js", // source: src/cli/commands/ → src/server/index.js (compiled in place)
+  "../../server/index.ts", // source: src/cli/commands/ → src/server/index.ts (ts loader / vitest)
+  "../server/index.ts", // source: src/cli/          → src/server/index.ts
+]
+
+/** Candidate server-bundle URLs for a given running module (`from`). */
+export function serverModuleCandidates(from: string | URL = import.meta.url): URL[] {
+  const base = typeof from === "string" ? from : from.href
+  return SERVER_CANDIDATES.map((specifier) => new URL(specifier, base))
+}
+
+/** The first candidate that exists on disk; throws when no known layout matches. */
+export function resolveServerModuleUrl(from: string | URL = import.meta.url): URL {
+  const candidates = serverModuleCandidates(from)
+  for (const candidate of candidates) {
+    if (existsSync(fileURLToPath(candidate))) return candidate
+  }
+  throw new CliRuntimeError(
+    `Could not find the HTTP server bundle (mik/server).\n` +
+      `  Tried:\n${candidates.map((candidate) => `    ${candidate.href}`).join("\n")}\n` +
+      `  Build the package first: pnpm --filter model-infra-kit build`,
+  )
+}
+
+/**
  * Load the HTTP server lazily and by URL, never by a static import.
  *
  * The server is a sibling bundle (`src/server` while developing, `dist/server.mjs`
  * once built), so both layouts are tried. Loading it on demand also keeps every
  * other subcommand independent of the server's own dependencies.
  */
-export async function loadServerModule(): Promise<ServerModule> {
-  const candidates = ["../../server/index.js", "../server.mjs", "../../server/index.ts"]
-  let lastError: unknown
-  for (const candidate of candidates) {
-    try {
-      const url = new URL(candidate, import.meta.url).href
-      const loaded = (await import(url)) as { createServer?: unknown }
-      if (typeof loaded.createServer === "function") return loaded as unknown as ServerModule
-      lastError = new CliRuntimeError(`${candidate} does not export createServer().`)
-    } catch (error) {
-      lastError = error
+export async function loadServerModule(from: string | URL = import.meta.url): Promise<ServerModule> {
+  const url = resolveServerModuleUrl(from)
+  try {
+    const loaded = (await import(url.href)) as { createServer?: unknown }
+    if (typeof loaded.createServer !== "function") {
+      throw new CliRuntimeError(`${url.href} does not export createServer().`)
     }
+    return loaded as unknown as ServerModule
+  } catch (error) {
+    if (error instanceof CliRuntimeError) throw error
+    throw new CliRuntimeError(
+      `Could not load the HTTP server (mik/server) from ${url.href}. ${messageOf(error)}\n` +
+        `  Build the package first: pnpm --filter model-infra-kit build`,
+    )
   }
-  throw new CliRuntimeError(
-    `Could not load the HTTP server (mik/server). ${lastError ? messageOf(lastError) : ""}\n` +
-      `  Build the package first: pnpm --filter model-infra-kit build`,
-  )
 }
 
 /** Resolve on SIGINT/SIGTERM after the handle has been closed. */

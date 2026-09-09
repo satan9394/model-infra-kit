@@ -1,0 +1,15 @@
+{
+  "name": "@mik/example-cli-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Example host: a self-built CLI agent that embeds model-infra-kit through ModelInfra.init().",
+  "scripts": {
+    "start": "node --experimental-transform-types --disable-warning=ExperimentalWarning --import ../../scripts/e2e/loader.mjs index.ts",
+    "start:built": "node index.ts"
+  },
+  "dependencies": {
+    "ai": "^7.0.94",
+    "model-infra-kit": "workspace:*"
+  }
+}

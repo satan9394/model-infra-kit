@@ -1,8 +1,9 @@
 import { createServer } from "node:net"
 import type { AddressInfo } from "node:net"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
 import { USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
@@ -10,6 +11,8 @@ import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
 import { main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
+import { findDashboardDir, walkUpFor } from "../src/cli/commands/dashboard.js"
+import { loadServerModule, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
 import { Store } from "../src/store/database.js"
 import type { UsageEvent } from "../src/types.js"
 import { UsageService } from "../src/usage/service.js"
@@ -367,6 +370,84 @@ describe("port checks", () => {
     const port = (server.address() as AddressInfo).port
     await new Promise<void>((resolve) => server.close(() => resolve()))
     expect(await portInUse(port)).toBe(false)
+  })
+})
+
+describe("serve bundle resolution", () => {
+  /**
+   * A fake built package tree: `<root>/packages/mik/dist/{cli.mjs,server.mjs}`
+   * plus a decoy at `<root>/packages/server/index.ts`, the path the old
+   * source-only candidate list walked up to from `dist/cli.mjs`.
+   */
+  function distLayout(): { cli: string; sibling: string; decoy: string } {
+    const root = tempDir()
+    const dist = join(root, "packages", "mik", "dist")
+    mkdirSync(dist, { recursive: true })
+    const cli = join(dist, "cli.mjs")
+    const sibling = join(dist, "server.mjs")
+    writeFileSync(cli, "export {}\n", "utf8")
+    writeFileSync(sibling, "export function createServer() { return { url: 'x', close() {} } }\n", "utf8")
+
+    const decoy = join(root, "packages", "server", "index.ts")
+    mkdirSync(dirname(decoy), { recursive: true })
+    writeFileSync(decoy, "export function createServer() {}\n", "utf8")
+    return { cli, sibling, decoy }
+  }
+
+  it("resolves the sibling server.mjs when the CLI runs from dist", () => {
+    const { cli, sibling } = distLayout()
+    expect(fileURLToPath(resolveServerModuleUrl(pathToFileURL(cli).href))).toBe(sibling)
+  })
+
+  it("never escapes the package into a parent directory when a sibling bundle exists", () => {
+    const { cli, sibling, decoy } = distLayout()
+    const candidates = serverModuleCandidates(pathToFileURL(cli).href).map((url) => fileURLToPath(url))
+    expect(candidates[0]).toBe(sibling)
+    // The decoy exists on disk, so only ordering keeps resolution inside dist/.
+    const chosen = fileURLToPath(resolveServerModuleUrl(pathToFileURL(cli).href))
+    expect(chosen).toBe(sibling)
+    expect(chosen).not.toBe(resolve(decoy))
+    expect(chosen.startsWith(dirname(cli))).toBe(true)
+  })
+
+  it("resolves the source layout when the CLI runs from src/cli/commands", () => {
+    const root = tempDir()
+    const commands = join(root, "src", "cli", "commands")
+    mkdirSync(commands, { recursive: true })
+    const serveFile = join(commands, "serve.ts")
+    writeFileSync(serveFile, "export {}\n", "utf8")
+    const serverIndex = join(root, "src", "server", "index.ts")
+    mkdirSync(dirname(serverIndex), { recursive: true })
+    writeFileSync(serverIndex, "export {}\n", "utf8")
+    expect(fileURLToPath(resolveServerModuleUrl(pathToFileURL(serveFile).href))).toBe(serverIndex)
+  })
+
+  it("loads the real server bundle for the layout the tests run in", async () => {
+    const module = await loadServerModule()
+    expect(typeof module.createServer).toBe("function")
+  })
+
+  it("lists every candidate it tried when no layout matches", () => {
+    const root = tempDir()
+    const cli = join(root, "cli.mjs")
+    writeFileSync(cli, "export {}\n", "utf8")
+    expect(() => resolveServerModuleUrl(pathToFileURL(cli).href)).toThrow(/server\.mjs/)
+    expect(() => resolveServerModuleUrl(pathToFileURL(cli).href)).toThrow(/mik\/server/)
+  })
+})
+
+describe("dashboard directory resolution", () => {
+  it("walks up from a built dist directory to apps/dashboard", () => {
+    const root = tempDir()
+    const dist = join(root, "packages", "mik", "dist")
+    const app = join(root, "apps", "dashboard")
+    mkdirSync(dist, { recursive: true })
+    mkdirSync(app, { recursive: true })
+    expect(walkUpFor(dist, join("apps", "dashboard"))).toBe(app)
+  })
+
+  it("falls back to the CLI's own location when the cwd is outside the monorepo", () => {
+    expect(findDashboardDir(tmpdir())).toMatch(/apps[\\/]dashboard$/)
   })
 })
 

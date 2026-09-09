@@ -1,0 +1,15 @@
+{
+  "name": "@mik/example-openai-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Example host: existing OpenAI SDK code metered by pointing baseURL and fetch at model-infra-kit.",
+  "scripts": {
+    "start": "node --experimental-transform-types --disable-warning=ExperimentalWarning --import ../../scripts/e2e/loader.mjs index.ts",
+    "start:built": "node index.ts"
+  },
+  "dependencies": {
+    "model-infra-kit": "workspace:*",
+    "openai": "^7.12.1"
+  }
+}
