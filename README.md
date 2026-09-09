@@ -42,6 +42,12 @@ pnpm --filter model-infra-kit build # 产出 packages/mik/dist/{index,server,cli
 npm i model-infra-kit
 ```
 
+> **还要装你实际用的 provider 包。** `@ai-sdk/*` 是可选 peer 依赖，只装主包时第一次调用会报
+> `The provider package @ai-sdk/openai-compatible is not installed. Run: npm i @ai-sdk/openai-compatible`。
+> 常见对应关系：`openai-compatible`（DeepSeek / Qwen / GLM / Kimi / 中转网关）→ `@ai-sdk/openai-compatible`；
+> `openai` → `@ai-sdk/openai`；`anthropic` → `@ai-sdk/anthropic`；`google` → `@ai-sdk/google`；
+> `deepseek` → `@ai-sdk/deepseek`；`moonshotai` → `@ai-sdk/moonshotai`；`xai` → `@ai-sdk/xai`。
+
 ```ts
 // quickstart.ts —— 用 `node quickstart.ts` 直接跑（Node ≥ 22.18 内置类型剥离）
 import { ModelInfra } from "model-infra-kit"
