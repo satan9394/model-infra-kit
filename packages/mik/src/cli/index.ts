@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * `mik` — the model-infra-kit command line.
  *

@@ -147,6 +147,10 @@ export class UsageService {
 
 ```ts
 export class ModelInfra {
+  /**
+   * F10：目录加载是有界等待（5s 上限），超时后照常启动并 `onWarn` 一次，
+   * `pricing.state().status` 自然降级为 stale/error。绝不无限阻塞（规则 6）。
+   */
   static init(config?: ModelInfraConfig): Promise<ModelInfra>
   readonly appId: string
   /** 供 OpenAI 兼容客户端使用；T07 起服务后由 setBaseUrl() 注入真实端口。 */
@@ -170,7 +174,8 @@ export class ModelInfra {
   readonly catalogSync: Promise<void>
   generate(request: ModelRequest): Promise<ModelResponse>
   stream(request: ModelRequest): AsyncIterable<StreamEvent>
-  /** F08：等待在途目录同步（上限 5s）后再关闭 store，可重复调用。 */
+  /** F08：等待在途目录同步（上限 5s）后再关闭 store，可重复调用。
+   *  F10：close() 之后调用任何其它公开成员，一律抛 `ModelInfraError`（code `STORAGE`），不再冒裸 `ERR_INVALID_STATE`。 */
   close(): Promise<void>
 }
 

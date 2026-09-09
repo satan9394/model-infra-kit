@@ -1,6 +1,6 @@
 # model-infra-kit
 
-> 一个可嵌入任意 AI 项目的模型层：装进宿主项目后，立刻获得**多供应商调用、模型目录、token 用量、模型计价与成本统计**，外加一个独立的用量看板。
+> 一个可嵌入任意 AI 项目的模型层：装进宿主项目后，立刻获得**多供应商调用、模型目录、token 用量、模型计价与成本统计**，外加一个独立的用量看板（看板只在仓库内运行，**不随 npm 包发布**，见[「看板」一节](#看板)）。
 
 它不是网关平台，不是企业级 AI Gateway，也不读任何第三方应用的数据文件——用量数据由本模块自己产生。
 
@@ -18,9 +18,10 @@
 
 ## 环境要求
 
-- **Node ≥ 22**（本机 24.14，`node:sqlite` 与内置类型剥离都可用）
+- **Node ≥ 22.13**（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`，仍会打一行实验特性告警；本机 24.14）
 - **pnpm 11**（本仓库是 pnpm workspace）
 - 密钥**只以引用形式**出现：`env:VAR` / `file:path` / `keychain:service`。任何文档、数据库、日志里都不会出现明文密钥。
+- 看板是**仓库内的独立应用**，不随 `model-infra-kit` npm 包发布；装包用户只能用库 / CLI / HTTP 服务（见[「看板」一节](#看板)）。
 
 ```bash
 pnpm install                       # 首次克隆后
@@ -67,7 +68,7 @@ console.log(reply.text)
 console.log(reply.usage, `$${reply.cost.usd}`, `source=${reply.cost.source}`)
 console.log(mik.usage.summary())
 
-mik.close()
+await mik.close()
 ```
 
 ```bash
@@ -121,7 +122,7 @@ const completion = await client.chat.completions.create({
 
 console.log(completion.choices[0]?.message?.content)
 console.log(mik.usage.summary())
-mik.close()
+await mik.close()
 ```
 
 要点：
@@ -182,10 +183,11 @@ python examples/python-host/host.py http://127.0.0.1:3211/v1 deepseek:deepseek-c
 
 看板是独立的 Next.js 应用，**端口 3210**，数据只来自 `mik serve` 的 HTTP API（默认 `http://127.0.0.1:3211`），从不打开 SQLite 文件。
 
+> **看板只在仓库内可用，不随 npm 包发布。** `model-infra-kit` 的 `files` 只有 `dist` 与 `LICENSE`（库 + CLI + HTTP 服务），`npm i model-infra-kit` 的宿主拿不到 `apps/dashboard`；在装包环境里跑 `mik dashboard` 会直接报错并给出指引（见下）。要看看板，请克隆本仓库。
+
 ```bash
-# 方式 A：由 CLI 拉起（自动找到 apps/dashboard 并 next start -p 3210）
+# 方式 A：由 CLI 拉起（自动找到仓库内的 apps/dashboard，再 next start -p 3210）
 node packages/mik/dist/cli.mjs dashboard
-#   或 npx mik dashboard
 
 # 方式 B：手动跑
 pnpm --filter @mik/dashboard build     # 生产构建
@@ -194,6 +196,20 @@ pnpm --filter @mik/dashboard dev       # 开发模式；会覆盖 .next 里的�
 pnpm --filter @mik/dashboard seed      # 可选：写入 30 天假数据把页面填满
 ```
 
+在**装包环境**（没有 `apps/dashboard`）里跑 `mik dashboard`，实际输出：
+
+```text
+$ npx mik dashboard
+error: Could not find the dashboard app (apps/dashboard).
+The dashboard is not published with the npm package: model-infra-kit ships the library, the CLI and the HTTP server only.
+  Installed from npm? Run the dashboard from a clone of the repository, or deploy apps/dashboard yourself.
+  In the monorepo: pnpm --filter @mik/dashboard dev   (or build + start)
+  Or point the CLI at an existing copy: mik dashboard --dir <path>
+  See the "Dashboard" section of the project README.
+```
+
+`--dir <path>` 可指向任意一份看板副本（该目录需含 `package.json`）；自行部署时也走 `next start`，看板只读 `mik serve` 的 HTTP API。仓库内启动时先打印一行 `Starting dashboard from <dir> on http://127.0.0.1:3210`。
+
 打开 <http://127.0.0.1:3210>。页面：概览 `/`、趋势 `/trends`、供应商 `/providers`、模型目录 `/models`、价格 `/pricing`、日志 `/logs`。SSE 实时增量、空数据与上游不可用时的降级行为见 [`apps/dashboard/README.md`](apps/dashboard/README.md)。
 
 ### 端口
@@ -201,7 +217,7 @@ pnpm --filter @mik/dashboard seed      # 可选：写入 30 天假数据把页�
 | 端口 | 用途 | 覆盖方式 |
 |---|---|---|
 | **3211** | `mik serve` OpenAI 兼容服务 + `/api/*` | `mik serve --port <n>`（`MIK_SERVER_TOKEN` 只用于鉴权，不是端口） |
-| **3210** | 看板 | `mik dashboard --port <n>`、`next start -p <n>`（`MIK_DASHBOARD_DIR` 可指定目录） |
+| **3210** | 看板（**仅仓库内**，不随包发布） | `mik dashboard --port <n>`（仓库内）、`next start -p <n>`、`MIK_DASHBOARD_DIR` 指向已有副本 |
 | 3212 | 仅示例/测试用的 mock 供应商 | `node apps/dashboard/scripts/mock-openai.mjs` |
 
 已被本机其它项目占用、**禁止使用**：3080（dsh web）、3001（html-anything）、3111（NewAPI）、8899（知识库）。起服务前先 `netstat -ano | findstr :<端口>`；`mik serve` / `mik dashboard` 端口被占会直接报错，不硬抢。
@@ -210,26 +226,26 @@ pnpm --filter @mik/dashboard seed      # 可选：写入 30 天假数据把页�
 
 ## 常用命令
 
-在仓库根目录执行：
+在仓库根目录执行（「验证」列只写可复跑的结论，具体数字/体积每次都会变，以命令输出为准）：
 
 | 命令 | 作用 | 本机验证 |
 |---|---|---|
-| `pnpm --filter model-infra-kit build` | tsdown 打包，产出 `dist/{index,server,cli}.mjs` + `.d.mts` | ✅ 9 files / 298 kB |
+| `pnpm --filter model-infra-kit build` | tsdown 打包，产出 `dist/{index,server,cli}.mjs` + `.d.mts` | ✅ 9 个文件（体积见构建输出） |
 | `pnpm --filter model-infra-kit typecheck` | `tsc --noEmit` | ✅ 0 错误 |
-| `pnpm --filter model-infra-kit test` | vitest 全量 | ✅ 239 passed / 10 files |
+| `pnpm --filter model-infra-kit test` | vitest 全量 | ✅ 全绿（文件数/用例数见命令输出） |
 | `pnpm --filter model-infra-kit check` | typecheck + test + build | ✅ 退出码 0 |
 | `node packages/mik/dist/cli.mjs --help` | CLI 帮助 | ✅ 见下 |
 | `node packages/mik/dist/cli.mjs init --app-id my-app --provider deepseek --yes` | 写 `mik.config.json` 并注册首个供应商 | ✅ |
 | `node packages/mik/dist/cli.mjs provider add <id> --preset <presetId> --api-key-ref env:VAR` | 增改供应商 | ✅ |
 | `node packages/mik/dist/cli.mjs provider list` | 列出供应商与默认模型 | ✅ |
 | `node packages/mik/dist/cli.mjs provider test <id>` | 最小调用探活 | ✅（需可用的 base URL/密钥） |
-| `node packages/mik/dist/cli.mjs models --provider <id> --refresh` | 拉取模型目录 | ✅ |
+| `node packages/mik/dist/cli.mjs models --provider <id> --refresh` | 拉取模型目录 | ✅（需可用凭据/网络；`--offline` 下会明确拒绝） |
 | `node packages/mik/dist/cli.mjs pricing set <modelId> --input <usd/M> --output <usd/M>` | 设手动价（优先级最高） | ✅ |
 | `node packages/mik/dist/cli.mjs pricing list` | 价格目录状态 + 手动价 | ✅ |
 | `node packages/mik/dist/cli.mjs usage summary\|trends\|logs\|export` | 用量查询与 CSV 导出 | ✅ |
 | `node packages/mik/dist/cli.mjs serve --port 3211` | 起 OpenAI 兼容服务 | ✅ |
-| `node packages/mik/dist/cli.mjs dashboard` | 起看板（3210） | ✅ HTTP 200 |
-| `node scripts/e2e/run.mjs` | 端到端验收（SPEC §6 全场景） | ✅ 10/10，退出码 0 |
+| `node packages/mik/dist/cli.mjs dashboard` | 起看板（3210，**仅仓库内可用**；装包环境会报错并给指引） | ✅ 仓库内解析到 `apps/dashboard` 并拉起 `next start`（首次需先 `pnpm --filter @mik/dashboard build`） |
+| `node scripts/e2e/run.mjs` | 端到端验收（SPEC §6 全场景，含看板场景；检查点清单见 [`scripts/e2e/README.md`](scripts/e2e/README.md)） | 以命令实时输出为准（退出码 0 = 全过；看板检查点需 `apps/dashboard` 可构建） |
 | `pnpm --filter @mik/dashboard build` / `start` | 看板构建 / 生产启动 | ✅ 退出码 0 / HTTP 200 |
 
 `mik` 的全局开关：`--db <path>`、`--app-id <id>`、`--config <path>`、`--cache-dir <path>`、`--offline`（完全不联网）、`-h`、`-v`。每个子命令都支持 `--help`。
@@ -239,6 +255,9 @@ $ node packages/mik/dist/cli.mjs --help
 model-infra-kit (mik) 0.1.0
 Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.
 
+USAGE
+  mik <command> [options]
+
 COMMANDS
   init        Write mik.config.json (app id, database path, first provider)
   serve       Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)
@@ -247,6 +266,26 @@ COMMANDS
   models      List the model catalogue, optionally refreshing it from the provider
   pricing     Inspect, sync and override model prices
   usage       Query recorded usage: summary, trends, logs, CSV export
+
+GLOBAL OPTIONS
+      --db <path>         SQLite database file (default ~/.model-infra-kit/usage.db)
+      --app-id <id>       Owning application id (default: default)
+      --config <path>     CLI config file (default ./mik.config.json)
+      --cache-dir <path>  Pricing catalogue cache directory
+      --offline           Never touch the network (skip catalogue sync and provider probes)
+  -h, --help              Show help
+  -v, --version           Show version
+
+EXAMPLES
+  mik init --app-id my-app --provider deepseek
+  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY
+  mik provider test deepseek
+  mik models --provider deepseek --refresh
+  mik pricing set deepseek-chat --input 0.27 --output 1.10
+  mik usage summary --from 2026-09-01
+  mik usage export --format csv --out usage.csv
+
+Run "mik <command> --help" for details on any command.
 ```
 
 ---
@@ -268,7 +307,7 @@ NODE_OPTIONS=--no-warnings node quickstart.ts
 # C. 等 Node 把它转正，或换掉驱动（见下一条）
 ```
 
-`mik serve` 的 stdout 只有 `Listening on http://127.0.0.1:3211` 和 `OpenAI-compatible base URL: .../v1` 两行；子命令的输出都是人类可读的表格，没有隐藏日志。
+`mik serve` 的 stdout 默认三行：`Listening on http://127.0.0.1:3211`、`OpenAI-compatible base URL: .../v1`、`Press Ctrl+C to stop.`（带 `--token` / `MIK_SERVER_TOKEN` 时多一行 `Bearer token required (value not shown).`；退出时再打一行 `Stopped.`）。子命令的输出都是人类可读的表格，没有隐藏日志。
 
 ### 2. 如何换成 `better-sqlite3`？
 
@@ -356,4 +395,4 @@ const other = await ModelInfra.init({ appId: "quant-lab", db: "~/.model-infra-ki
 
 ## License
 
-MIT
+MIT —— 全文见 [`packages/mik/LICENSE`](packages/mik/LICENSE)（该文件随 npm 包一起发布）。

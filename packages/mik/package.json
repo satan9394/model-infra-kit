@@ -14,11 +14,12 @@
     "openai-compatible"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "exports": {
     ".": {

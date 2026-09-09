@@ -33,6 +33,16 @@ const DEFAULT_MAX_STEPS = 5
  * which is no reason to hang a host's shutdown path.
  */
 const CLOSE_SYNC_TIMEOUT_MS = 5_000
+/**
+ * `AGENTS.md` rule 6: startup must never block on an upstream. The price
+ * catalogue is the one load on `init()`'s critical path and its transport is the
+ * host's network, so a black-holed TCP connection would otherwise hang
+ * `ModelInfra.init()` for minutes (undici's own timeouts are ~300 s). The wait
+ * is bounded instead: a load that has not answered in time keeps running in the
+ * background, the bundled archive keeps pricing requests, and `pricing.state()`
+ * reports whatever it knows — which is never `fresh`.
+ */
+const PRICING_INIT_TIMEOUT_MS = 5_000
 
 /**
  * Shared mutable flags between the instance and the callbacks wired in
@@ -181,10 +191,6 @@ interface UsageRecordInput {
 export class ModelInfra {
   /** Owning application; stamped on every usage event. */
   readonly appId: string
-  readonly providers: ProviderRegistry
-  readonly pricing: PricingService
-  readonly usage: UsageService
-  readonly models: ModelCatalog
   /** The AI SDK bridge, for provider tests and model discovery (T07 needs it). */
   readonly ai: AiBridge
   /** Drop-in `fetch` for OpenAI-compatible clients. */
@@ -192,6 +198,10 @@ export class ModelInfra {
   /** Settles when the first catalogue sync has finished, successfully or not. */
   readonly catalogSync: Promise<void>
 
+  private readonly providerRegistry: ProviderRegistry
+  private readonly pricingService: PricingService
+  private readonly usageService: UsageService
+  private readonly modelCatalog: ModelCatalog
   private readonly store: Store
   private readonly bridge: AiBridge
   private readonly warn: (message: string, error?: unknown) => void
@@ -218,26 +228,61 @@ export class ModelInfra {
   }) {
     this.appId = deps.appId
     this.store = deps.store
-    this.providers = deps.providers
+    this.providerRegistry = deps.providers
     this.bridge = deps.bridge
     this.ai = deps.bridge
-    this.pricing = deps.pricing
-    this.usage = deps.usage
-    this.models = deps.models
+    this.pricingService = deps.pricing
+    this.usageService = deps.usage
+    this.modelCatalog = deps.models
     this.warn = deps.warn
     this.lifecycle = deps.lifecycle
     this.baseUrlValue = deps.baseUrl
     this.maxSteps = deps.maxSteps
     this.maxRetries = deps.maxRetries
 
-    this.fetch = createMikFetch({
-      resolveProvider: (providerId) => this.providers.resolve(providerId),
+    const forward = createMikFetch({
+      resolveProvider: (providerId) => this.providerRegistry.resolve(providerId),
       resolveModel: (model) => this.resolveModel(model),
       onCall: (call) => this.recordForwarded(call),
       baseUrl: () => this.baseUrlValue,
     })
+    // A host hands this function to an OpenAI client and keeps it for the life
+    // of the process, so the closed-instance guard belongs inside the call
+    // rather than on the property that once returned it.
+    this.fetch = ((input: Parameters<typeof globalThis.fetch>[0], init?: Parameters<typeof globalThis.fetch>[1]) => {
+      this.assertOpen("fetch")
+      return forward(input, init)
+    }) as typeof globalThis.fetch
 
     this.catalogSync = deps.syncCatalog ? this.syncCatalog() : Promise.resolve()
+  }
+
+  /**
+   * The provider registry, the price catalogue and the metering/query services.
+   *
+   * All four are refused once `close()` has run (S1). The closed store below
+   * them throws a raw `node:sqlite` `ERR_INVALID_STATE`, which a host following
+   * the documented `isModelInfraError()` check would never catch; going through
+   * a getter means every public member fails with the same `ModelInfraError`.
+   */
+  get providers(): ProviderRegistry {
+    this.assertOpen("providers")
+    return this.providerRegistry
+  }
+
+  get pricing(): PricingService {
+    this.assertOpen("pricing")
+    return this.pricingService
+  }
+
+  get usage(): UsageService {
+    this.assertOpen("usage")
+    return this.usageService
+  }
+
+  get models(): ModelCatalog {
+    this.assertOpen("models")
+    return this.modelCatalog
   }
 
   /**
@@ -289,7 +334,15 @@ export class ModelInfra {
       catalog: config.pricingCatalog,
       fetch: config.pricingFetch,
     })
-    await pricing.init()
+    // Rule 6: the catalogue load is the only unbounded wait on this path, so it
+    // gets the same bounded wait `close()` uses. A load that is still running
+    // when the bound expires is not abandoned — it keeps going in the
+    // background — but startup no longer waits for it.
+    if (!(await settleWithin(pricing.init(), PRICING_INIT_TIMEOUT_MS))) {
+      warn(
+        `the price catalogue did not load within ${PRICING_INIT_TIMEOUT_MS} ms; starting anyway with the bundled archive.`,
+      )
+    }
 
     const usage = new UsageService({
       store,
@@ -348,6 +401,7 @@ export class ModelInfra {
 
   /** Called by the HTTP server once it knows the port it bound. */
   setBaseUrl(url: string): void {
+    this.assertOpen("setBaseUrl()")
     this.baseUrlValue = normalizeBaseUrl(url)
   }
 
@@ -358,6 +412,7 @@ export class ModelInfra {
    * configured default; nothing at all falls back to the default reference.
    */
   resolveModel(model?: string): ResolvedModelRef {
+    this.assertOpen("resolveModel()")
     const asked = typeof model === "string" ? model.trim() : ""
 
     if (asked.includes(":")) {
@@ -397,6 +452,7 @@ export class ModelInfra {
 
   /** One non-streaming generation, metered whether it succeeds or fails. */
   async generate(request: ModelRequest): Promise<ModelResponse> {
+    this.assertOpen("generate()")
     const resolved = this.resolveModel(request.model)
     const requestId = randomUUID()
     const startedAt = Date.now()
@@ -499,6 +555,7 @@ export class ModelInfra {
    * shape to handle. The usage event is recorded before `finish` is emitted.
    */
   stream(request: ModelRequest): AsyncIterable<StreamEvent> {
+    this.assertOpen("stream()")
     return this.runStream(request)
   }
 
@@ -771,6 +828,22 @@ export class ModelInfra {
     }
   }
 
+  /**
+   * Refuse every public entry point once `close()` has run.
+   *
+   * Without this the closed store underneath throws a raw `node:sqlite`
+   * `ERR_INVALID_STATE` (S1), which is not a `ModelInfraError` and so bypasses
+   * the error contract the README teaches hosts to rely on. `code: "STORAGE"`
+   * is the same code `init()` uses when the database itself is unusable.
+   */
+  private assertOpen(member: string): void {
+    if (!this.lifecycle.closed) return
+    throw new ModelInfraError(
+      `Cannot use ${member}: this ModelInfra instance has been closed. Create a new one with ModelInfra.init().`,
+      { code: "STORAGE" },
+    )
+  }
+
   private assertProvider(providerId: string, requested: string): void {
     if (this.providers.get(providerId)) return
     throw new ModelInfraError(`Provider "${providerId}" is not configured.`, {
@@ -861,17 +934,18 @@ export class ModelInfra {
 }
 
 /**
- * Resolve once `work` settles or `ms` elapses, whichever happens first. The
- * timer is unref'd so a bounded wait can never be the reason a host's process
- * stays alive.
+ * Resolve `true` once `work` settles, or `false` after `ms` elapses, whichever
+ * happens first. Rejection is treated as "settled": the caller only needs to
+ * know that it no longer has to wait. The timer is unref'd so a bounded wait can
+ * never be the reason a host's process stays alive.
  */
-function settleWithin(work: Promise<void>, ms: number): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms)
+function settleWithin(work: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
     timer.unref()
     void work.catch(() => undefined).then(() => {
       clearTimeout(timer)
-      resolve()
+      resolve(true)
     })
   })
 }
