@@ -8,7 +8,7 @@
 ## 0. 结论速览
 
 1. **三种调用面已经落地**（嵌入式库 / `mik.fetch` 适配器 / HTTP+OpenAI 兼容端点），第四种（HTTP API + SSE）是给「自建 UI」用的读接口。
-2. **卡片里点名的第五种调用面「用量事件上报 `POST /api/usage/events`」在当前仓库不存在**——实测返回 `404 No route matches`。进程内的 `usage.record()` 可用，HTTP 侧没有入口。这是一条待补能力，见 §5.2。
+2. **第五种调用面「用量事件上报 `POST /api/usage/events`」已补齐**（F19 实现，本文初稿时还是 404）。宿主自己直连供应商、只把 token 上报进来的场景现在有 HTTP 入口了；进程内的 `usage.record()` 同样可用。
 3. **库本身不含任何 UI。** 看板是仓库内的独立 Next.js 应用（`apps/dashboard`），只走 `mik serve` 的 HTTP API，不读 SQLite，且 `packages/mik/package.json` 的 `files` 只有 `dist` 与 `LICENSE`——**装包用户拿不到看板**。
 4. **网页端可视化的推荐结论**：正式产品走「复用 `/api/*` 自建 UI」；只想看成本、不介意多一个进程走「sidecar 反向代理」；接受 Next.js/Tailwind 技术栈且想最快见效走「直接复用 `apps/dashboard`」。三种做法都**必须先有一个在跑的 `mik serve`**。
 
@@ -41,7 +41,7 @@
 | ② `mik.fetch` 适配器（已有 OpenAI SDK 代码） | 已经在用 `openai` SDK 的项目，业务代码不想动 | 2 行：`new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })`；示例 102 行（`examples/openai-sdk/index.ts`），业务代码 0 行改动 | 否，仅 JS/TS | 是：响应原样返回，mik 读克隆计价落库；`source=fetch` | 供应商未配置 → HTTP 404 `PROVIDER_NOT_FOUND`；缺凭据 → 401 `CREDENTIAL`；调用方自带认证头被剥离；**流式中途断开时该次调用不落库**（`docs/reviews/R02-final-review.md` 记为未覆盖） |
 | ③ HTTP + OpenAI 兼容端点（`mik serve` → `/v1/chat/completions`） | Python/Go/任何语言项目；多进程共用一个模型层 | 宿主 0 行（只改 `base_url`）；Python 示例 62 行纯标准库（`examples/python-host/host.py`） | 是，只要客户端说 OpenAI 协议 | 是：响应体带 `usage`，并额外带 `x_modelhub`（provider / model_requested / cost_usd / cost_source） | 端口被占直接拒绝启动（`assertPortFree`）；`--token`/`MIK_SERVER_TOKEN` 时除 `GET /api/health` 外都要 `Authorization: Bearer`；裸模型名需 `X-ModelHub-Provider` 头或已设默认模型，否则 400 `INVALID_REQUEST` |
 | ④ HTTP API + SSE（`/api/*` + `GET /api/events`） | 自建 UI、外部脚本取汇总、实时数字刷新 | 读接口每个几行 `fetch`；SSE 订阅参考 `apps/dashboard/components/live-refresh.tsx`（92 行） | 是（纯 HTTP/JSON + text/event-stream） | 是：SSE 推 `usage.recorded` / `catalog.updated` / `pricing.updated`，心跳 15s | 上游不可达时页面/脚本必须自己降级（看板用 `mikTry()` 永不抛错到 Next 错误页）；**`/api/usage/*` 刻意不暴露 `appId` 过滤**；`GET /api/models` 不返回 `pricing`，只有 `GET /api/models/:ref` 带 |
-| ⑤ 用量事件上报 `POST /api/usage/events` | 想把宿主「自己直连供应商」的用量灌进同一本账 | — | — | — | **当前不存在**：实测 `POST /api/usage/events` → `404 {"error":{"code":"NOT_FOUND","message":"No route matches /api/usage/events."}}`。进程内 `usage.record(event)` 可用且 `requestId` 幂等，但没有 HTTP 入口 |
+| ⑤ 用量事件上报 `POST /api/usage/events` | 想把宿主「自己直连供应商」的用量灌进同一本账 | 宿主每次调用后一个 `fetch`（单条或 `{events:[...]}` 批量，上限 500） | 是（纯 HTTP/JSON） | 是：写入后 `GET /api/usage/*` 与 SSE `usage.recorded` 立即反映 | **已实现（F19）**：返回 `{accepted,duplicates,rejected}`；`requestId` 重复计入 `duplicates` 且不覆盖；不给 `cost` 时服务端用 `pricing.estimate()` 计价；落库 `source="report"`、`tags` 值经 `redactDeep` 脱敏。契约见 `docs/interfaces.md` |
 
 ### 2.1 逐面补充（照着敲就能跑）
 
