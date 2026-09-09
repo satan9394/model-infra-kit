@@ -1,6 +1,8 @@
+import { createServer as createHttpServer } from "node:http"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { AddressInfo } from "node:net"
 import { createTestServer } from "@ai-sdk/test-server"
 import { jsonSchema, tool } from "ai"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -771,5 +773,107 @@ describe("models", () => {
   it("refuses to refresh an unconfigured provider", async () => {
     const hub = await makeHub()
     await expect(hub.models.refresh("ghost")).rejects.toMatchObject({ code: "PROVIDER_NOT_FOUND" })
+  })
+})
+
+describe("catalogue sync noise and close races (F08)", () => {
+  /**
+   * `makeHub` injects a failing pricing fetch, so llm-pricing always reports its
+   * own `modelsdev` warning. Everything else must be absent.
+   */
+  function hostWarnings(): string[] {
+    return warnings.filter((message) => !message.includes("modelsdev"))
+  }
+
+  /**
+   * A `/v1/models` endpoint that answers only when the test opens its gate. It
+   * runs on a real socket rather than the MSW test server because the latter
+   * has no way to hold a response open.
+   */
+  async function gatedModelsServer(): Promise<{ baseUrl: string; release: () => void; stop: () => Promise<void> }> {
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const gateServer = createHttpServer((_request, response) => {
+      void gate.then(() => {
+        response.writeHead(200, { "content-type": "application/json" })
+        response.end(JSON.stringify(MODELS))
+      })
+    })
+    await new Promise<void>((resolve) => gateServer.listen(0, "127.0.0.1", resolve))
+    const { port } = gateServer.address() as AddressInfo
+    return {
+      baseUrl: `http://127.0.0.1:${port}/v1`,
+      release: () => release(),
+      stop: () => new Promise<void>((resolve) => gateServer.close(() => resolve())),
+    }
+  }
+
+  it("skips a provider with no credential without warning", async () => {
+    delete process.env.MIK_F08_ABSENT_KEY
+    const hub = await makeHub({
+      syncCatalog: true,
+      providers: [{ id: "local", baseUrl: `${root}/local`, apiKeyRef: "env:MIK_F08_ABSENT_KEY", enabled: true }],
+      defaultModel: undefined,
+    })
+    await hub.catalogSync
+    expect(hub.models.list("local")).toEqual([])
+    expect(hostWarnings()).toEqual([])
+  })
+
+  it("skips a disabled provider without warning", async () => {
+    const hub = await makeHub({
+      syncCatalog: true,
+      providers: [{ ...provider("ok"), enabled: false }],
+      defaultModel: undefined,
+    })
+    await hub.catalogSync
+    expect(hub.models.list("ok")).toEqual([])
+    expect(hostWarnings()).toEqual([])
+  })
+
+  it("still warns when the provider endpoint really fails", async () => {
+    const hub = await makeHub({ syncCatalog: true, providers: [provider("broken")], defaultModel: undefined })
+    await hub.catalogSync
+    expect(hostWarnings().some((message) => message.includes("broken"))).toBe(true)
+  })
+
+  it("waits for an in-flight catalogue sync before closing the store", async () => {
+    const slow = await gatedModelsServer()
+    // The gate lives on its own socket, so MSW reports the pass-through request.
+    const msw = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const hub = await makeHub({
+        syncCatalog: true,
+        providers: [{ id: "slow", baseUrl: slow.baseUrl, apiKeyRef: "env:MIK_T05_HUB_KEY", enabled: true }],
+        defaultModel: undefined,
+      })
+      // close() is asked to shut down while the model list is still unanswered;
+      // the store must survive until the sync has written to it, otherwise the
+      // write fails with `database is not open`.
+      const closed = hub.close()
+      slow.release()
+      await closed
+      expect(hostWarnings()).toEqual([])
+    } finally {
+      msw.mockRestore()
+      await slow.stop()
+    }
+  })
+
+  it("closes cleanly with a provider across repeated init/close rounds", async () => {
+    for (let round = 0; round < 3; round += 1) {
+      const hub = await makeHub({ syncCatalog: true, providers: [provider("ok")], defaultModel: "ok:deepseek-chat" })
+      await hub.close()
+    }
+    expect(hostWarnings()).toEqual([])
+  })
+
+  it("treats a second close() as a no-op", async () => {
+    const hub = await makeHub()
+    await hub.close()
+    await expect(hub.close()).resolves.toBeUndefined()
+    expect(hostWarnings()).toEqual([])
   })
 })
