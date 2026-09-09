@@ -170,7 +170,8 @@ export class ModelInfra {
   readonly catalogSync: Promise<void>
   generate(request: ModelRequest): Promise<ModelResponse>
   stream(request: ModelRequest): AsyncIterable<StreamEvent>
-  close(): void
+  /** F08：等待在途目录同步（上限 5s）后再关闭 store，可重复调用。 */
+  close(): Promise<void>
 }
 
 /** T05 追加（指挥批准）：全部可选，向后兼容。 */

@@ -43,7 +43,8 @@ export interface CliContext {
   dbPath: string
   configPath: string
   config: CliConfigFile
-  close: () => void
+  /** Settles once the hub's store is closed; always await it. */
+  close: () => Promise<void>
 }
 
 const stdoutIo: CliIo = {
@@ -94,6 +95,28 @@ export function loadConfig(path: string, io: CliIo): CliConfigFile {
   }
 }
 
+/**
+ * Whether this invocation actually needs the model catalogue refreshed from the
+ * provider. Only `serve`, `dashboard`, an explicit `models --refresh` and
+ * `pricing sync` do; every read-only command (`provider list/remove`,
+ * `models` without `--refresh`, `pricing list`, `usage *`, `init`, ...) runs with
+ * `syncCatalog: false` so a background sync can never print a `warning:` line
+ * next to its output or race the store close.
+ */
+export function needsCatalogSync(parsed: ParsedCli): boolean {
+  switch (parsed.command?.name) {
+    case "serve":
+    case "dashboard":
+      return true
+    case "models":
+      return flagBool(parsed.values, "refresh")
+    case "pricing":
+      return parsed.action?.name === "sync"
+    default:
+      return false
+  }
+}
+
 export interface OpenContextOptions extends RunOptions {
   /** Extra hub options, e.g. an injected catalogue for tests. */
   hub?: Partial<ModelInfraOptions>
@@ -104,7 +127,8 @@ export interface OpenContextOptions extends RunOptions {
  *
  * Precedence for `db` and `appId`: CLI flag → environment → `mik.config.json`
  * → built-in default. `--offline` also disables the background catalogue sync,
- * so no command in a test can reach the network.
+ * so no command in a test can reach the network. Commands that do not read the
+ * catalogue keep the sync off as well (`needsCatalogSync`).
  */
 export async function openContext(parsed: ParsedCli, options: OpenContextOptions = {}): Promise<CliContext> {
   const io = resolveIo(options)
@@ -122,7 +146,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     appId,
     db: dbPath,
     cacheDir,
-    syncCatalog: !offline,
+    syncCatalog: !offline && needsCatalogSync(parsed),
     pricingFetch: offline ? offlineFetch : undefined,
     onWarn: (message, error) => io.err(`warning: ${redact(message)}${error ? ` (${redact(messageOf(error))})` : ""}`),
     ...options.hub,
@@ -152,7 +176,9 @@ export async function withContext<T>(
   try {
     return await body(context)
   } finally {
-    context.close()
+    // Awaited: the store must be closed before the command reports success, and
+    // a still-running background sync must not outlive the process.
+    await context.close()
   }
 }
 

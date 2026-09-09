@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
 import type { AddressInfo } from "node:net"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -6,6 +7,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
+import { openContext, offlineFetch } from "../src/cli/context.js"
 import { USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
 import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
 import { main } from "../src/cli/index.js"
@@ -13,6 +15,7 @@ import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
 import { findDashboardDir, walkUpFor } from "../src/cli/commands/dashboard.js"
 import { loadServerModule, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
+import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
 import type { UsageEvent } from "../src/types.js"
 import { UsageService } from "../src/usage/service.js"
@@ -616,5 +619,126 @@ describe("models", () => {
     const result = await run(["models", "--refresh", ...base], dir)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain("--offline")
+  })
+})
+
+describe("catalogue sync scope (F08)", () => {
+  /** A local stand-in for a provider's `/v1/models`, counting the requests. */
+  async function fakeProvider(): Promise<{ baseUrl: string; hits: () => number; stop: () => Promise<void> }> {
+    let hits = 0
+    const server = createHttpServer((_request, response) => {
+      hits += 1
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end(
+        JSON.stringify({ object: "list", data: [{ id: "f08-model", object: "model", created: 1, owned_by: "f08" }] }),
+      )
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const { port } = server.address() as AddressInfo
+    return {
+      baseUrl: `http://127.0.0.1:${port}/v1`,
+      hits: () => hits,
+      stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    }
+  }
+
+  /** Flags that pin a run to one temp database, so two calls see the same data. */
+  function flags(dir: string): string[] {
+    return ["--db", join(dir, "usage.db"), "--cache-dir", join(dir, "cache"), "--config", join(dir, "mik.config.json")]
+  }
+
+  /**
+   * A `file:` credential ref with a real secret behind it. `env:` refs read
+   * `process.env`, which the CLI's own `env` option does not touch, so a file
+   * keeps the test hermetic.
+   */
+  function secretRef(dir: string, id: string): string {
+    const path = join(dir, `${id}-api-key`)
+    writeFileSync(path, "sk-f08-cli-secret", "utf8")
+    return `file:${path}`
+  }
+
+  /**
+   * Open a CLI context without `--offline` (so the catalogue sync is governed by
+   * the command itself) while keeping the price catalogue off the network.
+   */
+  async function openFor(args: string[], dir: string, hub: Partial<ModelInfraOptions> = {}) {
+    const warnings: string[] = []
+    const context = await openContext(parseCliArgs(args), {
+      cwd: dir,
+      env: { ...process.env },
+      io: { out: () => {}, err: (text) => warnings.push(text) },
+      hub: { pricingFetch: offlineFetch, ...hub },
+    })
+    return { context, warnings }
+  }
+
+  /** The offline price catalogue warns by construction; it is not the noise under test. */
+  function hostWarnings(warnings: readonly string[]): string[] {
+    return warnings.filter((message) => !message.includes("modelsdev"))
+  }
+
+  async function addProvider(dir: string, id: string, baseUrl: string, keyRef: string) {
+    return run(["provider", "add", id, "--base-url", baseUrl, "--api-key-ref", keyRef, "--offline", ...flags(dir)], dir)
+  }
+
+  it("does not sync the catalogue for a read-only command", async () => {
+    const provider = await fakeProvider()
+    const dir = tempDir()
+    try {
+      expect((await addProvider(dir, "local", provider.baseUrl, secretRef(dir, "local"))).code).toBe(0)
+
+      const { context, warnings } = await openFor(["provider", "list", ...flags(dir)], dir)
+      await context.hub.catalogSync
+      expect(context.hub.providers.list().map((record) => record.id)).toEqual(["local"])
+      expect(context.hub.models.list()).toEqual([])
+      await context.close()
+
+      expect(provider.hits()).toBe(0)
+      expect(hostWarnings(warnings)).toEqual([])
+    } finally {
+      await provider.stop()
+    }
+  })
+
+  it("syncs the catalogue for the commands that need it", async () => {
+    const provider = await fakeProvider()
+    const dir = tempDir()
+    try {
+      expect((await addProvider(dir, "local", provider.baseUrl, secretRef(dir, "local"))).code).toBe(0)
+
+      const { context } = await openFor(["models", "--refresh", ...flags(dir)], dir)
+      await context.hub.catalogSync
+      await context.close()
+
+      expect(provider.hits()).toBeGreaterThan(0)
+    } finally {
+      await provider.stop()
+    }
+  })
+
+  it("stays silent about a missing credential but still warns about a real failure", async () => {
+    const dir = tempDir()
+    // No credential anywhere for this provider: the expected state right after
+    // `provider add`, which must never reach the user as a warning.
+    expect((await addProvider(dir, "local", "http://127.0.0.1:9/v1", "env:MIK_F08_ABSENT")).code).toBe(0)
+
+    const readOnly = await openFor(["provider", "list", ...flags(dir)], dir)
+    await readOnly.context.hub.catalogSync
+    await readOnly.context.close()
+    expect(hostWarnings(readOnly.warnings)).toEqual([])
+
+    const syncing = await openFor(["models", "--refresh", ...flags(dir)], dir)
+    await syncing.context.hub.catalogSync
+    await syncing.context.close()
+    expect(hostWarnings(syncing.warnings)).toEqual([])
+
+    // A provider with a usable key and an unreachable endpoint is a real
+    // failure and must still be reported.
+    expect((await addProvider(dir, "dead", "http://127.0.0.1:9/v1", secretRef(dir, "dead"))).code).toBe(0)
+    const failing = await openFor(["models", "--refresh", ...flags(dir)], dir)
+    await failing.context.hub.catalogSync
+    await failing.context.close()
+    expect(failing.warnings.join("\n")).toContain("dead")
   })
 })

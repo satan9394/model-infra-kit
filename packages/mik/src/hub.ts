@@ -27,6 +27,32 @@ const DEFAULT_APP_ID = "default"
 const DEFAULT_BASE_URL = "http://127.0.0.1:0/v1"
 /** Tool loops stop here unless the caller says otherwise. */
 const DEFAULT_MAX_STEPS = 5
+/**
+ * `close()` waits this long for an in-flight catalogue sync before closing the
+ * store anyway. A sync still running after that is a stalled network request,
+ * which is no reason to hang a host's shutdown path.
+ */
+const CLOSE_SYNC_TIMEOUT_MS = 5_000
+
+/**
+ * Shared mutable flags between the instance and the callbacks wired in
+ * `init()`. Once the instance is closed it is unusable, so any warning it could
+ * still emit is a post-close artefact of the race this fixes — the host must
+ * not see it.
+ */
+interface Lifecycle {
+  closed: boolean
+}
+
+/**
+ * A sync failure the user cannot act on: a provider with no usable credential
+ * (the normal state right after `provider add`) or one removed while the sync
+ * was running. Both are skipped silently; real network/protocol failures are
+ * still reported through `onWarn`.
+ */
+function isExpectedSyncSkip(error: unknown): boolean {
+  return isModelInfraError(error) && (error.code === "CREDENTIAL" || error.code === "PROVIDER_NOT_FOUND")
+}
 
 /**
  * `ModelInfraConfig` plus the knobs only this class needs. Everything here is
@@ -169,8 +195,10 @@ export class ModelInfra {
   private readonly store: Store
   private readonly bridge: AiBridge
   private readonly warn: (message: string, error?: unknown) => void
+  private readonly lifecycle: Lifecycle
   private readonly maxSteps: number
   private readonly maxRetries: number | undefined
+  private closePromise: Promise<void> | undefined
   private baseUrlValue: string
 
   private constructor(deps: {
@@ -182,6 +210,7 @@ export class ModelInfra {
     usage: UsageService
     models: ModelCatalog
     warn: (message: string, error?: unknown) => void
+    lifecycle: Lifecycle
     baseUrl: string
     maxSteps: number
     maxRetries: number | undefined
@@ -196,6 +225,7 @@ export class ModelInfra {
     this.usage = deps.usage
     this.models = deps.models
     this.warn = deps.warn
+    this.lifecycle = deps.lifecycle
     this.baseUrlValue = deps.baseUrl
     this.maxSteps = deps.maxSteps
     this.maxRetries = deps.maxRetries
@@ -218,7 +248,13 @@ export class ModelInfra {
    * malformed explicit configuration is fatal.
    */
   static async init(config: ModelInfraOptions = {}): Promise<ModelInfra> {
-    const warn = config.onWarn ?? (() => {})
+    const onWarn = config.onWarn ?? (() => {})
+    const lifecycle: Lifecycle = { closed: false }
+    /** Every warning goes through the lifecycle gate, so `close()` silences the instance. */
+    const warn = (message: string, error?: unknown): void => {
+      if (lifecycle.closed) return
+      onWarn(message, error)
+    }
     const appId = config.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID
 
     let store: Store
@@ -297,6 +333,7 @@ export class ModelInfra {
       usage,
       models,
       warn,
+      lifecycle,
       baseUrl: normalizeBaseUrl(config.baseUrl ?? process.env.MIK_BASE_URL ?? DEFAULT_BASE_URL),
       maxSteps: DEFAULT_MAX_STEPS,
       maxRetries: config.maxRetries,
@@ -465,8 +502,25 @@ export class ModelInfra {
     return this.runStream(request)
   }
 
-  /** Close the database. The instance is unusable afterwards. */
-  close(): void {
+  /**
+   * Close the database. The instance is unusable afterwards.
+   *
+   * The background catalogue sync is not fire-and-forget: closing the store
+   * under it is what produced `database is not open` races, so `close()` first
+   * waits for it to settle — bounded by `CLOSE_SYNC_TIMEOUT_MS`, after which the
+   * store is closed anyway and the late sync is silenced rather than reported.
+   * Calling `close()` more than once is a no-op.
+   */
+  close(): Promise<void> {
+    this.closePromise ??= this.closeAfterSync()
+    return this.closePromise
+  }
+
+  private async closeAfterSync(): Promise<void> {
+    await settleWithin(this.catalogSync, CLOSE_SYNC_TIMEOUT_MS)
+    // Set before the store goes away: from here on every warning is a race
+    // artefact and the host must not see it.
+    this.lifecycle.closed = true
     this.store.close()
   }
 
@@ -769,21 +823,57 @@ export class ModelInfra {
     safely(() => this.usage.record(event), this.warn)
   }
 
-  /** Discover and persist the catalogue of every enabled provider. */
+  /**
+   * Discover and persist the catalogue of every enabled provider.
+   *
+   * A disabled provider, or one whose credential cannot be resolved, is an
+   * expected state rather than a failure, so it is skipped without `onWarn`.
+   * Everything else keeps warning: a real network or protocol failure is what
+   * the host needs to know about.
+   */
   private async syncCatalog(): Promise<void> {
     try {
       for (const provider of this.providers.list()) {
         if (!provider.enabled) continue
         try {
+          this.providers.resolve(provider.id)
+        } catch (error) {
+          if (!isExpectedSyncSkip(error)) {
+            this.warn(`Could not sync models for provider "${provider.id}".`, error)
+          }
+          continue
+        }
+        // The store may already be gone; writing through it would only produce
+        // the race warning this guards against.
+        if (this.lifecycle.closed) return
+        try {
           await this.models.refresh(provider.id)
         } catch (error) {
+          if (this.lifecycle.closed) return
           this.warn(`Could not sync models for provider "${provider.id}".`, error)
         }
       }
     } catch (error) {
+      if (this.lifecycle.closed) return
       this.warn("model catalogue sync failed", error)
     }
   }
+}
+
+/**
+ * Resolve once `work` settles or `ms` elapses, whichever happens first. The
+ * timer is unref'd so a bounded wait can never be the reason a host's process
+ * stays alive.
+ */
+function settleWithin(work: Promise<void>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref()
+    void work.catch(() => undefined).then(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
 }
 
 function safely(action: () => void, warn: (message: string, error?: unknown) => void): void {
