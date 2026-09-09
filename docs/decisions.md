@@ -96,7 +96,7 @@
 
 **理由**：
 
-1. **零原生编译**。`better-sqlite3` 在 Windows 上要装构建工具链；`node:sqlite` 跟着 Node ≥ 22 一起来，`npm i model-infra-kit` 后立刻可用。
+1. **零原生编译**。`better-sqlite3` 在 Windows 上要装构建工具链；`node:sqlite` 跟着 Node ≥ 22.13 一起来（22.13.0 起不再需要 `--experimental-sqlite`），`npm i model-infra-kit` 后立刻可用。
 2. **依赖面最小**。唯一的核心依赖是 `ai` 与 `llm-pricing`；数据库不进 `dependencies`。
 3. **接口窄，换得起**。`SqlStatement` 只需要 `run/get/all`，`better-sqlite3` 的形状天然兼容；换驱动不用改仓储代码。本机已实测：注入一个包着 `node:sqlite` 的 marker driver，工厂被调用、语句正常 prepare、供应商/价格/用量三个子服务全部跑通。
 4. **并发设定**：驱动启动即 `PRAGMA journal_mode = WAL`、`busy_timeout = 5000`、`foreign_keys = ON`，适配「一库多 app」的多进程读写。

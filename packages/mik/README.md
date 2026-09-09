@@ -12,7 +12,9 @@ npm i model-infra-kit
 | `model-infra-kit/server` | `createServer`、`DEFAULT_HOST`、`DEFAULT_PORT` | 自建 HTTP 服务（`mik serve` 用的就是它） |
 | `model-infra-kit/cli` | `main(argv)`、`parseCliArgs`、格式化工具 | 把 CLI 嵌进自己的进程 |
 
-> 需要 Node ≥ 22。`@ai-sdk/*` provider 是可选 peer 依赖：用哪个协议就装哪个包（`@ai-sdk/openai`、`@ai-sdk/deepseek` …），缺失时 `loadProviderFactory()` 会给出「装哪个包」的可读错误。
+> 需要 Node ≥ 22.13（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`）。`@ai-sdk/*` provider 是可选 peer 依赖：用哪个协议就装哪个包（`@ai-sdk/openai`、`@ai-sdk/deepseek` …），缺失时 `loadProviderFactory()` 会给出「装哪个包」的可读错误。
+>
+> **本包不含看板。** `files` 只有 `dist` 与 `LICENSE`（库 + CLI + HTTP 服务）；Next.js 看板在仓库的 `apps/dashboard`，`mik dashboard` 只在 monorepo 内可用，装包环境会报错并给出指引。详见[项目 README 的「看板」一节](../../README.md#看板)。
 
 ---
 
@@ -66,7 +68,7 @@ const mik = await ModelInfra.init({
 | `stream(req)` | `AsyncIterable<StreamEvent>` | 流式；`usage`/`finish` 事件在流结束后发出 |
 | `resolveModel(ref?)` | `{ providerId; modelId; requested }` | `provider:model` 直拆；裸名用默认供应商；都缺抛 `INVALID_REQUEST` |
 | `setBaseUrl(url)` | `void` | 服务端绑定端口后回填 |
-| `close()` | `void` | 关闭 SQLite 连接 |
+| `close()` | `Promise<void>` | 关闭 SQLite 连接（等后台目录同步最多 5s；之后所有公开成员抛 `STORAGE`） |
 
 ---
 

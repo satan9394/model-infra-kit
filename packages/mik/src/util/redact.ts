@@ -1,11 +1,13 @@
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  // `Authorization: Bearer <token>` first: the key=value rule below would
+  // otherwise consume the literal "Bearer" as the value and leave the token.
+  [/(Bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1[REDACTED]"],
   // key=value style
   [/((?:api[_-]?key|token|secret|password|credential|authorization)\s*[=:]\s*["']?)([^\s"',;]{4,})/gi, "$1[REDACTED]"],
   // known key prefixes
   [/\b(sk-[A-Za-z0-9_\-]{8,})/g, "sk-****"],
   [/\b(tvly-[A-Za-z0-9_\-]{8,})/g, "tvly-****"],
   [/\b(ghp_|gho_|ghs_|ghr_|xoxb-|xoxp-|AKIA)[A-Za-z0-9_\-]{8,}/g, "$1****"],
-  [/(Bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1[REDACTED]"],
 ]
 
 /** Replace anything that looks like a secret with a marker. */
@@ -23,6 +25,23 @@ export function maskSecret(secret: string): string {
   return `****${secret.slice(-4)}`
 }
 
+/**
+ * A key is secret-bearing when its name *ends* with one of these fragments, so
+ * prefixed custom headers (`x-api-key`, `openai-api-key`, `x-auth-token`) are
+ * covered while `apiKeyRef` (a reference such as `env:FOO`, never a secret) and
+ * token *counts* (`inputTokens`) are not. Case-insensitive.
+ */
+const SECRET_KEY_PATTERN = /(authorization|api[-_]?key|token|secret|password|cookie)s?$/i
+
+/**
+ * A value that can literally carry a secret. Token *counts* live under keys like
+ * `tokens`/`prompt_tokens` and are numbers, so they must not be replaced.
+ */
+function carriesSecretText(value: unknown): boolean {
+  if (typeof value === "string") return true
+  return Array.isArray(value) && value.some((item) => typeof item === "string")
+}
+
 /** Redact every string value of a JSON-like structure, recursively. */
 export function redactDeep<T>(value: T, depth = 0): T {
   if (depth > 6) return "[depth-limit]" as unknown as T
@@ -31,7 +50,8 @@ export function redactDeep<T>(value: T, depth = 0): T {
   if (value && typeof value === "object") {
     const output: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = /^(authorization|api[_-]?key|token|secret|password)$/i.test(key) ? "[REDACTED]" : redactDeep(item, depth + 1)
+      output[key] =
+        SECRET_KEY_PATTERN.test(key) && carriesSecretText(item) ? "[REDACTED]" : redactDeep(item, depth + 1)
     }
     return output as unknown as T
   }

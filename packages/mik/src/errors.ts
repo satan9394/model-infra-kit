@@ -1,3 +1,5 @@
+import { redact } from "./util/redact.js"
+
 export type ModelInfraErrorCode =
   | "AUTH"
   | "CONNECTION"
@@ -64,6 +66,10 @@ export function isModelInfraError(value: unknown): value is ModelInfraError {
 /**
  * Map an unknown provider/transport failure onto a stable code plus a message
  * that is safe to display. The original error is preserved as `cause`.
+ *
+ * Every branch (including the `UNKNOWN` fallback, which carries upstream text)
+ * sends its message through `redact()`: the `message` may reach a host log or
+ * the HTTP/CLI surface, while `cause` keeps the untouched original for debug.
  */
 export function toModelInfraError(error: unknown, context: ModelInfraErrorOptions = {}): ModelInfraError {
   if (isModelInfraError(error)) return error
@@ -71,9 +77,11 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
   const status = readStatus(error)
   const raw = error instanceof Error ? error.message : String(error)
   const lower = raw.toLowerCase()
+  /** Build an error whose message is redacted on the way out. */
+  const fail = (message: string, options: ModelInfraErrorOptions) => new ModelInfraError(redact(message), options)
 
   if (status === 401 || status === 403 || /unauthor|invalid api key|authentication/.test(lower)) {
-    return new ModelInfraError("API key rejected by the provider. Check the credential for this provider.", {
+    return fail("API key rejected by the provider. Check the credential for this provider.", {
       ...context,
       code: "AUTH",
       status,
@@ -82,7 +90,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
   if (status === 404 || /model.*not found|does not exist|unknown model/.test(lower)) {
-    return new ModelInfraError("The provider does not recognise this model id.", {
+    return fail("The provider does not recognise this model id.", {
       ...context,
       code: "MODEL_NOT_FOUND",
       status,
@@ -91,7 +99,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
   if (status === 429 || /rate limit|too many requests|quota/.test(lower)) {
-    return new ModelInfraError("The provider is rate limiting this key. Retry after a short delay.", {
+    return fail("The provider is rate limiting this key. Retry after a short delay.", {
       ...context,
       code: "RATE_LIMIT",
       status,
@@ -100,7 +108,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
   if (status === 408 || status === 504 || /timeout|timed out|etimedout|aborted/.test(lower)) {
-    return new ModelInfraError("The provider did not respond in time.", {
+    return fail("The provider did not respond in time.", {
       ...context,
       code: "TIMEOUT",
       status,
@@ -109,7 +117,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
   if (status === 400 || status === 422 || /invalid request|bad request/.test(lower)) {
-    return new ModelInfraError("The provider rejected the request as invalid.", {
+    return fail("The provider rejected the request as invalid.", {
       ...context,
       code: "INVALID_REQUEST",
       status,
@@ -118,7 +126,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
   if (/fetch failed|econnrefused|enotfound|econnreset|network|socket hang up/.test(lower)) {
-    return new ModelInfraError("Could not reach the provider endpoint. Check the base URL and network.", {
+    return fail("Could not reach the provider endpoint. Check the base URL and network.", {
       ...context,
       code: "CONNECTION",
       retryable: true,
@@ -126,7 +134,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
   if (typeof status === "number" && status >= 500) {
-    return new ModelInfraError("The provider returned a server error.", {
+    return fail("The provider returned a server error.", {
       ...context,
       code: "PROVIDER",
       status,
@@ -135,7 +143,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
     })
   }
 
-  return new ModelInfraError(raw || "Unknown provider failure.", { ...context, code: "UNKNOWN", cause: error })
+  return fail(raw || "Unknown provider failure.", { ...context, code: "UNKNOWN", cause: error })
 }
 
 function readStatus(error: unknown): number | undefined {

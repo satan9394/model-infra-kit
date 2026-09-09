@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "node scripts/check-port.mjs 3210 && next start -p 3210",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {

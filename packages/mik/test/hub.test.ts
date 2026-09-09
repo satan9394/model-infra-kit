@@ -877,3 +877,106 @@ describe("catalogue sync noise and close races (F08)", () => {
     expect(hostWarnings()).toEqual([])
   })
 })
+
+describe("startup bounds and the closed-instance contract (F10)", () => {
+  /** A transport that never answers: the shape of a black-holed TCP connection. */
+  const hangingFetch = (() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch
+
+  /** A transport that only fails after `delayMs`, i.e. one that drops slowly. */
+  function slowFailingFetch(delayMs: number): typeof globalThis.fetch {
+    return (() =>
+      new Promise<Response>((_resolve, reject) => {
+        setTimeout(() => reject(new Error("catalogue upstream did not answer")), delayMs)
+      })) as unknown as typeof globalThis.fetch
+  }
+
+  function timeoutWarnings(): string[] {
+    return warnings.filter((message) => message.includes("did not load within"))
+  }
+
+  it("returns from init() within the bounded wait when the price catalogue never settles", async () => {
+    const startedAt = Date.now()
+    const hub = await makeHub({ pricingFetch: hangingFetch })
+    const elapsedMs = Date.now() - startedAt
+    const state = hub.pricing.state()
+
+    // Printed so the evidence report carries the real number.
+    console.log(`[F10] hanging catalogue: init() returned in ${elapsedMs} ms; pricing.state()=${JSON.stringify(state)}`)
+    expect(elapsedMs).toBeLessThan(6_000)
+    expect(state.status).not.toBe("fresh")
+    // Rule 6: degrade and warn once, never hang and never throw.
+    expect(timeoutWarnings()).toHaveLength(1)
+  }, 20_000)
+
+  it("returns from init() within the bounded wait when the catalogue fails slowly", async () => {
+    const startedAt = Date.now()
+    const hub = await makeHub({ pricingFetch: slowFailingFetch(5_000) })
+    const elapsedMs = Date.now() - startedAt
+
+    console.log(`[F10] slow-failing catalogue: init() returned in ${elapsedMs} ms`)
+    expect(elapsedMs).toBeLessThan(6_000)
+    expect(hub.pricing.state().status).not.toBe("fresh")
+  }, 20_000)
+
+  it("still loads the model catalogue on the normal path", async () => {
+    const hub = await makeHub({ syncCatalog: true, providers: [provider("ok")], defaultModel: "ok:deepseek-chat" })
+    await hub.catalogSync
+    expect(hub.models.list("ok").map((model) => model.modelId)).toEqual(["deepseek-chat", "deepseek-reasoner"])
+    // The injected transport fails immediately, so the bounded wait settles and
+    // must not be reported as a timeout.
+    expect(timeoutWarnings()).toEqual([])
+  })
+
+  it("refuses every public member with a ModelInfraError after close()", async () => {
+    const hub = await makeHub()
+    await hub.close()
+
+    // `generate` is async, so its refusal arrives as a rejection.
+    let caught: unknown
+    try {
+      await hub.generate(request())
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ModelInfraError)
+    const failure = caught as ModelInfraError
+    expect(failure.code).toBe("STORAGE")
+    expect(failure.message).toContain("this ModelInfra instance has been closed")
+
+    // The failure the guard replaces (S1): the closed store underneath throws a
+    // raw `node:sqlite` error, which is not a `ModelInfraError` at all.
+    const bare = await mik.Store.open({ path: ":memory:" })
+    bare.close()
+    let raw: unknown
+    try {
+      bare.models.list()
+    } catch (error) {
+      raw = error
+    }
+    const rawCode = (raw as { code?: string }).code
+    // Printed so the evidence report carries the real types and codes.
+    console.log(
+      `[F10] after close(): generate → ${failure.name} code=${failure.code}; raw closed store → ${(raw as Error).name} code=${String(rawCode)}`,
+    )
+    expect(raw).not.toBeInstanceOf(ModelInfraError)
+
+    // Every other member refuses synchronously. `codeOf` reports the raw
+    // sqlite/`ERR_INVALID_STATE` case as `not-model-infra: ...`, so a STORAGE
+    // code here is also the `instanceof` assertion for each one.
+    const members: [string, () => unknown][] = [
+      ["stream", () => hub.stream(request())],
+      ["resolveModel", () => hub.resolveModel("ok:deepseek-chat")],
+      ["setBaseUrl", () => hub.setBaseUrl("http://127.0.0.1:3211/v1")],
+      ["fetch", () => hub.fetch(`${hub.baseUrl}/chat/completions`, { method: "POST" })],
+      ["models.list", () => hub.models.list()],
+      ["models.get", () => hub.models.get("ok:deepseek-chat")],
+      ["models.refresh", () => hub.models.refresh("ok")],
+      ["providers.list", () => hub.providers.list()],
+      ["usage.summary", () => hub.usage.summary()],
+      ["pricing.estimate", () => hub.pricing.estimate({ model: "deepseek-chat", usage: {} })],
+    ]
+    for (const [label, call] of members) {
+      expect(codeOf(call), label).toBe("STORAGE")
+    }
+  })
+})

@@ -14,16 +14,19 @@
  *
  * Flags:
  *   --inject-failure    deliberately fail the first check (proves the exit code)
+ *   --break-dashboard   point the dashboard at an unreachable `mik serve`
+ *                       (proves the DASH check asserts live numbers, not markup)
  *
  * The temporary directory is left in `.tmp/e2e-<timestamp>/` on purpose: it holds
  * the SQLite database and the CLI config that produced the numbers, which is
  * what makes a failure reproducible. `.tmp/` is git-ignored.
  */
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { createServer as createNetServer } from "node:net"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { formatCompact, formatInt, formatRate, formatUsd, tokenTotal } from "../../apps/dashboard/lib/format.ts"
 import { MOCK_MODELS, startMockProvider } from "./mock-provider.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -32,6 +35,10 @@ const LOADER = join(HERE, "loader.mjs")
 /** `--import` wants a specifier or URL, not a Windows path. */
 const LOADER_URL = pathToFileURL(LOADER).href
 const CLI_ENTRY = join(ROOT, "packages", "mik", "src", "cli", "index.ts")
+/** The published artifact: what `npm pack` ships, and what DASH/DIST check. */
+const DIST_CLI = join(ROOT, "packages", "mik", "dist", "cli.mjs")
+const DASHBOARD_DIR = join(ROOT, "apps", "dashboard")
+const DASHBOARD_NEXT = join(DASHBOARD_DIR, "node_modules", "next", "dist", "bin", "next")
 const OPENAI_SDK_EXAMPLE = join(ROOT, "examples", "openai-sdk", "index.ts")
 const CLI_AGENT_EXAMPLE = join(ROOT, "examples", "cli-agent", "index.ts")
 const PYTHON_EXAMPLE = join(ROOT, "examples", "python-host", "host.py")
@@ -42,8 +49,13 @@ const NODE_FLAGS = [TRANSFORM_FLAG, "--disable-warning=ExperimentalWarning", "--
 
 const argv = process.argv.slice(2)
 const injectFailure = argv.includes("--inject-failure")
+const breakDashboard = argv.includes("--break-dashboard")
 const APP_ID = "mik-e2e"
 const DEFAULT_PORT = 3211
+const DASHBOARD_PORT = 3210
+const DIST_PORT = 3212
+/** Nothing listens on port 1: the dashboard's "upstream is down" path. */
+const DEAD_SERVER_URL = "http://127.0.0.1:1"
 
 // ───────────────────────────────── plumbing ─────────────────────────────────
 
@@ -84,7 +96,12 @@ function cleanEnv(extra = {}) {
 
 function spawnCapture(command, args, options = {}) {
   return new Promise((resolvePromise) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env: options.env ?? cleanEnv(), cwd: options.cwd ?? ROOT })
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: options.env ?? cleanEnv(),
+      cwd: options.cwd ?? ROOT,
+      shell: options.shell === true,
+    })
     let stdout = ""
     let stderr = ""
     child.stdout.on("data", (chunk) => (stdout += chunk))
@@ -96,6 +113,9 @@ function spawnCapture(command, args, options = {}) {
 
 const runNode = (args, options) => spawnCapture(process.execPath, [...NODE_FLAGS, ...args], options)
 const runCli = (args, options) => runNode([CLI_ENTRY, ...args], options)
+/** pnpm is a `.cmd` shim on Windows, which `spawn` only runs through a shell. */
+const runPnpm = (args, options) =>
+  spawnCapture(process.platform === "win32" ? "pnpm.cmd" : "pnpm", args, { ...options, shell: process.platform === "win32" })
 
 async function isPortFree(port) {
   return new Promise((resolvePromise) => {
@@ -126,6 +146,92 @@ async function pickPort(preferred) {
 async function getJson(url, timeoutMs = 5000) {
   const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
   return { status: response.status, body: await response.json() }
+}
+
+async function getHtml(url, timeoutMs = 30_000) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+  return { status: response.status, body: await response.text() }
+}
+
+/**
+ * React separates interpolated text with `<!-- -->`, so `pricing {status}`
+ * arrives as `pricing <!-- -->stale`. Strip the markers before matching.
+ */
+function plainText(html) {
+  return html.replace(/<!--.*?-->/g, "").replace(/\s+/g, " ")
+}
+
+/** Wait until a page renders (the dashboard compiles/starts lazily). */
+async function waitForPage(origin, path = "/", timeoutMs = 90_000) {
+  const deadline = Date.now() + timeoutMs
+  let last = "no response"
+  while (Date.now() < deadline) {
+    try {
+      const { status } = await getHtml(`${origin}${path}`, 10_000)
+      if (status === 200) return
+      last = `HTTP ${status}`
+    } catch (error) {
+      last = messageOf(error)
+    }
+    await new Promise((done) => setTimeout(done, 300))
+  }
+  throw new Error(`${origin}${path} did not answer 200 within ${timeoutMs} ms (${last})`)
+}
+
+/** Newest mtime under a directory, ignoring build output and generated files. */
+function newestMtime(directory) {
+  let newest = 0
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name)
+      // `.next` and `node_modules` are output; `*.tsbuildinfo` and
+      // `next-env.d.ts` are written by the toolchain, not by a human.
+      if (/(node_modules|\.next|\.tmp|\.tsbuildinfo$|next-env\.d\.ts$)/.test(full)) continue
+      if (entry.isDirectory()) {
+        walk(full)
+        continue
+      }
+      try {
+        newest = Math.max(newest, statSync(full).mtimeMs)
+      } catch {}
+    }
+  }
+  walk(directory)
+  return newest
+}
+
+/** `next start` needs a build; rebuild only when it is missing or stale. */
+async function ensureDashboardBuild() {
+  const buildId = join(DASHBOARD_DIR, ".next", "BUILD_ID")
+  if (existsSync(buildId)) {
+    try {
+      if (statSync(buildId).mtimeMs >= newestMtime(DASHBOARD_DIR)) return "reused .next (newer than every source file)"
+    } catch {}
+  }
+  const build = await runPnpm(["--filter", "@mik/dashboard", "build"])
+  assert(build.code === 0, `pnpm --filter @mik/dashboard build exited ${build.code}\n${build.stdout.slice(-2000)}\n${build.stderr.slice(-2000)}`)
+  assert(existsSync(buildId), "the dashboard build finished without writing .next/BUILD_ID")
+  return "built .next (it was missing or older than the sources)"
+}
+
+/** Start the dashboard exactly the way `mik dashboard` does: `next start`. */
+function startDashboard(port, serverUrl) {
+  assert(existsSync(DASHBOARD_NEXT), `next is not installed at ${DASHBOARD_NEXT} — run \`pnpm install\` first`)
+  const child = spawn(process.execPath, [DASHBOARD_NEXT, "start", "-p", String(port)], {
+    cwd: DASHBOARD_DIR,
+    env: cleanEnv({ MIK_SERVER_URL: serverUrl, PORT: String(port), NODE_ENV: "production" }),
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let output = ""
+  child.stdout.on("data", (chunk) => (output += chunk))
+  child.stderr.on("data", (chunk) => (output += chunk))
+  return { child, output: () => output }
 }
 
 async function waitForHealth(origin, timeoutMs = 20_000) {
@@ -264,8 +370,12 @@ async function main() {
         assert(health.status === "ok", `health.status is ${health.status}`)
         assert(health.providers === 0, `health.providers is ${health.providers}, expected 0`)
         assert(health.appId === APP_ID, `health.appId is ${health.appId}`)
-        assert(["fresh", "stale", "error"].includes(health.pricing.status), `unexpected pricing status ${health.pricing.status}`)
-        numbers["AC1.health"] = { providers: health.providers, pricing: health.pricing.status, models: health.models }
+        // Not `["fresh","stale","error"].includes(...)`: that accepted every
+        // legal value and could never fail. An offline serve with a cold cache
+        // directory must land on the bundled archive, which is `stale`.
+        assert(health.pricing.status === "stale", `health.pricing.status is ${health.pricing.status}, expected "stale" (offline serve + cold cache → bundled archive)`)
+        assert(health.pricing.source === "fallback", `health.pricing.source is ${health.pricing.source}, expected "fallback" (the bundled archive)`)
+        numbers["AC1.health"] = { providers: health.providers, pricing: health.pricing.status, pricingSource: health.pricing.source, models: health.models }
       } finally {
         await stopChild(serve, "mik serve", proxyPort)
       }
@@ -618,6 +728,132 @@ async function main() {
       pass(`history $${historyCost} unchanged, new request $${fresh.cost.usd} (P2 = $${expectedCost(priceP2)})`)
     })
 
+    // ───────────────────────── DASH ─────────────────────────
+    await step("DASH", "SPEC §6 ③: the dashboard shows the recorded rows, the cost breakdown and the price source", async () => {
+      const { port: dashPort, note: dashNote } = await pickPort(DASHBOARD_PORT)
+      const buildNote = await ensureDashboardBuild()
+
+      // The expected strings come from the same helpers the pages use, applied
+      // to the numbers this run actually wrote — not from literals.
+      const summary = hub.usage.summary()
+      assert(summary.requests >= 9, `the hub recorded only ${summary.requests} rows, the dashboard check needs the usage written above`)
+      assert(summary.costUsd > 0, "the hub recorded no cost at all")
+      const ac3RequestId = hub.usage.query({ sessionId: "e2e-proxy-generate", limit: 1 }).events[0]?.requestId
+      assert(ac3RequestId, "the AC3 generate row is missing, so there is nothing for the log page to show")
+      const expected = {
+        cost: formatUsd(summary.costUsd),
+        requests: formatInt(summary.requests),
+        tokens: formatCompact(tokenTotal(summary.tokens)),
+        rowCost: formatUsd(expectedCost(priceP1)),
+        inputRate: formatRate(priceP2.input),
+        outputRate: formatRate(priceP2.output),
+      }
+
+      const withDashboard = async (serverUrl, body) => {
+        const started = startDashboard(dashPort, serverUrl)
+        try {
+          await waitForPage(`http://127.0.0.1:${dashPort}`, "/")
+          return await body()
+        } finally {
+          await stopChild(started.child, "dashboard", dashPort)
+        }
+      }
+
+      const live = breakDashboard ? DEAD_SERVER_URL : `http://127.0.0.1:${proxyPort}`
+
+      await withDashboard(live, async () => {
+        const home = plainText((await getHtml(`http://127.0.0.1:${dashPort}/`)).body)
+        assert(home.includes(expected.cost), `the overview does not show the total cost ${expected.cost}`)
+        assert(new RegExp(`tabular-nums[^>]*>${expected.requests}<`).test(home), `the overview does not show the request count ${expected.requests}`)
+        assert(home.includes(expected.tokens), `the overview does not show the token total ${expected.tokens}`)
+        assert(home.includes(APP_ID), `the overview does not name the app ${APP_ID}`)
+        assert(home.includes("pricing stale"), "the overview does not show the price source badge (pricing stale)")
+        assert(home.includes("mock"), "the overview does not list the mock provider bucket")
+
+        const logs = plainText((await getHtml(`http://127.0.0.1:${dashPort}/logs`)).body)
+        assert(logs.includes(ac3RequestId), `the log page does not show the recorded request ${ac3RequestId}`)
+        assert(logs.includes(expected.rowCost), `the log page does not show the per-request cost ${expected.rowCost}`)
+        assert(logs.includes("mock-mini"), "the log page does not show the model")
+        assert(new RegExp(`>${expected.requests}</span> 条`).test(logs), `the log page does not report ${summary.requests} rows`)
+
+        const pricing = plainText((await getHtml(`http://127.0.0.1:${dashPort}/pricing`)).body)
+        assert(pricing.includes("mock-mini"), "the pricing page does not list the manual price")
+        assert(pricing.includes(expected.inputRate), `the pricing page does not show the manual input rate ${expected.inputRate}`)
+        assert(pricing.includes(expected.outputRate), `the pricing page does not show the manual output rate ${expected.outputRate}`)
+        assert(pricing.includes("手动价（1）"), "the pricing page does not report exactly one manual override")
+
+        const proxied = await getJson(`http://127.0.0.1:${dashPort}/api/mik/health`)
+        assert(proxied.status === 200 && proxied.body.status === "ok", `the dashboard's /api/mik proxy answered ${JSON.stringify(proxied)}`)
+        assert(proxied.body.appId === APP_ID, `the proxied health reports appId ${proxied.body.appId}`)
+
+        // What the log drawer shows: the price source behind the row.
+        const detail = await getJson(`http://127.0.0.1:${dashPort}/api/mik/usage/logs/${ac3RequestId}`)
+        assert(detail.status === 200, `the proxied log detail answered HTTP ${detail.status}`)
+        assert(detail.body.event?.cost?.source === "manual", `the row's price source is ${detail.body.event?.cost?.source}, expected manual`)
+      })
+
+      // Same pages, unreachable upstream: the numbers must disappear and the
+      // banner must explain why. That is what proves the HTML above is live
+      // data fetched over HTTP rather than markup the page can render alone.
+      await withDashboard(DEAD_SERVER_URL, async () => {
+        const offline = plainText((await getHtml(`http://127.0.0.1:${dashPort}/`)).body)
+        assert(!offline.includes(expected.cost), "the overview still shows the cost with an unreachable mik serve — the number is not live data")
+        assert(/无法连接 mik serve|请求 mik serve 失败/.test(offline), "the overview does not explain that mik serve is unreachable")
+      })
+
+      numbers["DASH"] = {
+        port: dashPort,
+        build: buildNote,
+        costUsd: expected.cost,
+        requests: summary.requests,
+        tokens: expected.tokens,
+        rowCost: expected.rowCost,
+        manualRates: [expected.inputRate, expected.outputRate],
+        requestId: ac3RequestId,
+        degraded: breakDashboard ? "forced (--break-dashboard)" : "verified with an unreachable upstream",
+      }
+      pass(
+        `port ${dashPort} (${dashNote}); ${buildNote}; / shows ${expected.cost} / ${expected.requests} requests / ${expected.tokens} tokens, ` +
+          `/logs shows ${ac3RequestId} at ${expected.rowCost}, /pricing shows ${expected.inputRate}/${expected.outputRate}; unreachable upstream degrades to a banner`,
+      )
+    })
+
+    // ───────────────────────── DIST ─────────────────────────
+    await step("DIST", "the published artifact (packages/mik/dist) runs: CLI --help, serve, /api/health", async () => {
+      if (!existsSync(DIST_CLI)) {
+        const build = await runPnpm(["--filter", "model-infra-kit", "build"])
+        assert(build.code === 0, `pnpm --filter model-infra-kit build exited ${build.code}\n${build.stdout.slice(-2000)}\n${build.stderr.slice(-2000)}`)
+      }
+      assert(existsSync(DIST_CLI), `${DIST_CLI} is missing after the build`)
+
+      const help = await spawnCapture(process.execPath, [DIST_CLI, "--help"])
+      assert(help.code === 0, `dist/cli.mjs --help exited ${help.code}\n${help.stdout}\n${help.stderr}`)
+      assert(help.stdout.includes("COMMANDS") && help.stdout.includes("serve"), `dist/cli.mjs --help printed no command list:\n${help.stdout}`)
+
+      const { port: distPort, note: distNote } = await pickPort(DIST_PORT)
+      const child = spawn(
+        process.execPath,
+        [DIST_CLI, "serve", "--offline", "--cache-dir", cacheDir, "--config", configPath, "--port", String(distPort)],
+        { stdio: ["ignore", "pipe", "pipe"], env: cleanEnv(), cwd: ROOT },
+      )
+      let output = ""
+      child.stdout.on("data", (chunk) => (output += chunk))
+      child.stderr.on("data", (chunk) => (output += chunk))
+      try {
+        const health = await waitForHealth(`http://127.0.0.1:${distPort}`)
+        assert(health.status === "ok", `dist serve health.status is ${health.status}`)
+        assert(health.appId === APP_ID, `dist serve health.appId is ${health.appId}`)
+        assert(health.providers === 1, `dist serve reports ${health.providers} providers, expected the mock provider added in AC2`)
+        assert(health.models === MOCK_MODELS.length, `dist serve reports ${health.models} models, expected ${MOCK_MODELS.length}`)
+        assert(health.pricing.status === "stale" && health.pricing.source === "fallback", `dist serve pricing is ${JSON.stringify(health.pricing)}`)
+        assert(output.includes("Listening on"), `dist serve never printed its listening line:\n${output}`)
+        numbers["DIST"] = { cli: DIST_CLI, port: distPort, providers: health.providers, models: health.models, pricing: health.pricing.status }
+        pass(`dist/cli.mjs --help ok; dist serve on ${distPort} (${distNote}) answered /api/health with ${health.providers} provider / ${health.models} models`)
+      } finally {
+        await stopChild(child, "dist serve", distPort)
+      }
+    })
+
     // ───────────────────────── AC8 ─────────────────────────
     await step("AC8", "a failing check makes the runner exit non-zero and name the failure", async () => {
       const run = await runNode([fileURLToPath(import.meta.url), "--inject-failure"])
@@ -662,6 +898,8 @@ async function main() {
     process.stdout.write("\n------------------------ key numbers ------------------------\n")
     process.stdout.write(`  mock provider calls     ${mock.calls.length}\n`)
     process.stdout.write(`  proxy port              ${proxyPort}\n`)
+    process.stdout.write(`  dashboard port          ${numbers["DASH"]?.port ?? "—"} (stopped, port released)\n`)
+    process.stdout.write(`  dist serve port         ${numbers["DIST"]?.port ?? "—"} (stopped, port released)\n`)
     if (totals) {
       process.stdout.write(`  usage rows              ${totals.requests} (ok ${totals.successes}, failed ${totals.failures})\n`)
       process.stdout.write(`  rows by source          ${JSON.stringify(numbers["rowsBySource"])}\n`)

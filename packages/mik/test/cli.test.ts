@@ -13,7 +13,7 @@ import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
 import { main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
-import { findDashboardDir, walkUpFor } from "../src/cli/commands/dashboard.js"
+import { findDashboardDir, missingDashboardError, walkUpFor } from "../src/cli/commands/dashboard.js"
 import { loadServerModule, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
 import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
@@ -451,6 +451,39 @@ describe("dashboard directory resolution", () => {
 
   it("falls back to the CLI's own location when the cwd is outside the monorepo", () => {
     expect(findDashboardDir(tmpdir())).toMatch(/apps[\\/]dashboard$/)
+  })
+
+  it("returns null when neither the cwd nor the module directory has the app", () => {
+    const root = tempDir()
+    expect(findDashboardDir(root, root)).toBeNull()
+  })
+
+  /**
+   * The dashboard is not in the published tarball, so the CLI must explain that
+   * instead of printing a bare "could not find" (F11 / review B3).
+   */
+  it("explains that the dashboard is not part of the published package", async () => {
+    const { dir } = sandbox()
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const port = (server.address() as AddressInfo).port
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+
+    const empty = tempDir()
+    const result = await run(["dashboard", "--dir", empty, "--port", String(port)], dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("no package.json")
+    expect(result.stderr).toContain("not published with the npm package")
+    expect(result.stderr).toContain("README")
+    expect(result.stderr).toContain("--dir")
+  })
+
+  it("uses the same guidance when the dashboard app cannot be found at all", () => {
+    const error = missingDashboardError()
+    expect(error.message).toContain("Could not find the dashboard app")
+    expect(error.message).toContain("not published with the npm package")
+    expect(error.message).toContain("pnpm --filter @mik/dashboard")
+    expect(error.message).toContain("README")
   })
 })
 
