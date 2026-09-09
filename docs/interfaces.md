@@ -199,6 +199,7 @@ POST /api/providers/:id/test
 GET  /api/providers/:id/models   POST /api/providers/:id/models/refresh
 GET  /api/models               GET /api/models/:ref
 GET  /api/pricing              PUT /api/pricing/:modelId   POST /api/pricing/sync
+DELETE /api/pricing/:modelId   （T07 追加并经指挥批准：看板需要撤销手动价）
 GET  /api/usage/summary|trends|by-provider|by-model|logs|logs/:id
 GET  /api/events               （SSE：usage.recorded / catalog.updated / pricing.updated）
 GET  /openapi.json
