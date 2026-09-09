@@ -715,19 +715,47 @@ describe("stream", () => {
     expect(page.events[0]!.cost.source).toBe("fallback")
   })
 
-  it("records a row when the consumer stops at the very first delta", async () => {
+  it("records an ABANDONED error row when the consumer stops at the very first delta", async () => {
     const hub = await makeHub()
     for await (const event of hub.stream(request({ model: "stream:deepseek-chat" }))) {
       if (event.type === "text_delta") break
     }
 
     const page = hub.usage.query()
-    // No error and no finish were ever seen, so the status is whatever was known.
+    // S6: no error and no finish were ever seen, so the call did not complete
+    // and must not be recorded as a success.
     expect(page.total).toBe(1)
-    expect(["ok", "error"]).toContain(page.events[0]!.status)
     expect(page.events[0]).toMatchObject({
       source: "stream",
       isStreaming: true,
+      status: "error",
+      errorCode: "ABANDONED",
+      modelActual: "deepseek-chat",
+    })
+    // Still unpriced: the call was never billed end to end.
+    expect(page.events[0]!.cost).toMatchObject({ usd: 0, source: "missing" })
+    console.log(
+      `[F14] first-delta break → status=${page.events[0]!.status} errorCode=${String(page.events[0]!.errorCode)} cost.source=${page.events[0]!.cost.source}`,
+    )
+  })
+
+  it("records an ABANDONED row when the consumer stops after usage but before finish", async () => {
+    const hub = await makeHub()
+    const seen: string[] = []
+    for await (const event of hub.stream(request({ model: "stream:deepseek-chat" }))) {
+      seen.push(event.type)
+      if (event.type === "usage") break
+    }
+
+    // The consumer never reached `finish`, so the success path never ran.
+    expect(seen.at(-1)).toBe("usage")
+    const page = hub.usage.query()
+    expect(page.total).toBe(1)
+    expect(page.events[0]).toMatchObject({
+      source: "stream",
+      isStreaming: true,
+      status: "error",
+      errorCode: "ABANDONED",
       modelActual: "deepseek-chat",
     })
   })
@@ -943,8 +971,11 @@ describe("startup bounds and the closed-instance contract (F10)", () => {
     expect(failure.code).toBe("STORAGE")
     expect(failure.message).toContain("this ModelInfra instance has been closed")
 
-    // The failure the guard replaces (S1): the closed store underneath throws a
-    // raw `node:sqlite` error, which is not a `ModelInfraError` at all.
+    // The failure the guard replaces (S1): the closed store underneath never
+    // goes through the hub's own refusal, so its message is a different one.
+    // F15 now wraps driver failures in a `STORAGE` `ModelInfraError`, so the
+    // shape of that error is deliberately not asserted here — only that the
+    // store's own failure is not the hub's closed-instance message.
     const bare = await mik.Store.open({ path: ":memory:" })
     bare.close()
     let raw: unknown
@@ -958,7 +989,8 @@ describe("startup bounds and the closed-instance contract (F10)", () => {
     console.log(
       `[F10] after close(): generate → ${failure.name} code=${failure.code}; raw closed store → ${(raw as Error).name} code=${String(rawCode)}`,
     )
-    expect(raw).not.toBeInstanceOf(ModelInfraError)
+    expect(raw).toBeInstanceOf(Error)
+    expect((raw as Error).message).not.toContain("this ModelInfra instance has been closed")
 
     // Every other member refuses synchronously. `codeOf` reports the raw
     // sqlite/`ERR_INVALID_STATE` case as `not-model-infra: ...`, so a STORAGE
@@ -978,5 +1010,88 @@ describe("startup bounds and the closed-instance contract (F10)", () => {
     for (const [label, call] of members) {
       expect(codeOf(call), label).toBe("STORAGE")
     }
+  })
+})
+
+describe("disabled providers are not routable (F14 / S3)", () => {
+  /** A hub whose only provider is switched off, with the default pointing at it. */
+  async function disabledHub(): Promise<ModelInfra> {
+    return makeHub({
+      baseUrl: "http://127.0.0.1:3211/v1",
+      providers: [{ ...provider("ok"), enabled: false }],
+      defaultModel: "ok:deepseek-chat",
+    })
+  }
+
+  it("refuses generate() for a disabled provider without any network call", async () => {
+    const hub = await disabledHub()
+    const callsBefore = server.calls.length
+
+    let caught: unknown
+    try {
+      await hub.generate(request({ model: "ok:deepseek-chat" }))
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(ModelInfraError)
+    const failure = caught as ModelInfraError
+    expect(failure.code).toBe("PROVIDER_NOT_FOUND")
+    expect(failure.message).toContain('Provider "ok" is disabled')
+    expect(server.calls.length - callsBefore).toBe(0)
+    console.log(
+      `[F14] disabled generate(): code=${failure.code} message="${failure.message}" outbound=${server.calls.length - callsBefore}`,
+    )
+  })
+
+  it("reports a disabled provider as an error event for stream()", async () => {
+    const hub = await disabledHub()
+    const callsBefore = server.calls.length
+
+    const events = await collect(hub.stream(request({ model: "ok:deepseek-chat" })))
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: "error", error: { code: "PROVIDER_NOT_FOUND" } })
+    const error = events[0] as Extract<StreamEvent, { type: "error" }>
+    expect(error.error.message).toContain('Provider "ok" is disabled')
+    expect(server.calls.length - callsBefore).toBe(0)
+    console.log(`[F14] disabled stream(): events=${JSON.stringify(events)} outbound=${server.calls.length - callsBefore}`)
+  })
+
+  it("answers a disabled provider on the fetch path without a network call", async () => {
+    const hub = await disabledHub()
+    const callsBefore = server.calls.length
+
+    const response = await hub.fetch(`${hub.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "ok:deepseek-chat", messages: [{ role: "user", content: "hi" }] }),
+    })
+    const payload = (await response.json()) as { error: { code: string; message: string } }
+
+    expect(response.status).toBe(404)
+    expect(payload.error.code).toBe("PROVIDER_NOT_FOUND")
+    expect(payload.error.message).toContain('Provider "ok" is disabled')
+    expect(server.calls.length - callsBefore).toBe(0)
+    console.log(
+      `[F14] disabled fetch(): status=${response.status} body=${JSON.stringify(payload)} outbound=${server.calls.length - callsBefore}`,
+    )
+  })
+
+  it("refuses a bare model id routed through a disabled default provider", async () => {
+    const hub = await disabledHub()
+    expect(codeOf(() => hub.resolveModel("deepseek-chat"))).toBe("PROVIDER_NOT_FOUND")
+    expect(codeOf(() => hub.resolveModel())).toBe("PROVIDER_NOT_FOUND")
+  })
+
+  it("routes the provider again once it is re-enabled", async () => {
+    const hub = await disabledHub()
+    expect(codeOf(() => hub.resolveModel("ok:deepseek-chat"))).toBe("PROVIDER_NOT_FOUND")
+
+    hub.providers.setEnabled("ok", true)
+    const response = await hub.generate(request({ model: "ok:deepseek-chat" }))
+
+    expect(response.text).toBe("hello from the hub")
+    expect(hub.usage.query().events[0]).toMatchObject({ providerId: "ok", status: "ok", errorCode: undefined })
   })
 })

@@ -315,6 +315,56 @@ describe("ProviderRegistry", () => {
     expect(registry.defaultModel()).toBeNull()
   })
 
+  // S2: deleting a provider used to leave `default_model` dangling.
+  it("clears the default model and warns exactly once when its provider is removed", () => {
+    registry.add({ id: "deepseek", presetId: "deepseek" })
+    registry.add({ id: "openai", presetId: "openai" })
+    registry.setDefaultModel("deepseek:deepseek-chat")
+
+    expect(registry.remove("deepseek")).toBe(true)
+
+    expect(registry.defaultModel()).toBeNull()
+    expect(store.settings.get(DEFAULT_MODEL_SETTING)).toBeNull()
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain("deepseek:deepseek-chat")
+    expect(warnings[0]).toContain("deepseek")
+    expect(warnings[0]).toContain("providers.setDefaultModel")
+    // The other provider and its catalogue entry are untouched.
+    expect(registry.get("openai")?.protocol).toBe("openai")
+  })
+
+  it("keeps the default model when a different provider is removed", () => {
+    registry.add({ id: "deepseek", presetId: "deepseek" })
+    registry.add({ id: "openai", presetId: "openai" })
+    registry.setDefaultModel("deepseek:deepseek-chat")
+
+    expect(registry.remove("openai")).toBe(true)
+
+    expect(registry.defaultModel()).toBe("deepseek:deepseek-chat")
+    expect(warnings).toHaveLength(0)
+  })
+
+  it("does not touch the default model when the removed provider does not exist", () => {
+    registry.add({ id: "deepseek", presetId: "deepseek" })
+    registry.setDefaultModel("deepseek:deepseek-chat")
+
+    expect(registry.remove("ghost")).toBe(false)
+
+    expect(registry.defaultModel()).toBe("deepseek:deepseek-chat")
+    expect(warnings).toHaveLength(0)
+  })
+
+  it("does not clear a default model whose provider id merely starts with the removed id", () => {
+    registry.add({ id: "deepseek", presetId: "deepseek" })
+    registry.add({ id: "deepseek-proxy", presetId: "deepseek" })
+    registry.setDefaultModel("deepseek-proxy:deepseek-chat")
+
+    expect(registry.remove("deepseek")).toBe(true)
+
+    expect(registry.defaultModel()).toBe("deepseek-proxy:deepseek-chat")
+    expect(warnings).toHaveLength(0)
+  })
+
   it("splits provider:model refs on the first separator only", () => {
     expect(splitModelRef("openrouter:meta/llama-3:free")).toEqual({
       providerId: "openrouter",

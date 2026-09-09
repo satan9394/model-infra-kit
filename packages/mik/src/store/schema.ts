@@ -133,7 +133,10 @@ export function migrate(driver: SqlDriver): number {
     driver.exec("BEGIN")
     try {
       for (const statement of migration.statements) driver.exec(statement)
-      driver.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(migration.version, Date.now())
+      // `OR IGNORE`: two processes cold-starting the same new database can both
+      // see an empty `schema_migrations` and race on this primary key. Losing the
+      // race must not roll the migration back.
+      driver.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(migration.version, Date.now())
       driver.exec("COMMIT")
     } catch (error) {
       driver.exec("ROLLBACK")
