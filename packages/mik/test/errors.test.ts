@@ -73,6 +73,156 @@ describe("toModelInfraError", () => {
     }
   })
 
+  it("maps 429 to RATE_LIMIT, marks it retryable and redacts the message (S5)", () => {
+    const raw = `429 Too Many Requests: slow down, key sk-abcdefgh12345678 throttled (Authorization: Bearer ${HEX_KEY})`
+    const error = toModelInfraError(errorWith(raw, { status: 429 }), { providerId: "openai", model: "gpt-4o" })
+
+    expect(error.code).toBe("RATE_LIMIT")
+    expect(error.status).toBe(429)
+    expect(error.retryable).toBe(true)
+    expect(error.providerId).toBe("openai")
+    expect(error.model).toBe("gpt-4o")
+    // the branch emits its own sentence, so no upstream text (and no secret) reaches message
+    expect(error.message).toBe("The provider is rate limiting this key. Retry after a short delay.")
+    expectNoSecret(error.message)
+    // cause still keeps the untouched original for debug logs
+    expect((error.cause as Error).message).toBe(raw)
+  })
+
+  it("maps 429 carried on `code` and `response.status` to a retryable RATE_LIMIT", () => {
+    for (const input of [
+      errorWith("slow down", { code: 429 }),
+      errorWith("slow down", { response: { status: 429 } }),
+      errorWith("slow down", { data: { statusCode: 429 } }),
+    ]) {
+      const error = toModelInfraError(input)
+      expect(error.code).toBe("RATE_LIMIT")
+      expect(error.retryable).toBe(true)
+      expectNoSecret(error.message)
+    }
+  })
+
+  it("maps ETIMEDOUT, 408, 504 and AbortError to a retryable TIMEOUT (S5)", () => {
+    const cases: Array<[string, unknown]> = [
+      ["ETIMEDOUT", Object.assign(new Error("connect ETIMEDOUT 203.0.113.1:443"), { code: "ETIMEDOUT" })],
+      ["408", errorWith("late", { status: 408 })],
+      ["504", errorWith("late", { status: 504 })],
+      // AbortController.abort() in Node 22+ rejects with this DOMException
+      ["AbortError", new DOMException("This operation was aborted", "AbortError")],
+      // AbortSignal.timeout() rejects with this DOMException
+      ["TimeoutError", new DOMException("The operation was aborted due to timeout", "TimeoutError")],
+    ]
+
+    for (const [label, input] of cases) {
+      const error = toModelInfraError(input, { providerId: "deepseek" })
+      expect(error.code, label).toBe("TIMEOUT")
+      expect(error.retryable, label).toBe(true)
+      expect(error.providerId, label).toBe("deepseek")
+      expect(error.message, label).toBe("The provider did not respond in time.")
+      expectNoSecret(error.message)
+    }
+  })
+
+  it("redacts the TIMEOUT message when the upstream text carries a secret (S5)", () => {
+    const raw = `request aborted after 30s; upstream echoed sk-abcdefgh12345678 and x-api-key: ${HEADER_VALUE}`
+    const error = toModelInfraError(errorWith(raw, { status: 504 }))
+
+    expect(error.code).toBe("TIMEOUT")
+    expect(error.status).toBe(504)
+    expect(error.retryable).toBe(true)
+    expect(error.message).toBe("The provider did not respond in time.")
+    expectNoSecret(error.message)
+    expectNoSecret(JSON.stringify(error.toJSON()))
+    expect((error.cause as Error).message).toBe(raw)
+  })
+
+  it("maps a re-tagged AbortError (name only, no matching text) to a retryable TIMEOUT (F17)", () => {
+    // The exact construction from the task card: message text matches no branch.
+    const input = Object.assign(new Error("Request cancelled by caller"), { name: "AbortError" })
+    const error = toModelInfraError(input, { providerId: "openai" })
+
+    expect(error.code).toBe("TIMEOUT")
+    expect(error.retryable).toBe(true)
+    expect(error.status).toBeUndefined()
+    expect(error.message).toBe("The provider did not respond in time.")
+    expectNoSecret(error.message)
+    expect((error.cause as Error).message).toBe("Request cancelled by caller")
+    console.log(`[F17] name-only AbortError -> code=${error.code} status=${String(error.status)} retryable=${error.retryable}`)
+  })
+
+  it("maps a re-tagged TimeoutError to a retryable TIMEOUT and redacts its text (F17)", () => {
+    const raw = `deadline exceeded for sk-abcdefgh12345678`
+    const error = toModelInfraError(Object.assign(new Error(raw), { name: "TimeoutError" }))
+
+    expect(error.code).toBe("TIMEOUT")
+    expect(error.retryable).toBe(true)
+    expect(error.status).toBeUndefined()
+    expect(error.message).toBe("The provider did not respond in time.")
+    expectNoSecret(error.message)
+    expect((error.cause as Error).message).toBe(raw)
+  })
+
+  it("does not publish the DOMException legacy codes 20/23 as status (F17)", () => {
+    const cases: Array<[string, DOMException, number]> = [
+      ["AbortError", new DOMException("This operation was aborted", "AbortError"), 20],
+      ["TimeoutError", new DOMException("The operation was aborted due to timeout", "TimeoutError"), 23],
+    ]
+
+    for (const [label, input, legacyCode] of cases) {
+      // premise: the DOMException really does expose a numeric `code`
+      expect(input.code, label).toBe(legacyCode)
+      const error = toModelInfraError(input)
+      expect(error.code, label).toBe("TIMEOUT")
+      expect(error.retryable, label).toBe(true)
+      expect(error.status, label).toBeUndefined()
+      expect(error.message, label).toBe("The provider did not respond in time.")
+      console.log(
+        `[F17] DOMException ${label} (legacy code ${input.code}) -> code=${error.code} status=${String(error.status)} retryable=${error.retryable}`,
+      )
+    }
+  })
+
+  it("ignores numeric codes outside the HTTP status range (F17)", () => {
+    for (const extra of [
+      { code: 20 },
+      { code: 23 },
+      { code: 0 },
+      { code: -1 },
+      { code: 11000 },
+      { status: 99 },
+      { status: 600 },
+      { statusCode: 999 },
+      { response: { status: 20 } },
+      { data: { statusCode: 23 } },
+    ]) {
+      const error = toModelInfraError(errorWith("mystery failure", extra))
+      expect(error.status, JSON.stringify(extra)).toBeUndefined()
+      expect(error.code, JSON.stringify(extra)).toBe("UNKNOWN")
+    }
+  })
+
+  it("still reads real HTTP statuses, including the 599 upper boundary (F17 regression)", () => {
+    const cases: Array<[number, ModelInfraErrorCode]> = [
+      [401, "AUTH"],
+      [404, "MODEL_NOT_FOUND"],
+      [429, "RATE_LIMIT"],
+      [500, "PROVIDER"],
+      [503, "PROVIDER"],
+      [599, "PROVIDER"],
+    ]
+
+    for (const [status, code] of cases) {
+      const error = toModelInfraError(errorWith("mystery failure", { status }))
+      expect(error.status, String(status)).toBe(status)
+      expect(error.code, String(status)).toBe(code)
+      console.log(`[F17] status=${status} -> code=${error.code} status=${String(error.status)}`)
+    }
+
+    // 100 is inside the accepted range but no branch classifies it, and the
+    // UNKNOWN fallback does not carry a status (unchanged pre-F17 behaviour).
+    expect(toModelInfraError(errorWith("mystery failure", { status: 100 })).status).toBeUndefined()
+  })
+
   it("maps 400/422 and bad-request phrases to INVALID_REQUEST", () => {
     for (const input of [
       errorWith("bad body", { status: 400 }),

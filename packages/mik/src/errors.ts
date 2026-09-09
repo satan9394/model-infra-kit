@@ -77,6 +77,14 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
   const status = readStatus(error)
   const raw = error instanceof Error ? error.message : String(error)
   const lower = raw.toLowerCase()
+  /**
+   * `AbortController.abort()` and `AbortSignal.timeout()` surface as errors whose
+   * `name` is the only reliable marker: the DOMException messages are not
+   * contractual, and a plain `Error` re-tagged with `name: "AbortError"` carries
+   * no matching text at all.
+   */
+  const name = readName(error)
+  const aborted = name === "AbortError" || name === "TimeoutError"
   /** Build an error whose message is redacted on the way out. */
   const fail = (message: string, options: ModelInfraErrorOptions) => new ModelInfraError(redact(message), options)
 
@@ -107,7 +115,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
       cause: error,
     })
   }
-  if (status === 408 || status === 504 || /timeout|timed out|etimedout|aborted/.test(lower)) {
+  if (status === 408 || status === 504 || aborted || /timeout|timed out|etimedout|aborted/.test(lower)) {
     return fail("The provider did not respond in time.", {
       ...context,
       code: "TIMEOUT",
@@ -146,22 +154,38 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
   return fail(raw || "Unknown provider failure.", { ...context, code: "UNKNOWN", cause: error })
 }
 
+/**
+ * Only a real HTTP status code may reach `ModelInfraError.status`. A bare
+ * "numeric `code`" is not one: `DOMException` carries the legacy `AbortError` /
+ * `TimeoutError` codes 20/23 and Node errno values live in the same key, so
+ * anything outside 100–599 is ignored rather than published as a status.
+ */
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === "number" && value >= 100 && value <= 599
+}
+
+function readName(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined
+  const value = (error as Record<string, unknown>).name
+  return typeof value === "string" ? value : undefined
+}
+
 function readStatus(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined
   const record = error as Record<string, unknown>
   for (const key of ["status", "statusCode", "code"]) {
     const value = record[key]
-    if (typeof value === "number") return value
+    if (isHttpStatus(value)) return value
   }
   const response = record.response
   if (response && typeof response === "object") {
     const status = (response as Record<string, unknown>).status
-    if (typeof status === "number") return status
+    if (isHttpStatus(status)) return status
   }
   const data = record.data
   if (data && typeof data === "object") {
     const status = (data as Record<string, unknown>).statusCode
-    if (typeof status === "number") return status
+    if (isHttpStatus(status)) return status
   }
   return undefined
 }

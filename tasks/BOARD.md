@@ -28,29 +28,35 @@
 | F10 | 阻断 B1 + S1：init 有界等待 / close 契约 | P0 | R02 | ✅ 已验证（5s 上限 + STORAGE） |
 | F11 | 阻断 B3 + S11/S13：README 与发布物不实 | P0 | R02 | ✅ 已验证（tarball 实装） |
 | F12 | 阻断 B4 + S10：e2e 覆盖看板与 dist | P0 | R02 | ✅ 已验证（12/12） |
+| F13 | S2 悬空默认模型 + S9 守卫测试扩面 | P1 | R02 | ✅ 已验证（扫 54 个源文件，含红→绿反证） |
+| F14 | S3 禁用供应商仍被路由 + S6 放弃的流 | P1 | R02 | ✅ 已验证（出网计数 0 / ABANDONED） |
+| F15 | S4 只读库裸错误 + S14 迁移竞态 | P1 | R02 | ✅ 已验证（开库即抛 STORAGE） |
+| F16 | S5 429/超时测试 + S8 契约补录 | P2 | R02 | ✅ 已验证（+5 用例，契约补齐） |
+| F17 | readStatus 误读 DOMException 码 + AbortError | P2 | F16 实测 | ✅ 已验证（status=undefined、TIMEOUT） |
+| F18 | S13 看板 `check-port.mjs` 的 PORT | P2 | R02 | ✅ 已验证（F18 前提有误：devDep 实际被 serve-mik.mjs 使用，已保留） |
 
 状态图例：⏳ 待派 / 🔄 进行中 / ✅ 已验证 / ❌ 打回
 
 ## 当前指标（最终）
 
-- 主包源码 54+ 个文件；测试 4300+ 行
-- `pnpm --filter model-infra-kit test` → **287 passed / 12 files**
+- `pnpm --filter model-infra-kit test` → **317 passed / 13 files**
 - `pnpm --filter model-infra-kit typecheck` → 0 错误
-- `pnpm --filter @mik/dashboard test` → 7/7
+- `pnpm --filter @mik/dashboard test` → 7/7；`build` → 成功
 - `node scripts/e2e/run.mjs` → **12/12 PASS，exit 0**（含 DASH 看板场景与 DIST 发布产物冒烟）
 - `pnpm pack` tarball 含 LICENSE + shebang，临时工程安装后 `npx mik --help` 可用
 
-## V0.2 待办（R02 建议级未做的部分）
+## V0.2 已清（R02 建议级）
 
-- S2 删除 provider 不清 `default_model`（悬空后省略 model 的请求 404）
-- S3 `enabled:false` 只影响目录同步，仍会被路由
-- S4 只读库首次写抛裸 `ERR_SQLITE_ERROR` 且被静默
-- S5 429/超时映射缺测试
-- S6 放弃的流记成 `ok` + `$0`
-- S8 契约漂移：`currentAppId`/`isEnabled`/`splitModelRef`/`PROTOCOL_PACKAGES`/`readOpenAiUsage`/`createMikFetch` 未进 `interfaces.md`
-- S9 协议守卫测试只扫 3 个文件
-- S13 看板未随包发布（README 已如实说明；`apps/dashboard` 未用 devDep、`check-port.mjs` 的 `PORT=` 仍无效）
-- S14 `schema_migrations` INSERT 无 `OR IGNORE`（8 进程冷启动未复现）
+S2 悬空默认模型 ✅ / S3 禁用供应商仍被路由 ✅ / S4 只读库裸错误被静默 ✅ / S5 429·超时映射测试 ✅ /
+S6 放弃的流记成 ok ✅ / S8 契约漂移 ✅ / S9 守卫测试太窄 ✅ / S13 看板 PORT 脚本 ✅ / S14 迁移竞态 ✅
+
+**未做（有意）**：`src/` 内 `@internal` JSDoc 标签（目前只记在 `docs/interfaces.md`）；
+`models.refresh()` 对禁用 provider 仍出网（卡片范围只覆盖 generate/stream/fetch）。
+
+## 评审纠错记录
+
+- R02 的 **S13「`model-infra-kit` devDependency 未被使用」是错的**：`apps/dashboard/scripts/serve-mik.mjs:7,42` 确实 import 它，删掉会破坏看板启动器。已保留并在此记录。
+
 
 ## 指挥决策记录
 
