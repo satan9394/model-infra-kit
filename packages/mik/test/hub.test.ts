@@ -141,6 +141,21 @@ const STREAM_TOOL_CHUNKS = sse(
   "[DONE]",
 )
 
+/**
+ * A stream that starts producing text and then fails mid-flight: the openai
+ * compatible parser turns the `{"error": ...}` frame into an error part after
+ * the deltas that came before it.
+ */
+const STREAM_ERROR_CHUNKS = sse(
+  JSON.stringify({
+    id: "1",
+    model: "deepseek-chat",
+    choices: [{ index: 0, delta: { role: "assistant", content: "partial " }, finish_reason: null }],
+  }),
+  JSON.stringify({ error: { message: "upstream stream exploded", type: "server_error", code: 500 } }),
+  "[DONE]",
+)
+
 const MODELS = {
   object: "list",
   data: [
@@ -166,6 +181,13 @@ const server = createTestServer({
       type: "stream-chunks",
       headers: { "content-type": "text/event-stream" },
       chunks: STREAM_CHUNKS,
+    },
+  },
+  [`${root}/streamerror/chat/completions`]: {
+    response: {
+      type: "stream-chunks",
+      headers: { "content-type": "text/event-stream" },
+      chunks: STREAM_ERROR_CHUNKS,
     },
   },
   [`${root}/streamtool/chat/completions`]: {
@@ -233,7 +255,7 @@ async function makeHub(options: ModelInfraOptions = {}): Promise<ModelInfra> {
     syncCatalog: false,
     // The SDK's own retry loop would add seconds to every failure case.
     maxRetries: 0,
-    providers: ["ok", "tools", "stream", "streamtool", "loop", "fail", "broken"].map(provider),
+    providers: ["ok", "tools", "stream", "streamerror", "streamtool", "loop", "fail", "broken"].map(provider),
     defaultModel: "ok:deepseek-chat",
     onWarn: (message) => warnings.push(message),
     ...options,
@@ -328,6 +350,7 @@ describe("ModelInfra.init", () => {
       "loop",
       "ok",
       "stream",
+      "streamerror",
       "streamtool",
       "tools",
     ])
@@ -638,7 +661,73 @@ describe("stream", () => {
     expect(error).toBeDefined()
     expect(error!.error.code).toBe("PROVIDER")
     expect(error!.error.message).not.toContain(TEST_KEY)
+    // Draining to the end must still leave exactly one row, not two.
+    expect(hub.usage.query().total).toBe(1)
     expect(hub.usage.query().events[0]).toMatchObject({ status: "error", errorCode: "PROVIDER", isStreaming: true })
+  })
+
+  it("records a failed row when the consumer stops at a mid-stream error", async () => {
+    const hub = await makeHub()
+    const events: StreamEvent[] = []
+    for await (const event of hub.stream(request({ model: "streamerror:deepseek-chat" }))) {
+      events.push(event)
+      if (event.type === "error") break
+    }
+
+    // The deltas before the failure still reached the consumer.
+    expect(events.map((event) => event.type)).toEqual(["text_delta", "error"])
+    expect(events.at(-1)).toMatchObject({ type: "error", error: { code: "PROVIDER" } })
+
+    // Breaking here closes the generator; the row must exist anyway.
+    const page = hub.usage.query()
+    expect(page.total).toBe(1)
+    expect(page.events[0]).toMatchObject({
+      source: "stream",
+      isStreaming: true,
+      status: "error",
+      errorCode: "PROVIDER",
+      modelActual: "deepseek-chat",
+    })
+  })
+
+  it("records an ok row when the consumer stops at finish", async () => {
+    const hub = await makeHub()
+    let stops = 0
+    for await (const event of hub.stream(request({ model: "stream:deepseek-chat" }))) {
+      if (event.type === "finish") {
+        stops += 1
+        break
+      }
+    }
+
+    expect(stops).toBe(1)
+    const page = hub.usage.query()
+    // Exactly one row: the success path and the abandon path must not both write.
+    expect(page.total).toBe(1)
+    expect(page.events[0]).toMatchObject({
+      source: "stream",
+      isStreaming: true,
+      status: "ok",
+      modelActual: "deepseek-chat",
+    })
+    expect(page.events[0]!.cost.source).toBe("fallback")
+  })
+
+  it("records a row when the consumer stops at the very first delta", async () => {
+    const hub = await makeHub()
+    for await (const event of hub.stream(request({ model: "stream:deepseek-chat" }))) {
+      if (event.type === "text_delta") break
+    }
+
+    const page = hub.usage.query()
+    // No error and no finish were ever seen, so the status is whatever was known.
+    expect(page.total).toBe(1)
+    expect(["ok", "error"]).toContain(page.events[0]!.status)
+    expect(page.events[0]).toMatchObject({
+      source: "stream",
+      isStreaming: true,
+      modelActual: "deepseek-chat",
+    })
   })
 
   it("reports an unroutable model as an error event", async () => {

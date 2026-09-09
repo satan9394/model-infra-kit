@@ -130,6 +130,23 @@ function normalizeBaseUrl(url: string): string {
   return trimmed || DEFAULT_BASE_URL
 }
 
+/** Everything `record` needs to write one usage row. */
+interface UsageRecordInput {
+  requestId: string
+  at: number
+  source: string
+  resolved: ResolvedModelRef
+  actual: string
+  usage: TokenUsage
+  cost: CostInfo
+  latencyMs: number
+  firstTokenMs?: number
+  status: "ok" | "error"
+  errorCode?: string
+  isStreaming: boolean
+  request?: ModelRequest
+}
+
 /**
  * The facade a host embeds. After `init()` the three access surfaces —
  * `generate` / `stream` / `fetch` — all route through the same registry,
@@ -499,6 +516,19 @@ export class ModelInfra {
     let firstTokenMs: number | undefined
     let stepUsage: TokenUsage | undefined
     let failure: ModelInfraError | undefined
+    /**
+     * A consumer that stops iterating (`break` after `error`, or after the very
+     * first `text_delta`) closes this generator at its current `yield`, so the
+     * accounting below never runs. Every write goes through `recordOnce` and the
+     * `finally` at the end of this method is the backstop, so exactly one row is
+     * written per call no matter where the consumer stops.
+     */
+    let recorded = false
+    const recordOnce = (input: UsageRecordInput): void => {
+      if (recorded) return
+      recorded = true
+      this.record(input)
+    }
 
     const markFirst = () => {
       if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt
@@ -608,7 +638,7 @@ export class ModelInfra {
       }
 
       if (failure) {
-        this.record({
+        recordOnce({
           requestId,
           at: startedAt,
           source: "stream",
@@ -629,7 +659,7 @@ export class ModelInfra {
       yield { type: "usage", usage: normalized.usage, cost }
       // Recorded before `finish`, so a consumer that stops at `finish` can rely
       // on the row already being durable.
-      this.record({
+      recordOnce({
         requestId,
         at: startedAt,
         source: "stream",
@@ -646,7 +676,7 @@ export class ModelInfra {
       yield { type: "finish", response }
     } catch (error) {
       const mapped = toProviderError(error, { providerId: resolved.providerId, model: resolved.modelId })
-      this.record({
+      recordOnce({
         requestId,
         at: startedAt,
         source: "stream",
@@ -662,6 +692,28 @@ export class ModelInfra {
         request,
       })
       yield { type: "error", error: { code: mapped.code, message: mapped.message } }
+    } finally {
+      // The consumer abandoned the stream before the accounting above could run
+      // (`return()` on a generator resumes it with a return completion, which
+      // runs this block). Meter the call with whatever is known by now, so an
+      // abandoned stream still leaves exactly one usage row behind.
+      if (!recorded) {
+        recordOnce({
+          requestId,
+          at: startedAt,
+          source: "stream",
+          resolved,
+          actual: resolved.modelId,
+          usage: stepUsage ?? ZERO_USAGE(),
+          cost: MISSING_COST(),
+          latencyMs: Date.now() - startedAt,
+          firstTokenMs,
+          status: failure ? "error" : "ok",
+          errorCode: failure?.code,
+          isStreaming: true,
+          request,
+        })
+      }
     }
   }
 
@@ -694,21 +746,7 @@ export class ModelInfra {
     })
   }
 
-  private record(input: {
-    requestId: string
-    at: number
-    source: string
-    resolved: ResolvedModelRef
-    actual: string
-    usage: TokenUsage
-    cost: CostInfo
-    latencyMs: number
-    firstTokenMs?: number
-    status: "ok" | "error"
-    errorCode?: string
-    isStreaming: boolean
-    request?: ModelRequest
-  }): void {
+  private record(input: UsageRecordInput): void {
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,
       ts: input.at,
