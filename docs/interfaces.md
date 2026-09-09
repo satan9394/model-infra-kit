@@ -214,6 +214,92 @@ POST /v1/chat/completions      GET /v1/models
 
 ---
 
+## F16 — 附加公共面（additive）
+
+> 来源：R02 的 S8（契约漂移）。以下成员**已经由 `src/index.ts` 或公开 HTTP 面导出**，此前没写进本文件。
+> 本卡只补文档与测试、**不改任何 `src/**`**，所以「稳定 / `@internal`」标签记在本节；`src/` 内目前没有 `@internal` JSDoc（R02 已确认零命中），要把标签落进代码需另开卡。
+>
+> 约定：**稳定**＝公共契约，改签名/语义必须先改本文件（规则 5）；**`@internal` 风格**＝为宿主便利而存在，不承诺 semver，可在次版本调整。
+
+### 稳定 — 模型引用与协议表
+
+```ts
+// src/registry/registry.ts（ProviderRegistry 的模块级导出）
+export const MODEL_REF_SEPARATOR = ":"                 // 稳定
+export const DEFAULT_MODEL_SETTING = "default_model"   // 稳定：settings 表里存默认 `provider:model` 的键
+/** 稳定。按**第一个** `:` 切分并 trim；任一侧为空（`:x` / `x:` / 无分隔符）→ null。 */
+export function splitModelRef(ref: string): { providerId: string; modelId: string } | null
+// hub.resolveModel()、server 的 /v1/chat/completions、ai/bridge 都走它——不要在调用点另写解析。
+
+// src/registry/presets.ts
+export const PROTOCOL_PACKAGES: Record<Protocol, string>  // 稳定：protocol → `@ai-sdk/*` 包名，唯一真相（预设表与 bridge 共用）
+export function packageForProtocol(protocol: Protocol): string | undefined  // 稳定：上表的读取器
+
+// src/ai/protocols.ts
+export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol>          // 稳定：protocol → factoryExports + factoryOptions
+export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol>  // 稳定：protocol → 模型列表探测（url / headers / parse / defaultCapabilities）
+export interface DiscoveredModel {
+  modelId: string
+  displayName?: string
+  contextWindow?: number
+  maxOutputTokens?: number
+  capabilities?: Partial<ModelCapabilities>
+}
+// 稳定：供应商自身列表端点的归一化结果，ai.discoverModels() 的元素类型。
+/** 稳定签名；行为依赖可选 peer：调用时才 `import(npmPackage)`。 */
+export function loadProviderFactory(protocol: Protocol): Promise<ProviderFactory>
+```
+
+- `loadProviderFactory()` 失败面：未知 protocol → `PROVIDER`；peer 未安装 → `PROVIDER`，文案含 `npm i <pkg>`；包在但没有期望导出 → `PROVIDER`。三种都不抛裸 `ERR_MODULE_NOT_FOUND`。
+- `SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 是「协议是一等公民」（规则 3）的落点：每个协议一行，任何 provider 差异只能进 `provider.meta`。
+
+### 稳定 — fetch 适配器
+
+```ts
+// src/fetch.ts
+export interface ForwardedCall { requestId; at; providerId; modelRequested; modelActual; usage; latencyMs; firstTokenMs?; status: "ok" | "error"; errorCode?; isStreaming }
+export interface FetchTarget { providerId: string; modelId: string; requested: string }
+export interface MikFetchOptions {
+  resolveProvider(providerId: string): ResolvedProvider   // 必需；缺失抛 PROVIDER_NOT_FOUND / CREDENTIAL
+  resolveModel(model?: string): FetchTarget               // 必需；裸模型名走默认 provider
+  onCall(call: ForwardedCall): void                       // 必需；**必须不抛错**（hub 侧已包）
+  baseUrl(): string                                       // 必需；每次调用时读取
+  fetch?: typeof globalThis.fetch                         // 可选：传输覆盖（测试）
+  now?: () => number                                      // 可选
+  requestId?: () => string                                // 可选
+}
+export function createMikFetch(options: MikFetchOptions): typeof fetch
+export function readOpenAiUsage(payload: Record<string, unknown> | null): { usage: TokenUsage; model?: string } | null
+```
+
+- `createMikFetch()` 让现有 OpenAI 兼容客户端带计量：`new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })`。请求体的 `model` 决定路由，凭据由 provider 协议附加；**调用方自带的密钥不转发**；响应按字节原样返回（只读 clone）。
+- `readOpenAiUsage()` 兼容 `prompt_tokens`/`input_tokens`、`cached_tokens`/`prompt_cache_hit_tokens`/`cache_read_tokens`、`cache_creation_tokens`/`cache_write_tokens`、`reasoning_tokens`；**一个字段都读不到时返回 `null`**（而不是全 0 的 `TokenUsage`），调用方据此区分「上游没报 usage」与「确实为 0」。
+
+### 稳定 — `X-ModelHub-Provider` 请求头（HTTP 面）
+
+```
+POST /v1/chat/completions
+X-ModelHub-Provider: <providerId>
+```
+
+- 只在 `POST /v1/chat/completions` 生效（`server/openai.ts:381`）；`GET /v1/models` 不读它。
+- `model` 已是 `provider:model` → 以 `model` 为准；裸模型名 → 用该头拼成 `provider:model`。
+- 给了头但 `model` 为空：取 `providers.defaultModel()` 的模型 id + 该 provider；**没有默认模型时 400 `INVALID_REQUEST`**（文案点名 `X-ModelHub-Provider`）。
+- 它不是凭据通道：provider 密钥仍只来自 credential store，头里放什么都不参与鉴权。
+
+### `@internal` 风格 — 不承诺 semver
+
+```ts
+// src/usage/service.ts — UsageService.currentAppId / UsageService.isEnabled
+get currentAppId(): string   // 本实例 appId；usage 查询默认按它过滤，`{ appId: "" }` 才放开
+get isEnabled(): boolean     // 与构造入参 `enabled` 同值；false 时 record() 直接返回 false
+```
+
+- 两个只读 getter 是宿主便利（源码注释即写明 "Additive convenience, not part of the contract"），用于日志/自检/看板展示。
+- **不要**用它们做权限或隔离判断：多 app 隔离由 `UsageService` 内部保证（见上文 `get()` 语义）。
+
+---
+
 ## 指挥裁决（R01 评审后，2026-09-09）
 
 | 编号 | 裁决 | 落到哪张卡 |
