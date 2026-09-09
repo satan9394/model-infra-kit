@@ -1,12 +1,15 @@
 // Launcher for the upstream `mik serve` HTTP API.
 //
-// Why this exists: `packages/mik/dist/cli.mjs serve` currently cannot load its
-// own server bundle (the CLI resolves `../server.mjs` relative to `dist/`, which
-// points outside the package), so `mik serve` fails with
-// "Could not load the HTTP server (mik/server)". This launcher uses only the
-// package's public entry points (`model-infra-kit` + `model-infra-kit/server`),
-// so the dashboard can be developed and verified without touching the main
-// package. Delete it once T07's CLI loader is fixed.
+// History: this existed because `packages/mik/dist/cli.mjs serve` could not load
+// its own server bundle (the CLI resolved `../server.mjs` relative to `dist/`,
+// pointing outside the package). **F06 fixed that** — `mik serve` works from both
+// the source and the dist layout now, so prefer it:
+//
+//   node packages/mik/dist/cli.mjs serve --port 3211
+//
+// This launcher is kept as an equivalent fallback that uses only the package's
+// public entry points (`model-infra-kit` + `model-infra-kit/server`), which is
+// handy when you want to bypass the CLI entirely.
 //
 // Usage:
 //   node apps/dashboard/scripts/serve-mik.mjs

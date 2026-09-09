@@ -830,6 +830,241 @@ describe("/api/usage", () => {
   })
 })
 
+describe("F19 — POST /api/usage/events", () => {
+  interface ReportResult {
+    accepted: number
+    duplicates: number
+    rejected: Array<{ index: number; reason: string }>
+  }
+
+  interface StoredEvent {
+    requestId: string
+    appId: string
+    source: string
+    providerId: string
+    modelRequested: string
+    modelActual: string
+    pricingModel?: string
+    usage: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number }
+    cost: { usd: number; source: string; basis: string }
+    latencyMs?: number
+    sessionId?: string
+    status: string
+    errorCode?: string
+    isStreaming: boolean
+    tags?: Record<string, string>
+  }
+
+  function report(bodyValue: unknown, token: string | null = TOKEN): Promise<Response> {
+    return post("/api/usage/events", bodyValue, token)
+  }
+
+  /** One event per entry, all valid unless the test says otherwise. */
+  function events(count: number, prefix: string): unknown[] {
+    return Array.from({ length: count }, (_, index) => ({
+      requestId: `${prefix}-${index}`,
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      usage: { input: 1, output: 0 },
+    }))
+  }
+
+  it("accepts a single report and stores it with source `report`", async () => {
+    const response = await report({
+      requestId: "host-1",
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      usage: { input: 1000, output: 500, cacheRead: 200 },
+      latencyMs: 1234,
+      sessionId: "sess-1",
+      tags: { feature: "summarise" },
+    })
+    expect(response.status).toBe(200)
+    expect(await body<ReportResult>(response)).toEqual({ accepted: 1, duplicates: 0, rejected: [] })
+
+    const page = await body<{ total: number; events: StoredEvent[] }>(await api("/api/usage/logs"))
+    expect(page.total).toBe(1)
+    expect(page.events[0]).toMatchObject({
+      requestId: "host-1",
+      appId: "t07-app",
+      source: "report",
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      status: "ok",
+      isStreaming: false,
+      latencyMs: 1234,
+      sessionId: "sess-1",
+      tags: { feature: "summarise" },
+    })
+    // The host left `cacheWrite` out, so it is stored as 0 rather than invented.
+    expect(page.events[0]!.usage).toEqual({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 0, reasoning: 0 })
+  })
+
+  it("counts a repeated requestId as a duplicate and never rewrites the first row", async () => {
+    const first = await report({
+      requestId: "host-dup",
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      usage: { input: 10, output: 5 },
+      cost: { usd: 0.5 },
+    })
+    expect(await body<ReportResult>(first)).toMatchObject({ accepted: 1 })
+
+    const again = await report({
+      requestId: "host-dup",
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      usage: { input: 999, output: 999 },
+      cost: { usd: 9.99 },
+    })
+    expect(await body<ReportResult>(again)).toEqual({ accepted: 0, duplicates: 1, rejected: [] })
+
+    const page = await body<{ total: number; events: StoredEvent[] }>(await api("/api/usage/logs"))
+    expect(page.total).toBe(1)
+    expect(page.events[0]!.cost).toMatchObject({ usd: 0.5, source: "manual" })
+    expect(page.events[0]!.usage.input).toBe(10)
+  })
+
+  it("prices an event the host did not price itself", async () => {
+    const response = await report({
+      requestId: "host-priced",
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      usage: { input: 1000, output: 500 },
+    })
+    expect(await body<ReportResult>(response)).toMatchObject({ accepted: 1 })
+
+    const event = hub.usage.get("host-priced", { appId: "" })
+    expect(event).not.toBeNull()
+    expect(event!.cost.usd).toBeGreaterThan(0)
+    expect(event!.cost.source).not.toBe("missing")
+    expect(event!.cost.source).not.toBe("manual")
+    expect(event!.pricingModel).toBeTruthy()
+  })
+
+  it("accepts a batch and rejects only the invalid items, with index and reason", async () => {
+    const response = await report({
+      events: [
+        { requestId: "batch-ok", providerId: "ok", modelActual: "deepseek-chat", usage: { input: 10, output: 5 } },
+        { providerId: "ok", usage: { input: 1, output: 1 } },
+        { requestId: "batch-bad", providerId: "  ", usage: { input: 1, output: 1 } },
+      ],
+    })
+    expect(response.status).toBe(200)
+
+    const result = await body<ReportResult>(response)
+    expect(result.accepted).toBe(1)
+    expect(result.duplicates).toBe(0)
+    expect(result.rejected.map((item) => item.index)).toEqual([1, 2])
+    expect(result.rejected[0]!.reason).toContain("requestId")
+    expect(result.rejected[1]!.reason).toContain("providerId")
+
+    const page = hub.usage.query()
+    expect(page.total).toBe(1)
+    expect(page.events[0]!.requestId).toBe("batch-ok")
+  })
+
+  it("rejects a bad token count without costing its neighbours their row", async () => {
+    const response = await report({
+      events: [
+        { requestId: "u-0", providerId: "ok", usage: { input: -1, output: 0 } },
+        { requestId: "u-1", providerId: "ok", usage: { input: 1.5 } },
+        { requestId: "u-2", providerId: "ok", usage: { input: "10" } },
+        { requestId: "u-3", providerId: "ok", usage: { input: 10, output: 5 } },
+      ],
+    })
+
+    const result = await body<ReportResult>(response)
+    expect(result.accepted).toBe(1)
+    expect(result.duplicates).toBe(0)
+    expect(result.rejected.map((item) => item.index)).toEqual([0, 1, 2])
+    for (const item of result.rejected) expect(item.reason).toContain("usage")
+    expect(hub.usage.query().events.map((event) => event.requestId)).toEqual(["u-3"])
+  })
+
+  it("redacts tag values before they reach the store", async () => {
+    await report({
+      requestId: "host-tags",
+      providerId: "ok",
+      modelActual: "deepseek-chat",
+      usage: { input: 1, output: 0 },
+      tags: { feature: "chat", note: "Bearer sk-live-abcdefghijklmnop", api_key: "sk-live-abcdefghijklmnop" },
+    })
+
+    const event = hub.usage.get("host-tags", { appId: "" })!
+    expect(event.tags).toMatchObject({ feature: "chat", note: "Bearer [REDACTED]", api_key: "[REDACTED]" })
+    expect(JSON.stringify(event.tags)).not.toContain("sk-live")
+  })
+
+  it("honours an explicit appId and the error fields", async () => {
+    await report({
+      requestId: "host-other",
+      appId: "other-host-app",
+      providerId: "ok",
+      usage: { input: 1, output: 0 },
+      status: "error",
+      errorCode: "PROVIDER",
+      isStreaming: true,
+    })
+
+    expect(hub.usage.get("host-other", { appId: "" })).toMatchObject({
+      appId: "other-host-app",
+      source: "report",
+      status: "error",
+      errorCode: "PROVIDER",
+      isStreaming: true,
+    })
+    // Another app's report stays invisible to this app's HTTP surface (B1).
+    expect((await body<{ total: number }>(await api("/api/usage/logs"))).total).toBe(0)
+  })
+
+  it("answers an empty body with one rejected item rather than an error", async () => {
+    const response = await report({})
+    expect(response.status).toBe(200)
+
+    const result = await body<ReportResult>(response)
+    expect(result).toMatchObject({ accepted: 0, duplicates: 0 })
+    expect(result.rejected).toHaveLength(1)
+    expect(result.rejected[0]!.index).toBe(0)
+    expect(result.rejected[0]!.reason).toContain("requestId")
+  })
+
+  it("refuses a report of more than 500 events and stores none of it", async () => {
+    const response = await report({ events: events(501, "over") })
+    expect(response.status).toBe(400)
+
+    const payload = await body<ErrorBody>(response)
+    expect(payload.error.code).toBe("INVALID_REQUEST")
+    expect(payload.error.message).toContain("500")
+    expect(payload.error.message).toContain("501")
+    expect(hub.usage.query().total).toBe(0)
+  })
+
+  it("accepts exactly 500 events", async () => {
+    const result = await body<ReportResult>(await report({ events: events(500, "cap") }))
+    expect(result).toMatchObject({ accepted: 500, duplicates: 0, rejected: [] })
+    expect(hub.usage.query().total).toBe(500)
+  })
+
+  it("requires the bearer token", async () => {
+    const response = await report({ requestId: "anon", providerId: "ok", usage: { input: 1, output: 0 } }, null)
+    expect(response.status).toBe(401)
+    expect((await body<ErrorBody>(response)).error.code).toBe("AUTH")
+    expect(hub.usage.query().total).toBe(0)
+  })
+
+  it("is described in /openapi.json", async () => {
+    const document = await body<{
+      paths: Record<string, { post?: { requestBody?: unknown; responses: Record<string, unknown> } }>
+    }>(await api("/openapi.json"))
+
+    const operation = document.paths["/api/usage/events"]?.post
+    expect(operation).toBeTruthy()
+    expect(operation!.requestBody).toBeTruthy()
+    expect(Object.keys(operation!.responses)).toEqual(expect.arrayContaining(["200", "400", "401"]))
+  })
+})
+
 describe("GET /api/events", () => {
   it("streams usage, catalogue and price events, then cleans up on disconnect", async () => {
     const controller = new AbortController()
@@ -891,6 +1126,7 @@ describe("GET /openapi.json", () => {
     "/api/usage/by-model",
     "/api/usage/logs",
     "/api/usage/logs/{id}",
+    "/api/usage/events",
     "/api/events",
     "/openapi.json",
     "/v1/chat/completions",

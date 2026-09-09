@@ -208,9 +208,46 @@ GET  /api/pricing              PUT /api/pricing/:modelId   POST /api/pricing/syn
 DELETE /api/pricing/:modelId   （T07 追加并经指挥批准：看板需要撤销手动价）
 GET  /api/usage/summary|trends|by-provider|by-model|logs|logs/:id
 GET  /api/events               （SSE：usage.recorded / catalog.updated / pricing.updated）
+POST /api/usage/events         （F19 新增：宿主自己调模型，把用量上报进来）
 GET  /openapi.json
 POST /v1/chat/completions      GET /v1/models
 ```
+
+### `POST /api/usage/events`（F19）
+
+宿主不想改调用链、只想统一记账时用。**鉴权**与其它端点一致（设了 token 就要求 `Bearer`）。
+
+请求体：单条，或 `{ events: [...] }` 批量（单次上限 500 条）。
+
+```ts
+{
+  requestId: string            // 必填，幂等键
+  ts?: number                  // 毫秒时间戳，缺省取服务端当前时间
+  providerId: string           // 必填
+  modelRequested?: string
+  modelActual?: string         // 计价用它
+  usage: {                     // 必填；非负整数，缺省字段按 0
+    input: number
+    output: number
+    cacheRead?: number
+    cacheWrite?: number
+    reasoning?: number
+  }
+  cost?: { usd: number }       // 可选；给了就用你的，不给则服务端按 pricing 估算
+  latencyMs?: number
+  firstTokenMs?: number
+  status?: "ok" | "error"      // 默认 "ok"
+  errorCode?: string
+  isStreaming?: boolean
+  sessionId?: string
+  appId?: string               // 缺省用服务端 appId；显式给出则以给出值为准（服务端视为可信写入方）
+  tags?: Record<string, string> // 值经 redactDeep 脱敏后入库
+}
+```
+
+响应：`{ accepted: number, duplicates: number, rejected: Array<{ index: number; reason: string }> }`
+
+规则：`requestId` 重复 → 计入 `duplicates` 且不覆盖已有行；未给 `cost` 时服务端用 `pricing.estimate({ model: modelActual, at: ts, usage })` 计价并落 `pricingSource`；落库 `source` 固定为 `"report"`。
 
 ---
 

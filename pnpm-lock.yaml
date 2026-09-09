@@ -58,6 +58,15 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  examples/agent-cli:
+    dependencies:
+      ai:
+        specifier: ^7.0.94
+        version: 7.0.94(zod@4.5.4)
+      model-infra-kit:
+        specifier: workspace:*
+        version: link:../../packages/mik
+
   examples/cli-agent:
     dependencies:
       ai:
