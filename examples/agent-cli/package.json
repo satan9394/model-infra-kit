@@ -1,0 +1,16 @@
+{
+  "name": "@mik/example-agent-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Example host: a minimal Agent CLI skeleton (model add|list|use, chat, stats) built on model-infra-kit.",
+  "scripts": {
+    "start": "node --experimental-transform-types --disable-warning=ExperimentalWarning --import ../../scripts/e2e/loader.mjs index.ts",
+    "mock": "node mock-provider.mjs",
+    "pitfalls": "node --experimental-transform-types --disable-warning=ExperimentalWarning --import ../../scripts/e2e/loader.mjs pitfalls.ts"
+  },
+  "dependencies": {
+    "ai": "^7.0.94",
+    "model-infra-kit": "workspace:*"
+  }
+}

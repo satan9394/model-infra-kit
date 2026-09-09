@@ -34,6 +34,9 @@
 | F16 | S5 429/超时测试 + S8 契约补录 | P2 | R02 | ✅ 已验证（+5 用例，契约补齐） |
 | F17 | readStatus 误读 DOMException 码 + AbortError | P2 | F16 实测 | ✅ 已验证（status=undefined、TIMEOUT） |
 | F18 | S13 看板 `check-port.mjs` 的 PORT | P2 | R02 | ✅ 已验证（F18 前提有误：devDep 实际被 serve-mik.mjs 使用，已保留） |
+| T11 | 接入方式全景与运营分析 | P1 | — | ✅ 已验证（`docs/integration-playbook.md`） |
+| T12 | Agent CLI 接入指南 + 可跑骨架 | P0 | — | ✅ 已验证（`docs/agent-cli-guide.md` + `examples/agent-cli/`） |
+| F19 | 实现 `POST /api/usage/events`（上报面） | P0 | T11 发现 | ✅ 已验证（server 测试 38→50） |
 
 状态图例：⏳ 待派 / 🔄 进行中 / ✅ 已验证 / ❌ 打回
 

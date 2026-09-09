@@ -252,7 +252,7 @@ function schemas(): Record<string, Schema> {
         requestId: { type: "string" },
         appId: { type: "string" },
         ts: { type: "integer" },
-        source: { type: "string", description: "`generate`, `stream` or `fetch`." },
+        source: { type: "string", description: "`generate`, `stream`, `fetch` or `report`." },
         providerId: { type: "string" },
         modelRequested: { type: "string" },
         modelActual: { type: "string" },
@@ -266,6 +266,57 @@ function schemas(): Record<string, Schema> {
         isStreaming: { type: "boolean" },
         sessionId: { type: "string" },
         tags: { type: "object", additionalProperties: { type: "string" } },
+      },
+    },
+    UsageEventInput: {
+      type: "object",
+      required: ["requestId", "providerId", "usage"],
+      properties: {
+        requestId: { type: "string", description: "Idempotency key: a duplicate is counted, never overwritten." },
+        ts: { type: "integer", description: "Epoch milliseconds; defaults to the server clock." },
+        providerId: { type: "string" },
+        modelRequested: { type: "string" },
+        modelActual: { type: "string", description: "The model the price is estimated from when `cost` is absent." },
+        usage: {
+          type: "object",
+          description: "Non-negative integer token counts. A missing count is stored as 0.",
+          properties: {
+            input: { type: "integer", minimum: 0 },
+            output: { type: "integer", minimum: 0 },
+            cacheRead: { type: "integer", minimum: 0 },
+            cacheWrite: { type: "integer", minimum: 0 },
+            reasoning: { type: "integer", minimum: 0 },
+          },
+        },
+        cost: {
+          type: "object",
+          description: "The host's own figure. Omitted, the server prices the event itself.",
+          properties: { usd: { type: "number", minimum: 0 } },
+        },
+        latencyMs: { type: "integer", minimum: 0 },
+        firstTokenMs: { type: "integer", minimum: 0 },
+        status: { type: "string", enum: ["ok", "error"], default: "ok" },
+        errorCode: { type: "string" },
+        isStreaming: { type: "boolean" },
+        sessionId: { type: "string" },
+        appId: { type: "string", description: "Defaults to the server's app id." },
+        tags: { type: "object", additionalProperties: { type: "string" }, description: "Values are redacted before storage." },
+      },
+    },
+    UsageEventReport: {
+      type: "object",
+      required: ["accepted", "duplicates", "rejected"],
+      properties: {
+        accepted: { type: "integer" },
+        duplicates: { type: "integer" },
+        rejected: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["index", "reason"],
+            properties: { index: { type: "integer" }, reason: { type: "string" } },
+          },
+        },
       },
     },
     ChatMessage: {
@@ -614,6 +665,28 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           responses: {
             "200": ok("The event.", { type: "object", properties: { event: ref("UsageEvent") } }),
             "404": error("No such event for this app."),
+          },
+        },
+      },
+      "/api/usage/events": {
+        post: {
+          tags: ["usage"],
+          summary: "Report usage the host metered itself. One event, or `{ events: [...] }` of at most 500.",
+          requestBody: body({
+            oneOf: [
+              ref("UsageEventInput"),
+              {
+                type: "object",
+                required: ["events"],
+                properties: { events: { type: "array", maxItems: 500, items: ref("UsageEventInput") } },
+              },
+            ],
+          }),
+          responses: {
+            "200": ok("How many events were stored, deduplicated or rejected.", ref("UsageEventReport")),
+            "400": error("The report is malformed or carries more than 500 events."),
+            "401": error("The bearer token is missing or wrong."),
+            "503": error("Usage metering is disabled on this server."),
           },
         },
       },

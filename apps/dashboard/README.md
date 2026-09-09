@@ -13,10 +13,9 @@
 pnpm --filter model-infra-kit build
 
 # 2) 启动上游 HTTP 服务（默认 3211）
-#    注意：当前 packages/mik/dist/cli.mjs 的 serve 子命令加载不到自己的 server 包
-#    （CLI 里 `../server.mjs` 相对 dist/ 解析越界），所以本目录带了一个等价启动器：
-node apps/dashboard/scripts/serve-mik.mjs
-#    T07 修好后可以直接用：pnpm --filter model-infra-kit exec mik serve
+node packages/mik/dist/cli.mjs serve --port 3211
+#    F06 已修复 CLI 的 server 加载路径（dist 与源码布局都能解析）。
+#    apps/dashboard/scripts/serve-mik.mjs 是等价的备用启动器，仅在需要绕过 CLI 时使用。
 
 # 3) 可选：写入假数据，把页面填满
 pnpm --filter @mik/dashboard seed
