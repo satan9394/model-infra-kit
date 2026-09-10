@@ -21,7 +21,7 @@
  * the SQLite database and the CLI config that produced the numbers, which is
  * what makes a failure reproducible. `.tmp/` is git-ignored.
  */
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { createServer as createNetServer } from "node:net"
 import { dirname, join, resolve } from "node:path"
@@ -42,7 +42,27 @@ const DASHBOARD_NEXT = join(DASHBOARD_DIR, "node_modules", "next", "dist", "bin"
 const OPENAI_SDK_EXAMPLE = join(ROOT, "examples", "openai-sdk", "index.ts")
 const CLI_AGENT_EXAMPLE = join(ROOT, "examples", "cli-agent", "index.ts")
 const PYTHON_EXAMPLE = join(ROOT, "examples", "python-host", "host.py")
-const PYTHON = process.env.MIK_E2E_PYTHON ?? "D:\\Technology_application\\Anconda_All\\Anaconda3\\envs\\claude\\python.exe"
+/**
+ * Portable python resolution, in order:
+ *   MIK_E2E_PYTHON → `python3` (or `python`) found on PATH → bare "python3".
+ * The old default hard-coded a Windows Anaconda path, which broke CI runners.
+ */
+function resolvePython() {
+  const fromEnv = process.env.MIK_E2E_PYTHON
+  if (fromEnv) return fromEnv
+  for (const name of ["python3", "python"]) {
+    const found = spawnSync(process.platform === "win32" ? "where.exe" : "which", [name], { encoding: "utf8" })
+    if (found.status === 0) {
+      const first = (found.stdout || "").trim().split(/\r?\n/)[0]
+      if (first) return first
+    }
+    // The name may still run via PATH lookup even if `which` missed it.
+    const probe = spawnSync(name, ["--version"], { encoding: "utf8" })
+    if (probe.status === 0) return name
+  }
+  return "python3"
+}
+const PYTHON = resolvePython()
 const TRANSFORM_FLAG = "--experimental-transform-types"
 /** Every Node child needs the source loader; TS parameter properties need the transform flag. */
 const NODE_FLAGS = [TRANSFORM_FLAG, "--disable-warning=ExperimentalWarning", "--import", LOADER_URL]
@@ -619,7 +639,8 @@ async function main() {
 
     // ───────────────────────── AC5 ─────────────────────────
     await step("AC5", "examples/python-host: cross-language call metered", async () => {
-      assert(existsSync(PYTHON), `python not found at ${PYTHON} (set MIK_E2E_PYTHON)`)
+      const version = spawnSync(PYTHON, ["--version"], { encoding: "utf8" })
+      assert(version.status === 0, `python not usable (${PYTHON}); set MIK_E2E_PYTHON to a python 3 binary`)
       const run = await spawnCapture(PYTHON, [PYTHON_EXAMPLE, base, "mock:mock-mini"], { env: cleanEnv({ MIK_CACHE_DIR: cacheDir }) })
       assert(run.code === 0, `the Python host exited ${run.code}\n${run.stdout}\n${run.stderr}`)
       assert(run.stdout.includes("usage:"), `the Python host printed no usage:\n${run.stdout}`)
