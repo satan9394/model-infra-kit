@@ -1,6 +1,6 @@
 {
   "name": "model-infra-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "description": "Embeddable model layer for AI projects: multi-provider access, model catalog, token usage and cost tracking.",
@@ -62,13 +62,27 @@
     "@ai-sdk/xai": "^4.0.0"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/anthropic": { "optional": true },
-    "@ai-sdk/deepseek": { "optional": true },
-    "@ai-sdk/google": { "optional": true },
-    "@ai-sdk/moonshotai": { "optional": true },
-    "@ai-sdk/openai": { "optional": true },
-    "@ai-sdk/openai-compatible": { "optional": true },
-    "@ai-sdk/xai": { "optional": true }
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/deepseek": {
+      "optional": true
+    },
+    "@ai-sdk/google": {
+      "optional": true
+    },
+    "@ai-sdk/moonshotai": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/openai-compatible": {
+      "optional": true
+    },
+    "@ai-sdk/xai": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@ai-sdk/openai-compatible": "^3.0.45",
