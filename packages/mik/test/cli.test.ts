@@ -14,7 +14,7 @@ import { main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
 import { findDashboardDir, missingDashboardError, walkUpFor } from "../src/cli/commands/dashboard.js"
-import { loadServerModule, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
+import { loadServerModule, resolveCorsFlag, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
 import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
 import type { UsageEvent } from "../src/types.js"
@@ -436,6 +436,21 @@ describe("serve bundle resolution", () => {
     writeFileSync(cli, "export {}\n", "utf8")
     expect(() => resolveServerModuleUrl(pathToFileURL(cli).href)).toThrow(/server\.mjs/)
     expect(() => resolveServerModuleUrl(pathToFileURL(cli).href)).toThrow(/mik\/server/)
+  })
+})
+
+describe("resolveCorsFlag (T14)", () => {
+  it("maps '*' to any-origin mode and a URL to a fixed origin", () => {
+    expect(resolveCorsFlag(undefined)).toBeUndefined()
+    expect(resolveCorsFlag("*")).toBe(true)
+    expect(resolveCorsFlag("*:*")).toBe(true)
+    expect(resolveCorsFlag("https://app.example")).toEqual({ origin: "https://app.example" })
+    expect(resolveCorsFlag("  https://app.example/page  ")).toEqual({ origin: "https://app.example/page" })
+  })
+
+  it("rejects values that are neither '*' nor an http(s) origin", () => {
+    expect(() => resolveCorsFlag("app.example")).toThrow(/--cors/)
+    expect(() => resolveCorsFlag("ftp://x")).toThrow(/--cors/)
   })
 })
 

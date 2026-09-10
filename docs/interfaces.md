@@ -195,6 +195,8 @@ export interface ModelInfraOptions extends ModelInfraConfig {
 
 CLI 子命令：`init` / `serve` / `dashboard` / `provider add|list|remove|test` / `models` / `pricing sync|set|list` / `usage summary|trends|logs|export`。
 
+`mik serve` 标志（T14）：`--port <n>` / `--host <h>` / `--token <t>` / `--cors <origin>`。`--cors` 接受 `'*'`（任意源）或 `https://...`（固定源，映射到 `createServer({ cors: { origin } })`），非法值直接报错；默认关闭。T14 同时也暴露了 `createServer({ cors })` 已是既有能力（`boolean | CorsOptions`）。
+
 HTTP API（全部挂在 `/api`，OpenAI 兼容端点挂 `/v1`）：
 
 ```

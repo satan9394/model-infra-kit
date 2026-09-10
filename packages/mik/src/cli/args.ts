@@ -92,6 +92,13 @@ const FLAG_TOKEN: FlagSpec = {
   placeholder: "<token>",
   description: "Require Authorization: Bearer <token> on the HTTP API",
 }
+const FLAG_CORS: FlagSpec = {
+  name: "cors",
+  type: "string",
+  placeholder: "<origin>",
+  description:
+    "Allow cross-origin browser access; use '*' for any origin, or a specific origin like https://app.example (default: off)",
+}
 const FLAG_PORT_DASHBOARD: FlagSpec = {
   name: "port",
   type: "string",
@@ -256,12 +263,15 @@ export const COMMANDS: readonly CommandSpec[] = [
   {
     name: "serve",
     summary: "Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)",
-    usage: "mik serve [--port 3211] [--host 127.0.0.1] [--token <token>]",
-    flags: [FLAG_PORT_SERVE, FLAG_HOST, FLAG_TOKEN],
+    usage: "mik serve [--port 3211] [--host 127.0.0.1] [--token <token>] [--cors <origin>]",
+    flags: [FLAG_PORT_SERVE, FLAG_HOST, FLAG_TOKEN, FLAG_CORS],
     details: [
       "Refuses to start when the port is already in use.",
       "Prefer the MIK_SERVER_TOKEN environment variable over --token: command-line",
       "arguments are visible to other processes. The token is never printed.",
+      "--cors enables browser access: '*' for any origin, or a specific origin",
+      "(https://app.example). Off by default, so browser code must go through a",
+      "same-origin proxy unless --cors is given.",
     ],
   },
   {

@@ -163,6 +163,7 @@ export DEEPSEEK_API_KEY=sk-...
 # 2) 起服务（默认 127.0.0.1:3211）
 node packages/mik/dist/cli.mjs serve --port 3211
 #    装了包之后也可以直接： npx mik serve --port 3211
+#    浏览器要直连取数时加 CORS：--cors '*'（任意源）或 --cors https://你的主站
 
 # 3) 健康检查
 curl -s http://127.0.0.1:3211/api/health
@@ -237,7 +238,7 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
 
 | 端口 | 用途 | 覆盖方式 |
 |---|---|---|
-| **3211** | `mik serve` OpenAI 兼容服务 + `/api/*` | `mik serve --port <n>`（`MIK_SERVER_TOKEN` 只用于鉴权，不是端口） |
+| **3211** | `mik serve` OpenAI 兼容服务 + `/api/*` | `mik serve --port <n>`（`--cors <origin>` 允许浏览器直连；`MIK_SERVER_TOKEN` 只用于鉴权，不是端口） |
 | **3210** | 看板（**仅仓库内**，不随包发布） | `mik dashboard --port <n>`（仓库内）、`next start -p <n>`、`MIK_DASHBOARD_DIR` 指向已有副本 |
 | 3212 | 仅示例/测试用的 mock 供应商 | `node apps/dashboard/scripts/mock-openai.mjs` |
 
