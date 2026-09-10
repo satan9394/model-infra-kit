@@ -50,7 +50,7 @@
 ```bash
 npm i model-infra-kit
 # 还要装你实际用的 provider 包，例如：npm i @ai-sdk/openai-compatible
-export DEEPSEEK_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...            # bash；PowerShell 用：$env:DEEPSEEK_API_KEY = "sk-..."
 node quickstart.ts
 ```
 
@@ -70,10 +70,13 @@ const client = new OpenAI({ apiKey: "unused", baseURL: mik.baseUrl, fetch: mik.f
 node packages/mik/dist/cli.mjs init --app-id my-app --provider deepseek --yes
 node packages/mik/dist/cli.mjs serve --port 3211
 # 装了包之后也可以： npx mik serve --port 3211
+# bash:
 curl -s http://127.0.0.1:3211/api/health
 curl -s http://127.0.0.1:3211/v1/chat/completions \
   -H 'content-type: application/json' \
   -d '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hello"}]}'
+# Windows PowerShell：curl 是别名，用 curl.exe；JSON 进文件：
+# curl.exe -s http://127.0.0.1:3211/api/health
 python examples/python-host/host.py http://127.0.0.1:3211/v1 deepseek:deepseek-chat
 ```
 

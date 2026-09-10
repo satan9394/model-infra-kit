@@ -91,8 +91,13 @@ await mik.close()
 ```
 
 ```bash
+# bash（Linux / macOS / Git Bash）
 export DEEPSEEK_API_KEY=sk-...   # 你的真实密钥只进环境变量
 node quickstart.ts
+
+# Windows PowerShell 用户：用 $env: 而不是 export（实测可用）
+# $env:DEEPSEEK_API_KEY = "sk-..."
+# node quickstart.ts
 ```
 
 真实输出（本机对着本地 OpenAI 兼容 mock 跑，`MIK_BASE_URL` 指向 mock）：
@@ -158,7 +163,10 @@ await mik.close()
 ```bash
 # 1) 初始化并配好一个供应商（这里以 deepseek preset 为例）
 node packages/mik/dist/cli.mjs init --app-id my-app --provider deepseek --yes
-export DEEPSEEK_API_KEY=sk-...
+
+#    密钥只进环境变量：
+#    bash:                export DEEPSEEK_API_KEY=sk-...
+#    Windows PowerShell:  $env:DEEPSEEK_API_KEY = "sk-..."
 
 # 2) 起服务（默认 127.0.0.1:3211）
 node packages/mik/dist/cli.mjs serve --port 3211
@@ -166,22 +174,26 @@ node packages/mik/dist/cli.mjs serve --port 3211
 #    浏览器要直连取数时加 CORS：--cors '*'（任意源）或 --cors https://你的主站
 
 # 3) 健康检查
-curl -s http://127.0.0.1:3211/api/health
+#    bash:  curl -s http://127.0.0.1:3211/api/health
+#    Windows PowerShell 用 curl.exe——`curl` 在 PowerShell 5/7 里是 Invoke-WebRequest 的别名，
+#    `-s` 会直接报错。下面的命令在本机实测可用：
+curl.exe -s http://127.0.0.1:3211/api/health
 
-# 4) 打一次 OpenAI 兼容端点
-curl -s http://127.0.0.1:3211/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hello"}]}'
+# 4) 打一次 OpenAI 兼容端点（把 JSON 写进文件，避开各 shell 的引号差异）
+#    bash:  printf '%s' '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hello"}]}' > chat.json
+#    Windows PowerShell:
+Set-Content -Encoding utf8 chat.json '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hello"}]}'
+curl.exe -s -X POST http://127.0.0.1:3211/v1/chat/completions -H "content-type: application/json" --data-binary @chat.json
 ```
 
-真实输出（本机用本地 mock 供应商验证）：
+真实输出（本机 PowerShell 7.6 用本地 mock 供应商验证，上面的 PowerShell 两行即这份输出）：
 
 ```text
-$ curl -s http://127.0.0.1:3211/api/health
+$ curl.exe -s http://127.0.0.1:3211/api/health
 {"status":"ok","appId":"quickstart","baseUrl":"http://127.0.0.1:3211/v1","origin":"http://127.0.0.1:3211",
  "time":...,"uptimeMs":7341,"providers":1,"models":2,"pricing":{"status":"fresh","source":"modelsdev",...}}
 
-$ curl -s -X POST http://127.0.0.1:3211/v1/chat/completions -H 'content-type: application/json' --data-binary @chat.json
+$ curl.exe -s -X POST http://127.0.0.1:3211/v1/chat/completions -H "content-type: application/json" --data-binary @chat.json
 {"id":"chatcmpl-...","object":"chat.completion","model":"mock-mini",
  "choices":[{"index":0,"message":{"role":"assistant","content":"Mock reply: ..."},"finish_reason":"stop"}],
  "usage":{"prompt_tokens":1200,"completion_tokens":300,"total_tokens":1500,...},
