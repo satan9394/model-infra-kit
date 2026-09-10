@@ -9,9 +9,10 @@
   },
   "scripts": {
     "build": "pnpm --filter model-infra-kit build",
-    "test": "pnpm --filter model-infra-kit test",
-    "typecheck": "pnpm --filter model-infra-kit typecheck",
     "check": "pnpm --filter model-infra-kit check",
+    "typecheck": "pnpm --filter model-infra-kit typecheck",
+    "test": "pnpm --filter model-infra-kit test",
+    "check:envs": "node scripts/check-envs.mjs",
     "example:cli": "pnpm --filter @mik/example-cli-agent start"
   },
   "devDependencies": {
