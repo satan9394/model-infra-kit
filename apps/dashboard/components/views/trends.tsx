@@ -6,10 +6,12 @@ import { formatCompact, formatInt, formatUsd, tokenTotal } from "@/lib/format"
 import { readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
-export const dynamic = "force-dynamic"
+export interface ViewProps {
+  params: SearchParams
+  embedded?: boolean
+}
 
-export default async function TrendsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const params = await searchParams
+export default async function TrendsView({ params, embedded }: ViewProps) {
   const range = resolveRange(params)
   const filters = readFilters(params)
   const query = usageQuery(range, filters)
@@ -36,7 +38,11 @@ export default async function TrendsPage({ searchParams }: { searchParams: Promi
         actions={<LiveRefresh topics={["usage.recorded"]} />}
       />
 
-      <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
+      {!embedded ? (
+        <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
+      ) : (
+        <p className="mb-4 text-xs text-slate-500">嵌入视图 · 区间 {range.label}</p>
+      )}
 
       {errors.length > 0 ? <ErrorBanner message={errors[0] ?? "未知错误"} /> : null}
 

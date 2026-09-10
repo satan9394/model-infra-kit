@@ -183,12 +183,13 @@ Q6 只想看成本、完全不想改宿主代码？
 - 只想自己和团队看成本、不介意多一个端口 → **①**
 - 要嵌进产品、要品牌化、要按宿主权限收口 → **②**
 - 接受 Next.js/Tailwind 栈、想最快看到页面 → **③**
+- 想要一个**立刻能嵌、零重写**的现成页面 → **④ `/embed/*` 路由（T13 已落地）**：看板自带无导航的 `/embed/overview`、`/embed/trends`、`/embed/logs`、`/embed/pricing`，iframe 或主站反代 `/usage/* → 3210/embed/*` 即可；默认近 7 天、无筛选面板、SSE 实时增量仍生效。代价是观感仍是看板自带主题（要改主题走 ③ 的拷贝）。
 
-**三条路的实时性一致**：都靠 `GET /api/events` 的 `usage.recorded` / `catalog.updated` / `pricing.updated`。看板的做法是防抖 400ms 后 `router.refresh()`，断开时 `EventSource` 自动重连并显示「未连接」。
+**三条路的实时性一致**（④ 同）：都靠 `GET /api/events` 的 `usage.recorded` / `catalog.updated` / `pricing.updated`。看板的做法是防抖 400ms 后 `router.refresh()`，断开时 `EventSource` 自动重连并显示「未连接」。
 
 ### 5.2 待补能力（可视化相关）
 
-- **P0**：让装包用户拿到看板——要么独立发布 `@mik/dashboard`，要么提供 `npx` 入口，要么把看板做成主站可嵌入的路由组。现在装包环境的路径是「报错 + 让你去克隆仓库」。
+- **P0（部分完成）**：让装包用户拿到看板——`/embed/*` 嵌入路由已落地（T13），仓库内 `pnpm start` 后主站反代即可用；「独立发布 `@mik/dashboard` 或 `npx` 入口」仍未做，装包环境跑 `mik dashboard` 仍会报错并指引克隆仓库。
 - **P1**：`mik serve --cors <origin>` 开关。现在只有库层的 `createServer({ cors })` 能开 CORS，CLI 没暴露，浏览器直连必须自建代理。
 - **P2**：`GET /api/models` 带上 `pricing`、补 `defaultModel` 端点、HTTP 面 `appId` 过滤——看板 README 已把它们记为「已知限制」。
 

@@ -58,6 +58,32 @@ pnpm --filter @mik/dashboard start      # next start -p 3210
 | `/pricing` | 同步状态（含 `stale` 提示）、一键同步、手动价增删改 | `/api/pricing*` |
 | `/logs` | 分页日志 + 详情抽屉（四类 token、四项成本、`pricing_source` / `pricing_basis`、延迟） | `/api/usage/logs`、`/api/usage/logs/:id` |
 
+## 嵌入模式（把用量可视化嵌进你自己的页面）
+
+**共同前提**：先有一个在跑的 `mik serve`（默认 `127.0.0.1:3211`），且宿主页面的**浏览器不能直连 3211**（mik 服务默认不开 CORS）——浏览器发起的取数/写请求必须走宿主自己的代理（本看板的 `app/api/mik/[...path]` 与 `app/api/events` 就是这么做的）。
+
+| 嵌入路由 | 内容 |
+|---|---|
+| `/embed/overview` | 概览（默认近 7 天，无筛选面板），实时增量生效 |
+| `/embed/trends` | 趋势 + 按天明细 |
+| `/embed/logs` | 请求日志分页 + 详情抽屉 |
+| `/embed/pricing` | 价格表 + 同步状态 |
+
+它们与完整版共用同一套组件与取数逻辑，但**没有全局导航/页脚**，适合 iframe 或路由反向代理。
+
+**iframe 模式**（宿主任意技术栈）：
+
+```
+# 主站把 /usage/* 反代到看板（例如 nginx）
+location /usage/ { proxy_pass http://127.0.0.1:3210/embed/; }
+# 页面里
+<iframe src="/usage/overview"></iframe>
+```
+
+**路由挂载模式**（宿主是 Next.js）：把本目录的 `components/`、`lib/`、`app/embed/` 与 `app/api/{mik,events}` 拷贝进宿主，宿主自己提供 `MIK_SERVER_URL`；或直接把本目录整个作为独立部署、宿主只在 `layout` 层级链接过去。
+
+`MIK_SERVER_URL` / `MIK_SERVER_TOKEN` 都是**服务端**环境变量，绝不下发浏览器。
+
 ### 空数据与故障
 
 - 任意页面在**零用量**下都能正常渲染：卡片显示 `—`，图表区显示空态文案。
