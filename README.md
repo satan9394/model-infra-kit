@@ -1,5 +1,7 @@
 # model-infra-kit
 
+![ci](https://github.com/satan9394/model-infra-kit/actions/workflows/ci.yml/badge.svg)
+
 > 一个可嵌入任意 AI 项目的模型层：装进宿主项目后，立刻获得**多供应商调用、模型目录、token 用量、模型计价与成本统计**，外加一个独立的用量看板（看板只在仓库内运行，**不随 npm 包发布**，见[「看板」一节](#看板)）。
 
 它不是网关平台，不是企业级 AI Gateway，也不读任何第三方应用的数据文件——用量数据由本模块自己产生。
