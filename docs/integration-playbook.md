@@ -19,7 +19,7 @@
 | 事实 | 出处 |
 |---|---|
 | 三个公共入口：`model-infra-kit`（库）、`model-infra-kit/server`（`createServer`）、`model-infra-kit/cli`（`main`） | `packages/mik/src/index.ts`、`packages/mik/package.json` 的 `exports` |
-| 库只有一个 npm 包 `model-infra-kit@0.1.0`，`bin` 是 `mik` | `packages/mik/package.json` |
+| 库只有一个 npm 包 `model-infra-kit`（当前 `0.1.1`，Releases 页提供 tarball），`bin` 是 `mik` | `packages/mik/package.json`、GitHub Releases |
 | `@ai-sdk/*` 是**可选 peer**，用哪个协议装哪个包；缺包时 `loadProviderFactory()` 给出「装哪个包」的可读错误 | `packages/mik/README.md`、`packages/mik/src/index.ts` 导出 `loadProviderFactory` |
 | Node ≥ 22.13（`node:sqlite`），本机 24.14 | `README.md`、`packages/mik/package.json` 的 `engines` |
 | 端口：`mik serve` **3211**、看板 **3210**、示例 mock 供应商 **3212** | `README.md` 端口表、`apps/dashboard/package.json`、`apps/dashboard/scripts/mock-openai.mjs` |
