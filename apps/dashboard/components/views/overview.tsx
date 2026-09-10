@@ -7,11 +7,13 @@ import { formatCompact, formatInt, formatMs, formatPercent, formatUsd, tokenTota
 import { rangeQueryString, readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadBuckets, loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
-/** The overview is always live: usage arrives from the server as it happens. */
-export const dynamic = "force-dynamic"
+export interface ViewProps {
+  params: SearchParams
+  /** 嵌入模式：不含筛选面板，URL 区间由 embed 页面强制（默认近 7 天）。 */
+  embedded?: boolean
+}
 
-export default async function OverviewPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const params = await searchParams
+export default async function OverviewView({ params, embedded }: ViewProps) {
   const range = resolveRange(params)
   const filters = readFilters(params)
   const query = usageQuery(range, filters)
@@ -49,7 +51,14 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         actions={<LiveRefresh topics={["usage.recorded", "catalog.updated", "pricing.updated"]} ticker />}
       />
 
-      <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
+      {!embedded ? (
+        <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
+      ) : (
+        <p className="mb-4 text-xs text-slate-500">
+          嵌入视图 · 区间 {range.label}
+          {filters.provider || filters.model ? ` · 已套用筛选` : ""}
+        </p>
+      )}
 
       {upstreamErrors.length > 0 ? (
         <ErrorBanner
