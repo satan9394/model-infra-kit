@@ -23,6 +23,7 @@ LINKTARGET=$6
 SYMLINK_MODE=${7:-native}
 
 cd "$ROOT"
+mkdir -p "$ROOT/.tmp"   # payload + CSV land here; must exist in a fresh checkout
 export MIK_DB="$DB"
 export MIK_APP_ID="envcheck"
 export K="sk-envcheck"
