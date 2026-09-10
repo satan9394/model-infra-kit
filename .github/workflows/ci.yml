@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build mik
+        run: pnpm --filter model-infra-kit build
+
+      - name: Typecheck
+        shell: bash
+        run: pnpm --filter model-infra-kit typecheck
+
+      - name: Unit tests (model-infra-kit)
+        shell: bash
+        run: pnpm --filter model-infra-kit test
+
+      - name: Unit tests (dashboard)
+        shell: bash
+        run: pnpm --filter @mik/dashboard test
+
+      - name: Build dashboard
+        shell: bash
+        run: pnpm --filter @mik/dashboard build
+
+      - name: Runtime battery — bash + real symlink regression (Ubuntu/macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: >
+          bash scripts/check-envs/battery.sh
+          "ci-${{ matrix.os }}"
+          "$PWD"
+          3811 3812
+          "$RUNNER_TEMP/ci-${{ matrix.os }}.db"
+          "$PWD/packages/mik/dist/cli.mjs"
+          native
+
+      - name: Three-environment battery — PowerShell + Git Bash (Windows)
+        # windows-latest ships PowerShell and Git but not WSL; the orchestrator
+        # SKIPs WSL automatically and runs the other two batteries itself.
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: node scripts/check-envs.mjs
+
+      - name: End-to-end acceptance (fastest runner only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: node scripts/e2e/run.mjs
