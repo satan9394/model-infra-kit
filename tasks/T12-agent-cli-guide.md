@@ -15,7 +15,7 @@
    - **架构图**：宿主 CLI（TUI/命令层）→ mik（模型层）→ provider；说明「Agent Runtime 只认 `provider:model`」。
    - **最小接入代码**：从 `ModelInfra.init()` 到 `generate` / `stream` / tool calling 的完整片段，含 `close()` 与错误处理（按 `error.code` 分支，不要匹配文案）。
    - **CLI 命令设计建议**：宿主应暴露哪些子命令（`model add|list|use`、`stats`、`serve`），每个背后对应 mik 的哪个 API；给出「用户第一次使用」的最短路径（几条命令）。
-   - **安装方式矩阵**（用户点名要「好好想一想」的部分）：至少比较 6 种——`npm i`、`npm i github:satan9394/model-infra-kit`、workspace 源码引用、`npx` sidecar、脚手架生成、宿主插件/配置生成。每种给出：用户敲什么、升级怎么做、离线可用性、对宿主打包体积的影响、什么时候该选它。**并明确给出推荐顺序与理由。**
+   - **安装方式矩阵**（用户点名要「好好想一想」的部分）：至少比较 6 种——`npm i`、`npm i github:<你的账号>/<仓库名>`、workspace 源码引用、`npx` sidecar、脚手架生成、宿主插件/配置生成。每种给出：用户敲什么、升级怎么做、离线可用性、对宿主打包体积的影响、什么时候该选它。**并明确给出推荐顺序与理由。**
    - **发布前清单**：宿主项目要发 npm 时需要注意什么（peer 依赖、`node:sqlite` 的 Node 版本、看板不在包里）。
    - **常见坑**：至少写清「provider 包要单独装」「同 id 的 provider 配置 seed 不覆盖」「关闭后调用会抛 STORAGE」。
 
