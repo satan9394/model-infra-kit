@@ -60,7 +60,7 @@ pnpm --filter @mik/dashboard start      # next start -p 3210
 
 ## 嵌入模式（把用量可视化嵌进你自己的页面）
 
-**共同前提**：先有一个在跑的 `mik serve`（默认 `127.0.0.1:3211`），且宿主页面的**浏览器不能直连 3211**（mik 服务默认不开 CORS）——浏览器发起的取数/写请求必须走宿主自己的代理（本看板的 `app/api/mik/[...path]` 与 `app/api/events` 就是这么做的）。
+**共同前提**：先有一个在跑的 `mik serve`（默认 `127.0.0.1:3211`）。浏览器端有两种取数姿势：默认走宿主自己的代理（本看板 `app/api/mik/[...path]` + `app/api/events` 就是这么做的）；或者给 `mik serve` 加 `--cors <origin>` 让浏览器直连（`--cors '*'` 任意源，`--cors https://主站` 固定源），此时不需要代理层。
 
 | 嵌入路由 | 内容 |
 |---|---|

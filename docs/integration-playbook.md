@@ -190,7 +190,7 @@ Q6 只想看成本、完全不想改宿主代码？
 ### 5.2 待补能力（可视化相关）
 
 - **P0（部分完成）**：让装包用户拿到看板——`/embed/*` 嵌入路由已落地（T13），仓库内 `pnpm start` 后主站反代即可用；「独立发布 `@mik/dashboard` 或 `npx` 入口」仍未做，装包环境跑 `mik dashboard` 仍会报错并指引克隆仓库。
-- **P1**：`mik serve --cors <origin>` 开关。现在只有库层的 `createServer({ cors })` 能开 CORS，CLI 没暴露，浏览器直连必须自建代理。
+- **P1（已完成，T14）**：`mik serve --cors <origin>` 已落地——`--cors '*'` 允许任意源，`--cors https://主站` 固定源；浏览器现在可以直连 3211 取数，不必自建代理（看板仍走代理，两者并存）。CLI 对非法值报错。
 - **P2**：`GET /api/models` 带上 `pricing`、补 `defaultModel` 端点、HTTP 面 `appId` 过滤——看板 README 已把它们记为「已知限制」。
 
 ---

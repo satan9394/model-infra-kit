@@ -372,6 +372,21 @@ describe("createServer", () => {
     expect(get.headers.get("access-control-allow-origin")).toBe("*")
     await corsHandle.close()
   })
+
+  it("echoes a fixed origin when cors is configured with one", async () => {
+    const corsHandle = await createServer({ hub, port: 0, cors: { origin: "https://app.example" }, heartbeatMs: 0 })
+    try {
+      const get = await fetch(`${corsHandle.url}/api/health`)
+      expect(get.headers.get("access-control-allow-origin")).toBe("https://app.example")
+      expect(get.headers.get("vary")).toContain("Origin")
+      const preflight = await fetch(`${corsHandle.url}/api/providers`, { method: "OPTIONS" })
+      expect(preflight.status).toBe(204)
+      expect(preflight.headers.get("access-control-allow-origin")).toBe("https://app.example")
+      expect(preflight.headers.get("access-control-allow-methods")).toContain("POST")
+    } finally {
+      await corsHandle.close()
+    }
+  })
 })
 
 describe("auth", () => {
