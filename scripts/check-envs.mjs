@@ -115,8 +115,8 @@ function findWslUbuntu() {
   return /Ubuntu/i.test(out.replace(/\u0000/g, ""))
 }
 
-/** Marker lines emitted by the batteries: `STEP <name> ok|fail`. */
-const STEP_RE = /^STEP\s+(\S+)\s+(ok|fail)/
+/** Marker lines emitted by the batteries: `STEP <name> ok|fail` (CR-tolerant). */
+const STEP_RE = /^STEP\s+(\S+)\s+(ok|fail)\s*\r?$/
 
 function which(cmd) {
   const r = spawnSync("where.exe", [cmd], { encoding: "utf8" })

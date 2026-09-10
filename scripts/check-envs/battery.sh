@@ -51,8 +51,10 @@ echo "== [$NAME] mock + serve + curl =="
 node apps/dashboard/scripts/mock-openai.mjs --port "$MOCKPORT" >/tmp/mik-mock-$NAME.log 2>&1 &
 MOCK=$!
 # Wait until the mock answers /v1/models before configuring anything on it.
+# `if … then break` keeps set -e from killing the battery when the first probe
+# fails (the mock is still starting).
 for _ in $(seq 1 15); do
-  curl -s -m 2 "http://127.0.0.1:$MOCKPORT/v1/models" 2>/dev/null | grep -q "mock" && break
+  if curl -s -m 2 "http://127.0.0.1:$MOCKPORT/v1/models" 2>/dev/null | grep -q "mock"; then break; fi
   sleep 1
 done
 rm -f "$DB" 2>/dev/null || true
@@ -64,7 +66,7 @@ trap 'kill $SRV $MOCK 2>/dev/null || true' EXIT
 HEALTH=""
 for _ in $(seq 1 15); do
   HEALTH=$(curl -s -m 2 "http://127.0.0.1:$SERVEPORT/api/health" 2>/dev/null || true)
-  [ -n "$HEALTH" ] && break
+  if [ -n "$HEALTH" ]; then break; fi
   sleep 1
 done
 echo "$HEALTH" | grep -q '"status":"ok"' && pass "health" || fail "health" "$HEALTH"
@@ -76,7 +78,7 @@ printf '{"model":"local:mock-mini","messages":[{"role":"user","content":"hi"}]}'
 for _ in $(seq 1 5); do
   BODY=$(curl -s -m 3 -X POST "http://127.0.0.1:$SERVEPORT/v1/chat/completions" \
     -H "content-type: application/json" --data-binary "@$PAY" 2>/dev/null || true)
-  printf '%s' "$BODY" | grep -q '"usage"' && break
+  if printf '%s' "$BODY" | grep -q '"usage"'; then break; fi
   sleep 1
 done
 printf '%s' "$BODY" | grep -q '"usage"' && pass "chat" || fail "chat" "$BODY"
