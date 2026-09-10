@@ -5,6 +5,7 @@
  * Design constraints from `tasks/T06-cli.md`: Node built-ins only (no CLI
  * framework), human-readable output, and never a secret on stdout.
  */
+import { realpathSync } from "node:fs"
 import { pathToFileURL } from "node:url"
 import { parseCliArgs, type ParsedCli } from "./args.js"
 import { messageOf, resolveIo, type CliIo, type RunOptions } from "./context.js"
@@ -90,7 +91,11 @@ export function isDirectInvocation(argv: readonly string[] = process.argv): bool
   const entry = argv[1]
   if (!entry) return false
   try {
-    return import.meta.url === pathToFileURL(entry).href
+    // npm's Unix bin entry is a **symlink** to dist/cli.mjs, so `process.argv[1]`
+    // is the link path while `import.meta.url` is the resolved real path. Compare
+    // resolved paths, or `mik` would silently do nothing on Linux/macOS. On
+    // Windows the .cmd shim passes the real path, so this is an identity there.
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href
   } catch {
     return false
   }

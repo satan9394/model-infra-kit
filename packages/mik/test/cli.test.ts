@@ -1,7 +1,7 @@
 import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
 import type { AddressInfo } from "node:net"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -10,7 +10,7 @@ import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
 import { openContext, offlineFetch } from "../src/cli/context.js"
 import { USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
 import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
-import { main } from "../src/cli/index.js"
+import { isDirectInvocation, main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
 import { findDashboardDir, missingDashboardError, walkUpFor } from "../src/cli/commands/dashboard.js"
@@ -57,6 +57,32 @@ function sandbox(): { dir: string; db: string; base: string[] } {
   const db = join(dir, "usage.db")
   return { dir, db, base: ["--offline", "--db", db, "--cache-dir", join(dir, "cache"), "--config", join(dir, "mik.config.json")] }
 }
+
+describe("isDirectInvocation (Unix bin symlink)", () => {
+  const selfPath = realpathSync(fileURLToPath(new URL("../src/cli/index.ts", import.meta.url)))
+
+  it("accepts the real path and rejects an unrelated file", () => {
+    const dir = tempDir()
+    expect(isDirectInvocation(["node", selfPath])).toBe(true)
+    expect(isDirectInvocation(["node", join(dir, "somewhere-else.js")])).toBe(false)
+    expect(isDirectInvocation(["node"])).toBe(false)
+  })
+
+  it("accepts an npm bin symlink pointing at this module", () => {
+    // npm's Unix bin is a symlink to dist/cli.mjs; argv[1] is then the link path
+    // while import.meta.url is the resolved real path. This is the regression
+    // for the Linux/macOS `mik` silently doing nothing.
+    const dir = tempDir()
+    const link = join(dir, "mik")
+    try {
+      symlinkSync(selfPath, link)
+    } catch {
+      // Windows without Developer Mode cannot create file symlinks; skip there.
+      return
+    }
+    expect(isDirectInvocation(["node", link])).toBe(true)
+  })
+})
 
 describe("parseCliArgs", () => {
   it("resolves commands, actions and positionals", () => {
