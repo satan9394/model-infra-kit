@@ -274,7 +274,7 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
 
 ```text
 $ node packages/mik/dist/cli.mjs --help
-model-infra-kit (mik) 0.1.0
+model-infra-kit (mik) 0.1.1
 Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.
 
 USAGE
