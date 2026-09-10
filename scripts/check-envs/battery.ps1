@@ -14,14 +14,16 @@ $env:MIK_APP_ID = "envcheck"
 $env:K = "sk-envcheck"
 $env:NO_PROXY = "127.0.0.1,localhost"
 
-function Fail([string]$Message) {
-  Write-Output "FAIL[$Name] $Message"
+function Fail([string]$Step, [string]$Message = "") {
+  Write-Output "STEP $Step fail"
+  Write-Output "FAIL[$Name] $Step $Message"
   exit 1
 }
+function Pass([string]$Step) { Write-Output "STEP $Step ok" }
 
 Write-Output "== [$Name] bin: direct =="
 $v = node packages/mik/dist/cli.mjs --version
-if ("$v" -notmatch "mik 0\.1") { Fail "direct --version: $v" }
+if ("$v" -match "mik 0\.1") { Pass "bin-direct" } else { Fail "bin-direct" $v }
 
 Write-Output "== [$Name] mock + serve + curl =="
 $mock = Start-Process node -ArgumentList "apps\dashboard\scripts\mock-openai.mjs","--port",$MockPort -PassThru -WindowStyle Hidden
@@ -42,8 +44,7 @@ try {
     if ($h -match '"status":"ok"') { break }
     Start-Sleep -Seconds 1
   }
-  if ("$h" -notmatch '"status":"ok"') { Fail "health: $h" }
-  Write-Output "  health ok"
+  if ($h -match '"status":"ok"') { Pass "health" } else { Fail "health" $h }
 
   Set-Content -Encoding utf8 "$env:TEMP\chat-$Name.json" '{"model":"local:mock-mini","messages":[{"role":"user","content":"hi"}]}'
   $p = ""
@@ -52,21 +53,18 @@ try {
     if ($p -match '"usage"') { break }
     Start-Sleep -Seconds 1
   }
-  if ($p -notmatch '"usage"') { Fail "chat: $p" }
-  Write-Output "  chat ok"
+  if ($p -match '"usage"') { Pass "chat" } else { Fail "chat" $p }
 
   $s = node packages/mik/dist/cli.mjs usage summary
-  if ("$s" -notmatch "Requests") { Fail "summary" }
-  Write-Output "  summary ok"
+  if ("$s" -match "Requests") { Pass "summary" } else { Fail "summary" }
 
-  node packages/mik/dist/cli.mjs usage export --format csv --out "$env:TEMP\usage-$Name.csv" | Out-Null
-  $head = Get-Content "$env:TEMP\usage-$Name.csv" -TotalCount 1
-  if ($head -notmatch "^ts,app_id") { Fail "csv header: $head" }
-  Write-Output "  csv ok"
+  $csvOut = "$env:TEMP\usage-$Name.csv"
+  node packages/mik/dist/cli.mjs usage export --format csv --out $csvOut | Out-Null
+  $head = Get-Content $csvOut -TotalCount 1
+  if ("$head" -match "^ts,app_id") { Pass "csv" } else { Fail "csv" $head }
 
   $py = python examples/python-host/host.py "http://127.0.0.1:$ServePort/v1" local:mock-mini
-  if ("$py" -notmatch "status:  200") { Fail "python host: $py" }
-  Write-Output "  python ok"
+  if ("$py" -match "status:  200") { Pass "python" } else { Fail "python" $py }
 
   Write-Output "ENV_OK $Name"
 }
