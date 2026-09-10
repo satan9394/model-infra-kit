@@ -231,7 +231,7 @@ const code = await main(["provider", "list"], { io: { out: console.log, err: con
 | ③ | **npx sidecar** | `npx -y model-infra-kit serve --port 3211`，宿主只打 HTTP | `npx model-infra-kit@latest` | 首次需网络；之后缓存可离线 | 宿主 **0 依赖** | 宿主是 Python/Go/Rust，或多个进程共用一份用量库 |
 | ④ | **tarball / 私有 registry** | `npm i ./model-infra-kit-0.1.0.tgz` 或 `npm i --registry <内网>` | 换 tarball 版本号 | 完全离线 | 同 ① | 内网交付、审计留档、锁定不可变制品 |
 | ⑤ | **脚手架生成** | `npx create-my-agent@latest`（内部再 `npm i`） | 重新生成 / 由脚手架升 | 模板可缓存，依赖仍需网络 | 同 ① | 新项目起步，想让「装 mik」这一步对用户完全透明 |
-| ⑥ | **git 直装** | `npm i github:satan9394/model-infra-kit` | `npm i github:...#<新 commit>` | 需要 git + 网络 | 同 ①（前提是能装上） | 临时验证某个 commit。**现状不可直接使用**，见 §4.6 |
+| ⑥ | **git 直装** | `npm i github:<你的账号>/<仓库名>` | `npm i github:...#<新 commit>` | 需要 git + 网络 | 同 ①（前提是能装上） | 临时验证某个 commit。**现状不可直接使用**，见 §4.6 |
 | ⑦ | **宿主插件 / 配置生成** | `my-agent plugin install mik` 或 `my-agent init` | 宿主自己的升级机制 | 取决于宿主 | 宿主自带 | 宿主已有插件生态，想把 mik 藏进配置里 |
 
 ### 4.1 ① npm 依赖（主路径）
@@ -327,7 +327,7 @@ npx create-my-agent@latest my-agent      # 内部：写 package.json → npm i m
 ### 4.6 ⑥ git 直装（现状：不可直接使用）
 
 ```bash
-npm i github:satan9394/model-infra-kit          # ✗ 装到的不是可用的包
+npm i github:<你的账号>/<仓库名>          # ✗ 装到的不是可用的包
 ```
 
 原因（本仓库实测）：

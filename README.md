@@ -14,17 +14,17 @@
 
 自研的只有四块：`ProviderRegistry` / `CredentialStore` / `UsageRecorder` / `UsageRepository`。取舍理由见 [`docs/decisions.md`](docs/decisions.md)。
 
-仓库：<https://github.com/satan9394/model-infra-kit>（public，带 GitHub Releases 制品）。尚未发布到 npm registry，现阶段用下面的方式之一安装。**发布物在 Releases 页按 tag 提供**（当前 `v0.1.1`）：<https://github.com/satan9394/model-infra-kit/releases>。
+仓库：本仓库托管在 GitHub（Releases 页提供按 tag 打包的 tarball）。包已发布到 npm registry，推荐直接安装：
 
-| 安装方式 | 命令（以 `v0.1.1` 为例，新版本看 Releases 页） | 适用 / 说明 |
+| 安装方式 | 命令 | 适用 / 说明 |
 |---|---|---|
-| Release 直链 | `npm i https://github.com/satan9394/model-infra-kit/releases/download/v0.1.1/model-infra-kit-0.1.1.tgz` | 已实测：公开仓匿名可装，`mik 0.1.1` + `--cors` 均有 |
-| 从 Release 下载 | `gh release download v0.1.1 --repo satan9394/model-infra-kit --pattern "*.tgz" --dir .` 后 `npm i ./model-infra-kit-0.1.1.tgz` | 同样可用；适合已有 gh 的环境 |
+| **npm（推荐）** | `npm i model-infra-kit`（+ 你实际用的 provider 包，见下方「① 嵌入式库」） | 标准路径，语义化版本 |
+| GitHub Releases（备选） | 到本仓库 Releases 页拿 tarball 直链，`npm i <那串 URL>`；或 `gh release download <tag> --repo <你的账号>/<仓库名> --pattern "*.tgz" --dir .` 后 `npm i ./model-infra-kit-<版本>.tgz` | 离线/私有场景；命令里的 `<你的账号>/<仓库名>` 按你的实际 fork 填 |
 | 本地打包 | `pnpm --filter model-infra-kit pack --pack-destination .tmp` 后 `npm i ./.tmp/model-infra-kit-<版本>.tgz` | 本机联调；无需网络 |
 | 源码引用 | 把本仓库作为 workspace 成员或 git submodule | 需要改内部实现时 |
 | 免安装 sidecar | 用上面的 tgz 安装后 `npx mik serve`，或直接跑 `node packages/mik/dist/cli.mjs serve` | 不改宿主代码，只改 `base_url` |
 
-> 注意：**`npm i github:satan9394/model-infra-kit` 不能用**——仓库根 `package.json` 是 monorepo 壳，没有 `bin`/`files`/`prepare`，装到的是空壳。请用 Releases 直链或上面的其它方式。
+> 注意：**`npm i github:<账号>/model-infra-kit` 不能用**——仓库根 `package.json` 是 monorepo 壳，没有 `bin`/`files`/`prepare`，装到的是空壳。请走 npm 或 Releases。
 > 无论哪种方式，**都要另外装你实际用的 provider 包**（`@ai-sdk/*` 是可选 peer），见下方「① 嵌入式库」。
 
 ---
