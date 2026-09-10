@@ -280,7 +280,7 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
 | `node packages/mik/dist/cli.mjs serve --port 3211` | 起 OpenAI 兼容服务 | ✅ |
 | `node packages/mik/dist/cli.mjs dashboard` | 起看板（3210，**仅仓库内可用**；装包环境会报错并给指引） | ✅ 仓库内解析到 `apps/dashboard` 并拉起 `next start`（首次需先 `pnpm --filter @mik/dashboard build`） |
 | `node scripts/e2e/run.mjs` | 端到端验收（SPEC §6 全场景，含看板场景；检查点清单见 [`scripts/e2e/README.md`](scripts/e2e/README.md)） | 以命令实时输出为准（退出码 0 = 全过；看板检查点需 `apps/dashboard` 可构建） |
-| `node scripts/check-envs.mjs` | 三环境回归（Windows PowerShell + Git Bash + WSL2 Ubuntu，离线电池：bin 入口 / serve / OpenAI 端点 / 用量 / python host；Git Bash 需 `MIK_GIT_BASH` 或默认路径有 Git，WSL Ubuntu 需已安装） | ✅ 本机三环境全部通过（退出码 0）；任一环境不可用则 SKIP |
+| `node scripts/check-envs.mjs` | 三环境回归（Windows PowerShell + Git Bash + WSL2 Ubuntu，离线电池：bin 入口 / serve / OpenAI 端点 / 用量 / python host）。支持 `--only a,b` / `--skip a` / `--json` / `--timeout ms` / `--build`；任一环境不可用自动 SKIP | ✅ 本机三环境全部通过（退出码 0） |
 | `pnpm --filter @mik/dashboard build` / `start` | 看板构建 / 生产启动 | ✅ 退出码 0 / HTTP 200 |
 
 `mik` 的全局开关：`--db <path>`、`--app-id <id>`、`--config <path>`、`--cache-dir <path>`、`--offline`（完全不联网）、`-h`、`-v`。每个子命令都支持 `--help`。

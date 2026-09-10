@@ -30,10 +30,11 @@ export NO_PROXY="127.0.0.1,localhost"
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
 PY=$(command -v python3 || command -v python || true)
 
-fail() { echo "FAIL[$NAME] $1"; exit 1; }
+fail() { echo "STEP $1 fail"; echo "FAIL[$NAME] $1"; echo "$2" 2>/dev/null || true; exit 1; }
+pass() { echo "STEP $1 ok"; }
 
 echo "== [$NAME] bin: direct =="
-node packages/mik/dist/cli.mjs --version | grep -q "mik 0.1" || fail "direct --version"
+node packages/mik/dist/cli.mjs --version | grep -q "mik 0.1" && pass "bin-direct" || fail "bin-direct"
 echo "== [$NAME] bin: via symlink (Linux/macOS npm bin regression) =="
 if [ "$SYMLINK_MODE" = "skip" ]; then
   echo "  skipped: Windows node does not resolve ESM relative imports through a symlink entry (npm uses .cmd shims there); covered by npx/PowerShell checks."
@@ -44,7 +45,7 @@ else
   # A real symlink reproduces npm's Unix bin exactly; if the platform cannot make
   # one (Windows Git Bash without privileges), a copy still exercises the shebang.
   ln -sf "$LINKTARGET" "$LINK" 2>/dev/null || cp -f "$LINKTARGET" "$LINK"
-  "$LINK" --version | grep -q "mik 0.1" || fail "symlink --version"
+  "$LINK" --version | grep -q "mik 0.1" && pass "bin-symlink" || fail "bin-symlink"
 fi
 echo "== [$NAME] mock + serve + curl =="
 node apps/dashboard/scripts/mock-openai.mjs --port "$MOCKPORT" >/tmp/mik-mock-$NAME.log 2>&1 &
@@ -55,7 +56,7 @@ for _ in $(seq 1 15); do
   sleep 1
 done
 rm -f "$DB" 2>/dev/null || true
-node packages/mik/dist/cli.mjs provider add local --base-url "http://127.0.0.1:$MOCKPORT/v1" --api-key-ref env:K >/dev/null 2>&1 || fail "provider add"
+node packages/mik/dist/cli.mjs provider add local --base-url "http://127.0.0.1:$MOCKPORT/v1" --api-key-ref env:K >/dev/null 2>&1 || fail "provider-add"
 node packages/mik/dist/cli.mjs serve --port "$SERVEPORT" --db "$DB" --app-id envcheck >/tmp/mik-serve-$NAME.log 2>&1 &
 SRV=$!
 trap 'kill $SRV $MOCK 2>/dev/null || true' EXIT
@@ -66,7 +67,7 @@ for _ in $(seq 1 15); do
   [ -n "$HEALTH" ] && break
   sleep 1
 done
-echo "$HEALTH" | grep -q '"status":"ok"' || fail "health"
+echo "$HEALTH" | grep -q '"status":"ok"' && pass "health" || fail "health" "$HEALTH"
 # Payload path: Windows Git Bash uses Windows curl.exe, which cannot read an
 # msys /tmp/... path — use a native path when cygpath exists.
 PAY="$ROOT/.tmp/chat-$NAME.json"
@@ -78,12 +79,12 @@ for _ in $(seq 1 5); do
   printf '%s' "$BODY" | grep -q '"usage"' && break
   sleep 1
 done
-printf '%s' "$BODY" | grep -q '"usage"' || fail "chat: $BODY"
-node packages/mik/dist/cli.mjs usage summary | grep -q "Requests" || fail "summary"
+printf '%s' "$BODY" | grep -q '"usage"' && pass "chat" || fail "chat" "$BODY"
+node packages/mik/dist/cli.mjs usage summary | grep -q "Requests" && pass "summary" || fail "summary"
 CSV="$ROOT/.tmp/usage-$NAME.csv"
 if command -v cygpath >/dev/null 2>&1; then CSV=$(cygpath -w "$CSV"); fi
-node packages/mik/dist/cli.mjs usage export --format csv --out "$CSV" >/dev/null 2>&1 || fail "export csv"
-head -1 "$CSV" | grep -q "^ts,app_id" || fail "csv header: $(head -1 "$CSV" 2>/dev/null)"
-"$PY" examples/python-host/host.py "http://127.0.0.1:$SERVEPORT/v1" local:mock-mini | grep -q "status:  200" || fail "python host"
+node packages/mik/dist/cli.mjs usage export --format csv --out "$CSV" >/dev/null 2>&1 || { echo "STEP csv fail"; echo "FAIL[$NAME] csv export"; exit 1; }
+head -1 "$CSV" | grep -q "^ts,app_id" && pass "csv" || fail "csv" "header: $(head -1 "$CSV" 2>/dev/null)"
+"$PY" examples/python-host/host.py "http://127.0.0.1:$SERVEPORT/v1" local:mock-mini | grep -q "status:  200" && pass "python" || fail "python"
 
 echo "ENV_OK $NAME"
