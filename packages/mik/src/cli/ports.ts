@@ -20,7 +20,9 @@ export interface PortProbe {
  */
 export function netstatShowsPort(output: string, port: number): boolean {
   for (const line of output.split(/\r?\n/)) {
-    if (!/LISTENING/i.test(line)) continue
+    // Windows netstat prints `LISTENING`; Linux/BSD print `LISTEN`. Either is a
+    // listener for our purposes; TIME_WAIT etc. are not.
+    if (!/\bLISTEN(?:ING)?\b/i.test(line)) continue
     // Local addresses look like `127.0.0.1:3211`, `0.0.0.0:3211` or `[::]:3211`.
     for (const match of line.matchAll(/:(\d+)(?=\s|$)/g)) {
       if (Number(match[1]) === port) return true
