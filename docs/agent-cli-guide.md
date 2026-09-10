@@ -199,7 +199,7 @@ npm i my-agent-cli @ai-sdk/deepseek
 
 # 2. 配一个供应商（密钥只进环境变量）
 my-agent model add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY
-export DEEPSEEK_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...            # bash；PowerShell 用：$env:DEEPSEEK_API_KEY = "sk-..."
 
 # 3. 选默认模型
 my-agent model use deepseek:deepseek-chat
@@ -284,9 +284,12 @@ pnpm add link:../model-infra-kit/packages/mik
 npx -y model-infra-kit serve --port 3211 --token "$MIK_SERVER_TOKEN"
 
 # 宿主（任何语言）只打 OpenAI 兼容端点
-curl -s http://127.0.0.1:3211/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hi"}]}'
+#   bash: curl -s http://127.0.0.1:3211/v1/chat/completions \
+#           -H 'content-type: application/json' \
+#           -d '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hi"}]}'
+#   Windows PowerShell：JSON 写文件 + curl.exe（curl 在 PS 里是别名）
+Set-Content -Encoding utf8 chat.json '{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hi"}]}'
+curl.exe -s -X POST http://127.0.0.1:3211/v1/chat/completions -H "content-type: application/json" --data-binary @chat.json
 ```
 
 - 宿主侧只改 `base_url`（示例见 `examples/python-host/host.py`）；请求体里的 `provider:model` 决定路由，宿主的认证头会被剥离并由 mik 按协议附上配置好的凭据。

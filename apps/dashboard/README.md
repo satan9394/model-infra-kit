@@ -128,9 +128,12 @@ MIK_DB=./.tmp/demo.db MIK_APP_ID=demo pnpm --filter @mik/dashboard seed
 node apps/dashboard/scripts/mock-openai.mjs
 # 然后在 /providers 页对 mock-gateway 点「测试连接」
 # 或产生一条真实用量（会触发 SSE）：
-curl -s -X POST http://127.0.0.1:3211/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"mock-gateway:mock-chat-pro","messages":[{"role":"user","content":"hi"}]}'
+#   bash: curl -s -X POST http://127.0.0.1:3211/v1/chat/completions \
+#           -H 'content-type: application/json' \
+#           -d '{"model":"mock-gateway:mock-chat-pro","messages":[{"role":"user","content":"hi"}]}'
+#   Windows PowerShell：JSON 写文件 + curl.exe（`curl` 在 PS 里是 Invoke-WebRequest 别名，-s 会报错）
+Set-Content -Encoding utf8 chat.json '{"model":"mock-gateway:mock-chat-pro","messages":[{"role":"user","content":"hi"}]}'
+curl.exe -s -X POST http://127.0.0.1:3211/v1/chat/completions -H "content-type: application/json" --data-binary @chat.json
 ```
 
 ## 已知限制（契约层面）
