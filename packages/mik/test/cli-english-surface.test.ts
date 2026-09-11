@@ -38,24 +38,29 @@ async function runCli(args: readonly string[]): Promise<{ code: number; out: str
 }
 
 /**
- * The banner embeds the package version, which legitimately changes every
- * release. Both sides are normalised to `<version>` so the frozen fixtures keep
- * asserting the *wording* without turning every version bump into a red CI run
- * (G47 follow-up: the first version of this test pinned 0.2.8 and failed CI on
- * the 0.2.9 bump).
+ * Both sides are normalised before comparison:
+ *
+ * - the banner embeds the package version, which legitimately changes every
+ *   release (pinning 0.2.8 turned the 0.2.9 bump into a red CI);
+ * - line endings differ by platform: the CLI emits `\n`, while Git for Windows
+ *   checks these `.txt` files out as CRLF (`core.autocrlf=true`), which made
+ *   every case fail on `windows-latest` only. `.gitattributes` pins them to LF,
+ *   and this normalisation keeps the test correct even if that is bypassed.
  */
-function normalizeVersion(text: string): string {
-  return text.replace(/model-infra-kit \(mik\) \d+\.\d+\.\d+/g, "model-infra-kit (mik) <version>")
+function normalize(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/model-infra-kit \(mik\) \d+\.\d+\.\d+/g, "model-infra-kit (mik) <version>")
 }
 
 describe("English CLI surface is frozen (version-controlled fixtures)", () => {
   for (const testCase of CASES) {
     it(`keeps the ${testCase.name} wording and exit code`, async () => {
-      const expected = normalizeVersion(readFileSync(`${FIXTURES}/${testCase.file}`, "utf8")).trimEnd()
+      const expected = normalize(readFileSync(`${FIXTURES}/${testCase.file}`, "utf8")).trimEnd()
       const actual = await runCli(testCase.args)
       // Compare text exactly: a stray quote or a reworded hint must fail here.
-      // Only the version number is allowed to differ between releases.
-      expect(normalizeVersion(actual.out).trimEnd()).toBe(expected)
+      // Only the version number and the platform's line endings may differ.
+      expect(normalize(actual.out).trimEnd()).toBe(expected)
       expect(actual.code).toBe(testCase.file === "help-en.txt" ? 0 : 2)
     })
   }
