@@ -47,12 +47,25 @@
 - **技术债队列**：G15 非法语言二次重选提示、G16 README 版本动态化、G17 index.ts 换行（已在 G04 顺带修）、G18 防环断言升级为目录级 import 图检测、G19 runCommand/main 抽公共前置段、G20 G04 残余（真实 SIGINT 端到端 / 非 win32 分支 / 孙进程链——建议在 ubuntu+macos CI runner 补强）、G21 流程债（子代理失败率与既定对策）。
 - **NOT_NOW（拒绝清单，维持）**：虚拟 key/key 池、RPM/TPM 硬限额、观测性深度（trace/eval/playground）、智能路由与自动 failover、多租户/团队、云同步/多实例聚合、兑换码与面向终端的充值计费、任何纯装饰功能（主题色等）。
 
-## PRODUCT_STATE（R89，G01-G12 已验收关闭；G13 进行中）
+## PRODUCT_STATE（R99，G01-G13 已验收关闭）
 
-- **当前成熟度**：v0.2.8，P0+P1 清零，P2 八项完成（…、G11 架构整洁度、G12 CLI 入门面本地化）；**456 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
-- **进行中**：G13（子命令输出本地化第一批：`provider` + `usage`）。实现者 `232115d4` 长期 `running`（字典已 81→162 键、8 文件在改）；卡片、4 份改前基线、验收探针均已就绪。
-- **技术债**：已清 G20/G23/G29/G30（G10）、G10a/G18/G19/G16/G15（G11）、G37 入门面子集（G12）、**G47（R87：en 冻结面升级为受版本控制的 fixture + 真测试，5 类错误形状各一条，CI 可见）**；待清 G37 其余子命令、G38–G44、G45/G46/G48/G49。
-- **风险**：无阻塞级；流程铁律 G26–G28/G36 已写入运行手册；**最重要的教训**：本机 locale 会让 locale 相关缺陷「假绿」（G12），而**验证动作本身也可能无效**（R87 用 .NET 相对路径改 fixture 实际没改到，得到假通过）。
+- **当前成熟度**：v0.2.9，P0+P1 清零，P2 九项完成（…、G11 架构整洁度、G12 CLI 入门面本地化、G13 `provider`/`usage` 输出本地化 + CJK 表格对齐）；**466 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用（含产物双语实测）**。
+- **下一步**：**G14**（收完 CLI 层剩余 18 处英文 + 框架前缀一致性，卡片已备于 `.tmp/staged-G14-card.md`）；其后启动**一轮「当前状态」UX 复审**（旧审计为 `0.1.x` 时代，此后 12 个 slice 已显著改变产品）。
+- **技术债**：已清 G20/G23/G29/G30（G10）、G10a/G18/G19/G16/G15（G11）、G37 入门面子集（G12）、G47（en 冻结面进版本控制）；待清 G37 其余（G14）、G38–G44、G45/G46/G48/G49，**新增候选 G50**（库层 11 处错误文案的包装策略）。
+- **风险**：无阻塞级；**R99 新增两条流程铁律**：① 改 `package.json` 版本后必须重跑全量测试（否则冻结快照类测试必红）；② 文件级 fixture 必须做换行归一化 + `.gitattributes` 双保险（Git for Windows 检出 CRLF 会让 Windows-only 失败）。
+
+## G13 验收留痕（R99）
+
+- **判定：独立 Evaluator 判定 ACCEPT**（0 阻断、5 条建议）。判定过程曲折：第一位 Evaluator 运行 7 轮无产出（远超历史最长 5 轮）→ 编排者**先 interrupt 再重派极小任务**（≤4 文件/≤3 命令/≤100 行），重派者交付 64 行判定并核对快照无漂移。
+- **Evaluator 的四项结论**：① **M2 类风险不存在**——全 src 27 处 grep 证实所有调用点显式传 `options`，无 `invocationLang({})`；`context.ts` 的 `contextLang(context, options)` 同时带上 `cli.lang`，链条 `MIK_LANG → cli.lang → OS locale → en` 正确。② **键对等精确相等**（zh 162 / en 162，无单边键、无重复、无空值）。③ **A2 基本可信但对照集不闭包**——`usage trends` 的 6 个表头键从未进对照集（**已由编排者当场闭合**，见下）。④ **范围无越界**（恰 10 文件、无未跟踪文件）。
+- **R-A2 当场闭合**：编排者造一行 `usage_events` 数据后用「已发布 0.2.8 vs 当前构建」对照 `usage trends` → 表头（`DATE / REQUESTS / INPUT / OUTPUT / CACHE READ / COST USD`）与数据行**逐字相同、0 差异**。
+- **编排者的 9 项独立验证**（全部实测）：tsc 0；全量 **466 在两种 locale 下全绿**；zh 探针由「改前 4/4 英文」转「改后 4/4 中文」；A2 同调用方式对照 6 路径 0 差异；冻结面交叉护栏 5/5（未越界碰错误路径/help）；**电池钉语言的反向验证**（移除即在 zh-CN 的 `summary` 步骤 FAIL）；**M2 语言优先级三测**（显式压过 OS locale）；**A3 结构化输出**（CSV 表头与 SHA256 一致、`--json` 该命令不存在属空真）；diff 质量（无调试残留、无 skip/only、`contextLang` 透传 options）。
+- **R99 事故：CI 连红两轮，均由「本卡之外的测试基建」引发，且是编排者自己引入的**：
+  1. **版本号被冻结**：G47 的 `cli-english-surface.test.ts` 把 `0.2.8` 写进快照 → 升到 `0.2.9` 后 `--help` 横幅变化 → CI 三 OS 全红。**我本地没发现是因为改完 `package.json` 只跑了 `build` 没跑测试**。
+  2. **换行符敏感**：`.txt` 快照被 Git for Windows（`core.autocrlf=true`）检出为 CRLF，CLI 输出是 LF → **只有 `windows-latest` 全红**。
+  修法（双保险）：测试内归一化**版本号与 `\r\n`**，并新增 `.gitattributes` 固定 `*.txt text eol=lf`。修复后**模拟 CRLF fixture 仍 5/5 绿**，CI 三 OS 全绿（34635827049）。
+- **G36 发布产物验证**：`mik 0.2.9`、30 导出、`server.mjs` 在包内、**产物双语实测生效**（zh「还没有配置任何供应商。」/ en `No providers configured.`）。
+- **编码过程**：`cd7375e`（功能）+ `b578570`/`c54853a`（CI 修复）+ `84e1244`（规则与状态）；npm `0.2.9` + Release v0.2.9。
 
 ## G13 进行中的准备工作（R85–R89，编排者只读产出）
 
