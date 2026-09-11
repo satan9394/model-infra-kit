@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
+import { superviseChild } from "../child-supervision.js"
 import { resolveCwd, resolveEnv, resolveIo, type RunOptions } from "../context.js"
 import { CliRuntimeError } from "../errors.js"
 import { assertPortFree } from "../ports.js"
@@ -89,8 +90,21 @@ export async function runDashboard(parsed: ParsedCli, options: RunOptions): Prom
     env: { ...env, PORT: String(port) },
   })
 
+  // Hand the child's lifetime to the supervisor: Ctrl+C — or the parent dying
+  // without cleanup — must not leave `next` running and holding the port.
+  // Windows needs the process tree (`pnpm → next`), hence the supervisor.
+  const dispose = superviseChild(child)
+
   return new Promise<number>((resolve, reject) => {
-    child.once("error", (error) => reject(new CliRuntimeError(`Could not start the dashboard: ${error.message}`)))
-    child.once("exit", (code) => resolve(code ?? 0))
+    child.once("error", (error) => {
+      dispose()
+      reject(new CliRuntimeError(`Could not start the dashboard: ${error.message}`))
+    })
+    child.once("exit", (code) => {
+      // The child is gone: stop supervising so the parent's `exit` hook does not
+      // signal a stale pid, and so no escalation timer survives the run.
+      dispose()
+      resolve(code ?? 0)
+    })
   })
 }
