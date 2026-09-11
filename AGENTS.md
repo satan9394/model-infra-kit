@@ -82,7 +82,20 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 - **先探针再派活**：派 T05 前用 `.tmp/spike-ai.mjs` 实测出「`cacheWriteTokens` 可能 undefined」这类关键事实，避免了 T05 猜错映射。
 - **并发上限 = 2**：一次派 5 个实现 Worker（F01–F04 + T07）**全部立即失败、零产出**；同一批卡单发或 2 并发则正常。派活规则：**最多 2 个实现 Worker 同时在线**，超出就排队。
 - **阻断级先修**：评审出的 B1/B2 要单独发卡、单独验证，不要和一堆建议级混在一张卡里（会被稀释）。
+- **测试全绿 ≠ 正确**：G05 的脱敏规则在 24 例全绿时仍会漏 `Authorization: Basic <base64>`、又误杀散文里的 `the Bearer token is required`——**边界反例要主动构造**，别把「测试过了」当结论。
+- **平台/locale 敏感改动必须以 CI 为准**（铁律 G26）：本机只在 Windows 跑 vitest，三环境电池只跑 CLI 冒烟、**不含单测**；G03–G07 连续 5 次 push 的 CI 全红而无人察觉。涉及平台分支、locale、时区、路径分隔符、信号、权限的改动，**本地绿不算数**，push 后必须 `gh run watch --exit-status`。测试若依赖运行环境必须**注入**（G29 的 locale 用例全部注入 `LC_ALL`/`MIK_LANG`）。
+- **禁止在实现者运行期间 `git add -A`**（铁律 G27）：R41 把实现者「临时删一个 i18n 键以自证对等测试会红」的**中间态**折进提交，CI 出现 32 vs 31 的假失败，浪费一轮并污染历史。只 `git add <自己改的文件>`；**新增的未跟踪文件（如新组件、新测试）必须显式点名**，否则整个改动等于没提（R51 的 `upstream-notice.tsx` 教训）。
+- **卡片里的断言不能恒真**：G09 卡片原写「`grep -c "shell: true"` 为 0」作为「去掉 shell」的验收，但源码本是 `shell: !useLocalNext && process.platform === "win32"`——**改动前就 0 命中**，属恒真断言。写卡时先跑一遍断言确认它**现在会红**。
+- **断言要锚在真实不变式上**：G09 的 e2e「顺序断言」有半边恒真（错误横幅被 `retried && !pending` 包住，SSR 首屏永不出现，位置比较永远成立）。改用 `data-testid` + 断言「首屏**不存在** error 横幅」才是可证条件。
+- **发版后必须验已发布产物**（铁律 G36）：仓库内 e2e 的 DIST 检查点只验**仓库 dist**；`files` 白名单、子路径导出、peer 依赖解析只在真正装包后暴露。流程：全新目录 `npm i model-infra-kit@<版本>` → ① CLI `--version` 一致 ② 库面导出含 `ModelInfra` ③ `dist/server.mjs` 在包内 ④ **真实功能冒烟**（mock 供应商 → `init` → `generate` → 断言文本与 `usage`）。注意 npm 有**传播延迟**（实测约 2 分钟），需轮询 `npm view <pkg>@<ver> version` 再装。
+- **工具自身的退出码也要自检**：`check-envs.mjs` 的 `--json` 分支曾**从不 `process.exit`**（失败时退出码 0，接 CI 会**假绿**）。凡是被 CI/脚本消费的模式，必须有「失败即非零退出」的自检用例。
+- **公库与体验不一致就是缺口**：CLI 已宣称 zh/en 双语（G02/G08），但 `mik --help` 横幅与未知命令报错仍是英文——这类「承诺 vs 实际」要靠**从已发布产物实测**发现，不能只看单测。看到一处就顺手 grep 同类面（`args.ts`/`dispatch.ts`/`context.ts`/各命令输出）。
 
-## 当前状态
+## 当前状态（R60）
 
-见 `tasks/BOARD.md`。T01–T04 已完成并通过指挥独立验证（全量 81/81，`tsc --noEmit` 0 错误）。
+- **版本 v0.2.6**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 435 例**（`pnpm --filter model-infra-kit test`），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。
+- **已验收发布的切片**：G01–G10（`0.1.7` → `0.2.6`）。产品演进全貌、GAP_MAP、技术债 G15–G40、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
+- **进行中**：G11（架构整洁度：协议表合并 / 目录级环守卫 / `runCommand` 与 `main` 收敛 / 小项收口），卡见 `tasks/EVO-G11-architecture-tidy.md`。
+- **已排定下一个**：G37 子集——`mik --help` 横幅与未知命令报错**尚未本地化**（已从发布产物实测确认），属「双语承诺 vs 实际体验」不一致。
+- 每轮收尾铁律：机械门禁 → 独立 Evaluator 验收 → 提交（只 add 自己的文件）+ 升版 patch → `npm publish` → `gh release create` → **CI 三 OS 绿** → **G36 发布产物验证** → 更新 `docs/product-evolution.md`。
