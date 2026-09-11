@@ -110,4 +110,15 @@
 - **验收后修订（post-ACCEPT amendments，已复跑门禁）**：S2 补 driver 级 SQL 计数用例（对照组同驱动，锁定「预算不引入额外 SQL」）→ budget 用例 15→17；S4 补「宿主 onWarn 抛错仍不重复告警」用例；S3 修正契约两处措辞（「每实例」而非每进程、appId 严格相等而非「空串计零」）。全量 **407** 测试全绿、tsc 0。
 - **S1（行为变化，已写入 release note）**：`hub.ts` 现向 `UsageService` 传 `onWarn`，使既有 `onEvent` 抛错的诊断从「死代码静默」变为「上报一条」；Evaluator 认可这是补齐既有承诺，编排者裁定保留并记录。
 - **新增技术债 G25**：预算基数只汇总 `usage_events` 明细行、不含已折叠 `usage_daily_rollups`（方向只会让告警偏晚、不误报，已在两处文档写明）。
+### 每轮收尾清单
+1. 机械门禁复跑并留存真实输出；2. 独立验收落盘 `.tmp/eval-<卡号>.md`；3. 提交 + 升版（patch）+ `npm publish`；4. `gh release create`；5. 更新本文件的 PRODUCT_STATE / 路线图 / 技术债；6. 选定下一 slice 并开卡。
+
+### 铁律增补（R41-R42 血的教训）
+
+- **G26｜每次 push 必须查 CI，直到出结论**（`gh run watch <id> --exit-status`）。理由：本编排者的本地门禁只在 Windows 跑 vitest，**平台与 locale 专属失败在 Windows 上永远不出现**；三环境电池只跑 CLI/服务冒烟、**不含 vitest**。R41 发现连续 5 次 push（G03→G07）CI 全红却未察觉，直到第 6 次才查出 G04 的 `exitCode` / POSIX `signalCode` 断言缺陷。
+  - 推论：**涉及平台分支（win32/POSIX）、locale、时区、路径分隔符、信号、文件权限的改动，必须以 CI 三 OS 结果为准**，本地绿不算数。
+  - 推论：新写的测试若依赖**运行环境**（locale/时区/平台），必须**注入**该环境变量，否则在别的 runner 上必然假红。
+- **G27｜实现者运行期间禁止 `git add -A`**。理由：R41 把 G08 实现者「临时删一个 i18n 键以自证对等测试会红」的**中间态**折进提交，导致 CI 出现假失败（32 vs 31 键），浪费一轮且污染历史。
+  - 做法：只 `git add <自己改的文件>`；或等实现者交付、工作区稳定后再统一提交。
+- **G28｜跨平台测试断言的写法**：进程终止用 `exitCode !== null || signalCode !== null`（POSIX 信号死亡只设 `signalCode`）；已修 G04 遗留用例。
 
