@@ -272,6 +272,29 @@ export class UsageRepository {
     }
   }
 
+  /**
+   * Cost already recorded for one app in `[from, to)`, as **integer micro-USD**.
+   *
+   * This is the soft budget's init-time base (EVO-G07): it is summed once per
+   * process and never on the `record()` path. Money is aggregated in SQL as
+   * integer micro-USD, exactly like every other total here (rule 2).
+   *
+   * Detail rows only. `usage_daily_rollups` holds days already older than the
+   * retention cutoff, which no budget window (at most one month of the current
+   * period) can reach through the normal maintenance path; a host that prunes
+   * aggressively will simply see the base start lower, which only ever delays a
+   * warning.
+   */
+  costMicros(appId: string, from: number, to: number): number {
+    const row = this.driver
+      .prepare(
+        `SELECT COALESCE(SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)), 0) AS cost_micro
+         FROM usage_events WHERE app_id = ? AND ts >= ? AND ts < ?`,
+      )
+      .get(appId, from, to)
+    return asNumber(row?.cost_micro)
+  }
+
   summary(query: UsageQuery = {}): UsageSummary {
     const total = addAggregate(this.aggregateEvents(query), this.aggregateRollups(query))
     const billableInput = total.tokens.input + total.tokens.cacheWrite

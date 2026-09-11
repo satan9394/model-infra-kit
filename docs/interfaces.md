@@ -374,6 +374,7 @@ writeSetting(key: string, value: string): void
 - 代码位置：CLI 见 `src/cli/context.ts:140-143`；库见 `src/hub.ts:317`（`config.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID`）。
 - **差异是有意设计**：库宿主显式传参应压过环境变量（显式 > 隐式）；CLI 的 flag 同样压过 env。两条路径的「env vs 文件/默认」不可比，因为库不读 `mik.config.json`。
 - **settings 表**（`cli.lang` 等小设置）只由 CLI 的 REPL/向导读写（`hub.readSetting`/`writeSetting`），优先级低于环境变量：`MIK_LANG` → `cli.lang` → `zh`（见上文「小设置持久化」节）。
+- **`budget`（EVO-G07）**：属 config 入参层，即**最高优先级**；它没有环境变量、`mik.config.json` 或 settings 层的对应物（CLI 不读该字段），因此只有「显式入参 → 不配置」两种状态，不存在被覆盖的情形。
 - `mik.config.json` 只承载 `appId` / `db` / `initialProviders`（`src/cli/context.ts:25-34`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费。
 - 已由测试锁定：`packages/mik/test/config-precedence.test.ts`。
 
@@ -406,8 +407,29 @@ writeSetting(key: string, value: string): void
 | `recordUsage` | `boolean` | `true` | 是否持久化用量事件 |
 | `cacheDir` | `string` | `~/.model-infra-kit/cache` | 价格目录缓存目录 |
 | `onWarn` | `(message, error?) => void` | 无 | 非致命问题回调（目录同步失败、缺价等） |
+| `budget` | `{ usd: number; window?: "day" \| "month"; onExceed?: "warn" }` | 不配置（= 关闭） | 软预算：**只告警、绝不硬拒绝**。见下文「EVO-G07」 |
 
 该接口与 F16 记录的 `ModelInfraOptions`（`baseUrl`/`maxRetries`/`pricingCatalog`/`pricingFetch`/`onUsage`）共同构成 `ModelInfra.init()` 的入参。
+
+#### `budget`（EVO-G07 新增，契约）
+
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `usd` | `number` | 必填 | 阈值（美元），必须为**正有限数**；`0`/负数/`NaN`/`Infinity` 视为非法配置 |
+| `window` | `"day" \| "month"` | `"day"` | 统计窗口，边界为 **UTC** 日界/月界（`Date.UTC(...)`），不是本地时区 |
+| `onExceed` | `"warn"` | `"warn"` | 目前**只支持** `"warn"`；其它取值视为非法配置 |
+
+语义（不可放宽）：
+
+- **只告警，绝不硬拒绝**：不阻断、不排队、不返回 429、不做 RPM/TPM 限流；越阈只经 `onWarn` 发一条消息。
+- **每实例每窗口每 appId 最多一次**：同一 `UsageService` 实例内，同一窗口的后续越阈写入不再告警；跨窗口（UTC 日/月界）后累计值归零，可再告警一次。（多实例各自计数、互不知晓。）
+- 累计口径为**整数微美元**（`Math.round(usd * 1e6)`，与 SQL 的 `CAST(ROUND(cost_usd * 1000000) AS INTEGER)` 同语义），不做浮点求和。
+- 基数：`ModelInfra.init()` 时**一次性**从库汇总「本窗口内本 appId 成本」（`UsageRepository.costMicros()`，detail 行、`[windowStart, now)`），之后靠内存运行值累加；**每次 `record()` 不做全表 SUM**。
+- 计数范围：只累计 `event.appId` **严格等于**本实例 `appId` 的事件（不等则整行跳过；init 基数同样只覆盖该 appId）。
+- **失败静默（不影响调用与记录）**：未配置 → 零查询零告警；配置非法 → 忽略该配置并经 `onWarn` 提示一次；init 基数汇总失败 → 基数按 0 计（一次 `onWarn`），不抛错；运行期累计异常 → 静默。
+- 告警消息含阈值、当前累计、窗口与 appId，且整体过 `redact()`（`packages/mik/src/util/redact.ts`）。
+
+相关实现：`packages/mik/src/types.ts`（`BudgetConfig`）、`packages/mik/src/usage/service.ts`（累计与一次性告警、`windowStart()`/`toMicroUsd()`/`isUsableBudget()`/`budgetBaseMicros()`）、`packages/mik/src/hub.ts`（init 时汇总基数）、`packages/mik/src/store/usage-repository.ts`（`costMicros()`）。口径与排查见 `docs/cost-reconciliation.md`。
 
 ## 指挥裁决（R01 评审后，2026-09-09）
 
