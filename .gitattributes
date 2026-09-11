@@ -1,0 +1,17 @@
+# Repo-wide line-ending policy.
+#
+# The frozen CLI fixtures are compared byte-for-byte against CLI output, which
+# uses LF. Git for Windows defaults to `core.autocrlf=true`, so without this any
+# `windows-latest` checkout turned them into CRLF and the whole
+# `cli-english-surface` suite failed on Windows only (EVO-G13 / G47 follow-up).
+*.txt text eol=lf
+
+# Source and docs stay LF in the repository as well.
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
