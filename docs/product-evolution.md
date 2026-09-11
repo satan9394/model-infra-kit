@@ -159,3 +159,13 @@
 - **G30（死导出）裁定：保留**。`dictFor`/`hasKey` 在 `src/` 内无调用方，仅在测试与宿主侧使用；因 G08 已把「11 个导出齐全（只增不减）」写进契约，删除会与公开面契约冲突，故在 `docs/interfaces.md` F16 的 `@internal` 风格小节登记（宿主便利、不承诺 semver），并写明删除时的同步改法。
 - **G23（电池假阴）已收敛**：`scripts/check-envs.mjs` 对**失败的环境**自动重试**一次**（重试前用 `pickPort` 重新分配动态端口），重试成功记 `PASS (retried)` 并在摘要标注；**重试仍失败 → FAIL**，退出码语义不变（0 全通过 / 1 有失败 / 2 用法错误）。已用「临时改坏版本断言」自证：重试后仍 FAIL、退出码非 0。
 - **G20 结论入档**：非 win32 分支已由 CI 三 OS 全量单测覆盖（G08 之后 CI 会跑 `child-supervision.test.ts`）；**真实 SIGINT 端到端降级为 LATER**（理由：需真实 TTY/信号注入，成本高于收益）。
+## 路线图调整（R59）：G37 提升优先级（有证据）
+
+**实证（从已发布 0.2.6 产物，非源码推断）**：在全新目录 `npm i model-infra-kit@0.2.6` 后——
+
+- `MIK_LANG=zh` 与 `MIK_LANG=en` 下裸 `mik`（非 TTY）输出**完全相同且为英文**的横幅（`model-infra-kit (mik) 0.2.6` + `Embeddable model layer: ...`）。
+- `MIK_LANG=zh` 下 `mik nonexistent-cmd` 仍是英文：`error: Unknown command "nonexistent-cmd". Run "mik --help" for the list of commands.`
+
+**裁决**：G37 中「`--help` 横幅 + 未知命令/用法错误」这一子集从「同类技术债」提升为 **NEXT（下一个 slice，紧随 G11）**。理由：语言设置（G02/G08）已宣称 CLI 双语，但用户最常见的第一条命令 `mik --help` 仍是英文——属**承诺与体验不一致**，成熟度上的真实缺口；且改动集中在 `args.ts`/`dispatch.ts`/`context.ts` 的文案层，成本可控（区别于 G37 里其余命令的输出本地化，仍留在 LATER）。
+**排队理由**：G11 的 G19 也改 `dispatch.ts`，同文件并发会互相干扰，故 G37 子集排在 G11 之后。
+
