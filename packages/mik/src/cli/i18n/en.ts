@@ -21,6 +21,7 @@ export const en: Record<string, string> = {
   "slash.pricing": "Show the pricing table and manual overrides",
   "slash.usage": "Show the usage summary (--limit n)",
   "slash.chat": "Chat with the default model",
+  "slash.exit": "Exit",
   "wizard.lang": "Select (1: 中文  2: English): ",
   "wizard.langInvalid": "Please enter 1 or 2",
   "wizard.appId": "Application id [%s]: ",

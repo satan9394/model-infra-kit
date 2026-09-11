@@ -153,9 +153,19 @@ describe("handleLine (headless)", () => {
 describe("runRepl without a TTY", () => {
   it("refuses with a clear message when stdin is not a terminal", async () => {
     const { io, err } = captureIo()
-    const code = await runRepl(parseCliArgs([]), { io, interactive: false })
+    // The message language now follows MIK_LANG → cli.lang → OS locale → en, so
+    // the locale is injected: LC_ALL wins over LANG/LC_MESSAGES and stops this
+    // assertion from depending on the runner (CI is usually en_*).
+    const code = await runRepl(parseCliArgs([]), { io, env: { ...process.env, LC_ALL: "zh_CN.UTF-8" }, interactive: false })
     expect(code).toBe(EXIT_USAGE)
     expect(err.join("\n")).toContain("需要一个终端")
+  })
+
+  it("prints the same refusal in English when the language resolves to en", async () => {
+    const { io, err } = captureIo()
+    const code = await runRepl(parseCliArgs([]), { io, env: { ...process.env, MIK_LANG: "en" }, interactive: false })
+    expect(code).toBe(EXIT_USAGE)
+    expect(err.join("\n")).toContain("needs a TTY")
   })
 })
 
