@@ -37,13 +37,25 @@ async function runCli(args: readonly string[]): Promise<{ code: number; out: str
   return { code, out: lines.join("\n") }
 }
 
+/**
+ * The banner embeds the package version, which legitimately changes every
+ * release. Both sides are normalised to `<version>` so the frozen fixtures keep
+ * asserting the *wording* without turning every version bump into a red CI run
+ * (G47 follow-up: the first version of this test pinned 0.2.8 and failed CI on
+ * the 0.2.9 bump).
+ */
+function normalizeVersion(text: string): string {
+  return text.replace(/model-infra-kit \(mik\) \d+\.\d+\.\d+/g, "model-infra-kit (mik) <version>")
+}
+
 describe("English CLI surface is frozen (version-controlled fixtures)", () => {
   for (const testCase of CASES) {
     it(`keeps the ${testCase.name} wording and exit code`, async () => {
-      const expected = readFileSync(`${FIXTURES}/${testCase.file}`, "utf8").trimEnd()
+      const expected = normalizeVersion(readFileSync(`${FIXTURES}/${testCase.file}`, "utf8")).trimEnd()
       const actual = await runCli(testCase.args)
       // Compare text exactly: a stray quote or a reworded hint must fail here.
-      expect(actual.out.trimEnd()).toBe(expected)
+      // Only the version number is allowed to differ between releases.
+      expect(normalizeVersion(actual.out).trimEnd()).toBe(expected)
       expect(actual.code).toBe(testCase.file === "help-en.txt" ? 0 : 2)
     })
   }
