@@ -1,13 +1,20 @@
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  // `Authorization: Bearer <token>` first: the key=value rule below would
-  // otherwise consume the literal "Bearer" as the value and leave the token.
-  [/(Bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1[REDACTED]"],
-  // key=value style
-  [/((?:api[_-]?key|token|secret|password|credential|authorization)\s*[=:]\s*["']?)([^\s"',;]{4,})/gi, "$1[REDACTED]"],
-  // known key prefixes
-  [/\b(sk-[A-Za-z0-9_\-]{8,})/g, "sk-****"],
-  [/\b(tvly-[A-Za-z0-9_\-]{8,})/g, "tvly-****"],
-  [/\b(ghp_|gho_|ghs_|ghr_|xoxb-|xoxp-|AKIA)[A-Za-z0-9_\-]{8,}/g, "$1****"],
+  // Inside an `Authorization` header, mask the credentials whatever the scheme
+  // (`Bearer`, `Basic`, `Digest`, `Token`, `ApiKey`, `Negotiate`, …) — enumerating
+  // schemes leaks every future one. The key may be quoted (JSON) and the value run
+  // covers at most two tokens (scheme + credential), so trailing prose survives.
+  [/((?:authorization)["']?\s*[=:]\s*["']?)[^\s"',;]+(?:\s+[^\s"',;]+)?/gi, "$1[REDACTED]"],
+  // A bare `Bearer <credential>` outside a header. The value must *look* like a
+  // credential (at least one digit or symbol), because prose such as
+  // "the Bearer token is required" would otherwise get its next word masked.
+  [/(Bearer\s+)(?=[A-Za-z0-9._~+/=-]*[\d._~+/=-])[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]"],
+  // key=value style; value floor is 1 char so `token=x` and `api_key=ab+/=` are covered.
+  // A bare `token counts are 12` has no `=`/`:` separator and therefore never matches.
+  [/((?:api[_-]?key|token|secret|password|credential|authorization)\s*[=:]\s*["']?)([^\s"',;]+)/gi, "$1[REDACTED]"],
+  // known key prefixes (prefix is echoed back, the rest is masked regardless of length)
+  [/\b(sk-)[A-Za-z0-9_\-]+/g, "$1****"],
+  [/\b(tvly-)[A-Za-z0-9_\-]+/g, "$1****"],
+  [/\b(ghp_|gho_|ghs_|ghr_|xoxb-|xoxp-|AKIA)[A-Za-z0-9_\-]+/g, "$1****"],
 ]
 
 /** Replace anything that looks like a secret with a marker. */
