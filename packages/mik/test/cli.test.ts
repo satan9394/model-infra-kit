@@ -51,14 +51,20 @@ interface Captured {
   stderr: string
 }
 
-/** Run the CLI in-process with captured streams. Every call is offline by construction. */
+/**
+ * Run the CLI in-process with captured streams. Every call is offline by construction.
+ *
+ * `MIK_LANG` defaults to `en` so the assertions below never depend on the machine's
+ * OS locale (a zh-CN host would otherwise render Chinese and flip these tests); a
+ * test that wants another language passes it in `env`.
+ */
 async function run(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv = {}): Promise<Captured> {
   const out: string[] = []
   const err: string[] = []
   const code = await main(args, {
     io: { out: (text) => out.push(text), err: (text) => err.push(text) },
     cwd,
-    env: { ...process.env, ...env },
+    env: { ...process.env, MIK_LANG: "en", ...env },
     interactive: false,
   })
   return { code, stdout: out.join("\n"), stderr: err.join("\n") }
@@ -258,6 +264,41 @@ describe("help and version", () => {
     expect(result.code).toBe(2)
     expect(result.stderr).toContain("error:")
     expect(result.stdout).toBe("")
+  })
+
+  it("localizes root help into Chinese under MIK_LANG=zh", async () => {
+    const { dir } = sandbox()
+    const result = await run(["--help"], dir, { MIK_LANG: "zh" })
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("可嵌入的模型层")
+    expect(result.stdout).toContain("用法")
+    expect(result.stdout).not.toContain("Embeddable model layer")
+    // Command names stay literal so they remain copy-pasteable.
+    expect(result.stdout).toContain("mik provider")
+  })
+
+  it("localizes an unknown command into Chinese and keeps exit code 2", async () => {
+    const { dir } = sandbox()
+    const result = await run(["no-such-cmd"], dir, { MIK_LANG: "zh" })
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("未知命令")
+    expect(result.stderr).not.toContain("Unknown command")
+  })
+
+  it("localizes a missing positional argument into Chinese and keeps exit code 2", async () => {
+    const { dir } = sandbox()
+    const result = await run(["provider", "remove"], dir, { MIK_LANG: "zh" })
+    expect(result.code).toBe(2)
+    expect(result.stderr).toContain("缺少必需参数")
+  })
+
+  it("keeps the English output in English under MIK_LANG=en (A2)", async () => {
+    const { dir } = sandbox()
+    const result = await run(["--help"], dir, { MIK_LANG: "en" })
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Embeddable model layer")
+    expect(result.stdout).toContain("USAGE")
+    expect(result.stdout).not.toContain("可嵌入的模型层")
   })
 })
 

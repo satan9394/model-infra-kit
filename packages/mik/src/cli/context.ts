@@ -6,6 +6,7 @@ import { defaultDbPath } from "../util/paths.js"
 import { redact } from "../util/redact.js"
 import { flagBool, flagString, type ParsedCli } from "./args.js"
 import { CliUsageError } from "./errors.js"
+import { resolveCliLang, tr, type Lang } from "./i18n.js"
 
 export const DEFAULT_CONFIG_FILE = "mik.config.json"
 
@@ -58,6 +59,15 @@ export function resolveIo(options: RunOptions): CliIo {
 
 export function resolveEnv(options: RunOptions): NodeJS.ProcessEnv {
   return options.env ?? process.env
+}
+
+/**
+ * Language for one invocation, before the hub (and therefore `cli.lang`) exists:
+ * `MIK_LANG` → OS locale → `en`. Same chain as `repl.ts` (non-TTY guard) and
+ * `init.ts` (early guard), so help, usage errors and the REPL can never disagree.
+ */
+export function invocationLang(options: RunOptions): Lang {
+  return resolveCliLang(resolveEnv(options), undefined)
 }
 
 export function resolveCwd(options: RunOptions): string {
@@ -186,11 +196,24 @@ export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** A required positional argument, or a usage error naming it. */
-export function requireArg(parsed: ParsedCli, index: number, name: string): string {
+/**
+ * A required positional argument, or a usage error naming it.
+ *
+ * `options` carries the invocation's environment, so the message localizes from
+ * the *injected* env (`RunOptions.env`) rather than the real `process.env` — a
+ * caller that passes `MIK_LANG=zh` must get Chinese even on an English host.
+ * Passing an explicit `lang` still wins (tests).
+ */
+export function requireArg(
+  parsed: ParsedCli,
+  index: number,
+  name: string,
+  options: RunOptions = {},
+  lang: Lang = invocationLang(options),
+): string {
   const value = parsed.args[index]
   if (!value || value.startsWith("-")) {
-    throw new CliUsageError(`Missing required argument ${name}.`, parsed.action?.usage ?? parsed.command?.usage)
+    throw new CliUsageError(tr(lang, "cli.missingArgument", name), parsed.action?.usage ?? parsed.command?.usage)
   }
   return value
 }

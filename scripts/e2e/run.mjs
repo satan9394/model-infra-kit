@@ -113,6 +113,10 @@ function cleanEnv(extra = {}) {
   }
   env.NO_PROXY = "127.0.0.1,localhost"
   env.no_proxy = "127.0.0.1,localhost"
+  // The harness is a tool, not a user: pin its language so the assertions below
+  // never depend on the machine's OS locale (a zh-CN host would otherwise render
+  // Chinese and flip the English help assertions). EVO-G12/G26.
+  env.MIK_LANG = "en"
   return { ...env, ...extra }
 }
 

@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 import { CliUsageError } from "./errors.js"
+import { tr, type Lang } from "./i18n.js"
 
 export interface FlagSpec {
   /** Long flag name without the leading dashes, e.g. `api-key-ref`. */
@@ -410,13 +411,37 @@ function allowedFlags(command: CommandSpec | null, action: ActionSpec | null): S
 }
 
 /**
+ * `node:util` reports parse failures as English prose that varies by Node
+ * version. Only the two shapes we can name are translated; anything else keeps
+ * the runtime's own wording rather than inventing a message.
+ */
+const UNKNOWN_OPTION = /^Unknown option '(--?[^']+)'/
+const MISSING_OPTION_VALUE = /^Option '(--[^']+)' argument missing/
+
+function localizeParseError(raw: string, lang: Lang): string {
+  // `en` is the runtime's own language: hand its wording through untouched so the
+  // English output stays byte-identical to the pre-G12 CLI (card A2). Only other
+  // languages replace the two shapes we can name.
+  if (lang === "en") return raw
+  const unknown = UNKNOWN_OPTION.exec(raw)
+  if (unknown?.[1] !== undefined) return tr(lang, "cli.unknownOption", unknown[1])
+  const missing = MISSING_OPTION_VALUE.exec(raw)
+  if (missing?.[1] !== undefined) return tr(lang, "cli.missingOptionValue", missing[1])
+  return raw
+}
+
+/**
  * Parse `process.argv.slice(2)`.
  *
  * Flags are resolved against the whole command tree first (so an unknown flag
  * fails loudly), then checked against the resolved command and action (so a
  * known-but-misplaced flag, e.g. `--port` on `usage summary`, also fails).
+ *
+ * `lang` only selects the wording of the usage errors raised here: this runs
+ * before the hub is open, so callers pass `resolveCliLang(env, undefined)`. The
+ * `"en"` default keeps the embedder/`parseCliArgs(argv)` contract unchanged.
  */
-export function parseCliArgs(argv: readonly string[]): ParsedCli {
+export function parseCliArgs(argv: readonly string[], lang: Lang = "en"): ParsedCli {
   let positionals: string[]
   let rawValues: Record<string, string | boolean | undefined>
   try {
@@ -424,7 +449,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCli {
     positionals = parsed.positionals
     rawValues = parsed.values as Record<string, string | boolean | undefined>
   } catch (error) {
-    throw new CliUsageError(error instanceof Error ? error.message : String(error), "mik --help")
+    throw new CliUsageError(localizeParseError(error instanceof Error ? error.message : String(error), lang), "mik --help")
   }
 
   const help = rawValues.help === true
@@ -437,10 +462,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCli {
 
   const command = findCommand(commandName)
   if (!command) {
-    throw new CliUsageError(
-      `Unknown command "${commandName}". Run "mik --help" for the list of commands.`,
-      "mik --help",
-    )
+    throw new CliUsageError(tr(lang, "cli.unknownCommand", commandName), "mik --help")
   }
 
   let action: ActionSpec | null = null
@@ -450,7 +472,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCli {
     if (actionName === undefined) {
       if (help) return { command, action: null, args: [], values: camelValues(rawValues), help, version, raw: argv }
       throw new CliUsageError(
-        `"mik ${command.name}" needs an action: ${command.actions.map((item) => item.name).join(", ")}.`,
+        tr(lang, "cli.missingAction", `mik ${command.name}`, command.actions.map((item) => item.name).join(", ")),
         command.usage,
       )
     }
@@ -458,9 +480,12 @@ export function parseCliArgs(argv: readonly string[]): ParsedCli {
     if (!found) {
       if (help) return { command, action: null, args: [], values: camelValues(rawValues), help, version, raw: argv }
       throw new CliUsageError(
-        `Unknown action "${command.name} ${actionName}". Expected one of: ${command.actions
-          .map((item) => item.name)
-          .join(", ")}.`,
+        tr(
+          lang,
+          "cli.unknownAction",
+          `${command.name} ${actionName}`,
+          command.actions.map((item) => item.name).join(", "),
+        ),
         command.usage,
       )
     }
@@ -473,7 +498,10 @@ export function parseCliArgs(argv: readonly string[]): ParsedCli {
   const allowed = allowedFlags(command, action)
   for (const name of Object.keys(rawValues)) {
     if (!allowed.has(name)) {
-      throw new CliUsageError(`--${name} is not valid for "${[command.name, action?.name].filter(Boolean).join(" ")}".`, action?.usage ?? command.usage)
+      throw new CliUsageError(
+        tr(lang, "cli.flagNotAllowed", `--${name}`, [command.name, action?.name].filter(Boolean).join(" ")),
+        action?.usage ?? command.usage,
+      )
     }
   }
 

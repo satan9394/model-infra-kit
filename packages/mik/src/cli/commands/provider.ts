@@ -97,7 +97,7 @@ export function apiKeyNotice(id: string, presetId: string | undefined): string {
 }
 
 async function runAdd(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  const id = requireArg(parsed, 0, "<id>")
+  const id = requireArg(parsed, 0, "<id>", options)
   const presetId = flagString(parsed.values, "preset")
   const baseUrl = flagString(parsed.values, "baseUrl")
   const name = flagString(parsed.values, "name")
@@ -127,7 +127,7 @@ async function runAdd(parsed: ParsedCli, options: RunOptions): Promise<number> {
 }
 
 async function runRemove(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  const id = requireArg(parsed, 0, "<id>")
+  const id = requireArg(parsed, 0, "<id>", options)
   return withContext(parsed, options, async (context) => {
     const { io } = context
     const existing = context.hub.providers.get(id)
@@ -154,7 +154,7 @@ async function runRemove(parsed: ParsedCli, options: RunOptions): Promise<number
 }
 
 async function runTest(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  const id = requireArg(parsed, 0, "<id>")
+  const id = requireArg(parsed, 0, "<id>", options)
   return withContext(parsed, options, async (context) => {
     const { io } = context
     if (context.offline) {
