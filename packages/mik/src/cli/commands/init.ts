@@ -16,7 +16,7 @@ import {
 } from "../context.js"
 import { CliRuntimeError, CliUsageError } from "../errors.js"
 import { isInteractive, prompt } from "../prompt.js"
-import { parseLangChoice, resolveLang, tr, type Lang } from "../i18n.js"
+import { parseLangChoice, resolveCliLang, tr, type Lang } from "../i18n.js"
 
 function presetList(): string {
   return PROVIDER_PRESETS.map((preset) => preset.id).join(", ")
@@ -45,12 +45,13 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     throw new CliRuntimeError(`${filePath} already exists. Re-run with --force to overwrite it.`)
   }
 
-  // Language resolution follows the contract MIK_LANG → cli.lang → zh. The
-  // stored setting is read through the opened hub, so the non-interactive
-  // path honors it too.
+  // Language resolution follows the contract MIK_LANG → cli.lang → OS locale →
+  // en. The stored setting is read through the opened hub, so the
+  // non-interactive path honors it too. No hardcoded default language: a user
+  // who never chose one gets their system language.
   return withContext(parsed, options, async (context) => {
     const env = resolveEnv(options)
-    let lang: Lang = resolveLang(env.MIK_LANG, context.hub.readSetting("cli.lang") ?? undefined)
+    let lang: Lang = resolveCliLang(env, context.hub.readSetting("cli.lang") ?? undefined)
     let appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? "default"
     let db = flagString(parsed.values, "db") ?? env.MIK_DB ?? defaultDbPath()
     let presetId = flagString(parsed.values, "provider")

@@ -12,7 +12,7 @@ import { createInterface } from "node:readline/promises"
 import type { ParsedCli } from "./args.js"
 import { messageOf, openContext, resolveEnv, resolveIo, type CliContext, type RunOptions } from "./context.js"
 import { formatMoney } from "./format.js"
-import { isLang, LANGS, LANG_LABELS, parseLangChoice, resolveLang, tr, trBoth, type Lang } from "./i18n.js"
+import { isLang, LANGS, LANG_LABELS, parseLangChoice, resolveCliLang, tr, trBoth, type Lang } from "./i18n.js"
 import { runCommand } from "./dispatch.js"
 import { isInteractive, prompt } from "./prompt.js"
 import { redact } from "../util/redact.js"
@@ -156,13 +156,17 @@ async function chatScript(context: CliContext, options: RunOptions, lang: Lang, 
 export async function runRepl(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const io = resolveIo(options)
   if (!isInteractive(options)) {
-    io.err(tr("zh", "repl.notty"))
+    // No hub is open on this path, so only `MIK_LANG` and the OS locale can
+    // inform the message; the stored `cli.lang` needs the store. Never a
+    // hardcoded language.
+    io.err(tr(resolveCliLang(resolveEnv(options), undefined), "repl.notty"))
     return EXIT_USAGE
   }
   const context = await openContext(parsed, options)
   try {
-    // Converged on `i18n.resolveLang`: env MIK_LANG → stored cli.lang → zh.
-    let lang = resolveLang(resolveEnv(options).MIK_LANG, context.hub.readSetting("cli.lang") ?? undefined)
+    // Converged on `i18n.resolveCliLang`: MIK_LANG → stored cli.lang → OS
+    // locale → en.
+    let lang = resolveCliLang(resolveEnv(options), context.hub.readSetting("cli.lang") ?? undefined)
     const setLang = (next: Lang) => {
       lang = next
     }

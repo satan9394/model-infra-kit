@@ -180,7 +180,10 @@ describe("superviseChild", () => {
         new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5_000)),
       ])
       expect(outcome).not.toBe("timeout")
-      expect(child.exitCode).not.toBeNull()
+      // POSIX reports a signal death through `signalCode` and leaves `exitCode`
+      // null; Windows' `taskkill` path yields an exit code. Either proves the
+      // process is gone, so assert on both rather than on one platform's shape.
+      expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
     } finally {
       dispose()
       if (child.exitCode === null) child.kill("SIGKILL")

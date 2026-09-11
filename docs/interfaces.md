@@ -354,7 +354,13 @@ writeSetting(key: string, value: string): void
 
 - 仅限「小设置」：界面语言、UX 偏好等；**不要**用它们存密钥（密钥仍走 `api_key_ref`）或大对象。
 - 现有约定键：`cli.lang` = `"zh" | "en"`（`src/cli/i18n.ts` 的 `Lang`）。
-- CLI 侧读取顺序：`MIK_LANG` 环境变量 → `cli.lang` 设置 → `zh`。
+- CLI 侧读取顺序（EVO-G08 更新）：`MIK_LANG` 环境变量 → `cli.lang` 设置 → **OS locale** → `en`（兜底，不再是 `zh`）。
+  - OS locale 探测顺序：`LC_ALL` → `LC_MESSAGES` → `LANG` → （Windows）`Intl.DateTimeFormat().resolvedOptions().locale`。
+  - 映射：`zh*` → `zh`；其余（含 `en_*`、`fr_FR`）→ `en`；畸形值（`C` / `POSIX` / 空串）视为无线索 → `en`。
+  - 不支持的 `MIK_LANG`（如 `xx`）视为**未设置**，继续按 stored → locale → `en` 解析，不抛错、不落到 `zh`。
+  - 显式 `MIK_LANG=zh` 或已存 `cli.lang=zh` 时结果恒为 `zh`（行为与旧版完全一致）。
+- 实现与接线：`src/cli/i18n.ts` 提供 `resolveLang(envValue, storedValue, options?)`（`options.locale` 可注入，测试不依赖真实环境）与 `resolveCliLang(env, stored)`（= `resolveLang` + `{ env, platform: process.platform }`）；`init.ts`、`repl.ts` 统一调用后者，**无硬编码默认语言**。
+- 分文件：每语言一个文件（`src/cli/i18n/zh.ts`、`src/cli/i18n/en.ts`，扁平 `Record<string, string>`），`i18n.ts` 合成 catalog；键集合对等由 `test/i18n.test.ts` 强制。某语言缺键时 `tr` 回退另一语言（优先 `en`），**绝不回显 key**。
 
 ---
 
@@ -373,7 +379,7 @@ writeSetting(key: string, value: string): void
 
 - 代码位置：CLI 见 `src/cli/context.ts:140-143`；库见 `src/hub.ts:317`（`config.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID`）。
 - **差异是有意设计**：库宿主显式传参应压过环境变量（显式 > 隐式）；CLI 的 flag 同样压过 env。两条路径的「env vs 文件/默认」不可比，因为库不读 `mik.config.json`。
-- **settings 表**（`cli.lang` 等小设置）只由 CLI 的 REPL/向导读写（`hub.readSetting`/`writeSetting`），优先级低于环境变量：`MIK_LANG` → `cli.lang` → `zh`（见上文「小设置持久化」节）。
+- **settings 表**（`cli.lang` 等小设置）只由 CLI 的 REPL/向导读写（`hub.readSetting`/`writeSetting`），优先级低于环境变量、高于系统语言：`MIK_LANG` → `cli.lang` → `OS locale` → `en`（见上文「小设置持久化」节）。
 - **`budget`（EVO-G07）**：属 config 入参层，即**最高优先级**；它没有环境变量、`mik.config.json` 或 settings 层的对应物（CLI 不读该字段），因此只有「显式入参 → 不配置」两种状态，不存在被覆盖的情形。
 - `mik.config.json` 只承载 `appId` / `db` / `initialProviders`（`src/cli/context.ts:25-34`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费。
 - 已由测试锁定：`packages/mik/test/config-precedence.test.ts`。
@@ -382,12 +388,12 @@ writeSetting(key: string, value: string): void
 
 | 变量 | 读取位置 | 语义 |
 |---|---|---|
-| `MIK_DB` | `cli/context.ts:140`、`cli/commands/init.ts:55` | SQLite 路径（CLI；`--db` 优先） |
-| `MIK_APP_ID` | `cli/context.ts:141`、`cli/commands/init.ts:54`、`hub.ts:317` | 账本所属应用 id；多宿主共用一库时用于隔离 |
+| `MIK_DB` | `cli/context.ts:140`、`cli/commands/init.ts:56` | SQLite 路径（CLI；`--db` 优先） |
+| `MIK_APP_ID` | `cli/context.ts:141`、`cli/commands/init.ts:55`、`hub.ts:317` | 账本所属应用 id；多宿主共用一库时用于隔离 |
 | `MIK_CONFIG` | `cli/context.ts:75` | `mik.config.json` 的替代路径（`--config` 优先） |
 | `MIK_CACHE_DIR` | `cli/context.ts:142` | 价格目录缓存目录（`--cache-dir` 优先） |
 | `MIK_OFFLINE` | `cli/context.ts:143`（`"1"` 为真） | 完全离线：禁用目录同步与在线价格拉取（flag `--offline` 为 `||` 关系，不是覆盖） |
-| `MIK_LANG` | `cli/commands/init.ts:53`、`cli/repl.ts:165`（`cli/i18n.ts` 只提供 `resolveLang`） | CLI/REPL 界面语言 `zh`/`en`；优先于 `cli.lang` 设置 |
+| `MIK_LANG` | `cli/commands/init.ts:54`、`cli/repl.ts:169`（非 TTY 分支 `cli/repl.ts:162`；解析统一在 `cli/i18n.ts` 的 `resolveCliLang`/`resolveLang`） | CLI/REPL 界面语言 `zh`/`en`；优先于 `cli.lang` 设置。不支持的值（如 `xx`）视为未设置，继续按 `cli.lang` → OS locale（`LC_ALL` → `LC_MESSAGES` → `LANG` → Windows `Intl`）→ `en` 解析 |
 | `MIK_SERVER_TOKEN` | `cli/commands/serve.ts:119` | `mik serve` 写端点 token（`--token` 优先）；未设置时写端点默认 401 |
 | `MIK_PROVIDER_TIMEOUT_MS` | `ai/bridge.ts:31` | 供应商连接测试 / 模型发现的超时毫秒数（`provider.meta.timeoutMs` 优先） |
 | `MIK_BASE_URL` | `hub.ts:408` | 库路径：默认服务基址（供 `hub.baseUrl` 使用） |

@@ -1,0 +1,37 @@
+/**
+ * English UI strings for the CLI/REPL surfaces. Mirror of `zh.ts`; keep the two
+ * files in lockstep (the parity test in `test/i18n.test.ts` is the gate).
+ */
+export const en: Record<string, string> = {
+  "repl.welcome": "mik interactive mode — type /help for slash commands",
+  "repl.hintChat": "Any non-slash line talks to the default model",
+  "repl.langSet": "Language switched to %s",
+  "repl.langInvalid": "Language must be zh or en",
+  "repl.unknownCmd": "Unknown command %s — type /help",
+  "repl.notty": "Interactive mode needs a TTY. Run mik in an interactive terminal.",
+  "repl.noDefault": "No default model yet. Run /providers, or add a provider and set a default model.",
+  "repl.chatError": "Chat failed: %s",
+  "repl.chatCost": "cost %s · model %s · source %s",
+  "repl.exit": "Bye 👋",
+  "repl.prompt": "mik>",
+  "slash.help": "Show all slash commands",
+  "slash.lang": "Switch language zh / en",
+  "slash.providers": "List providers and the default model",
+  "slash.models": "Show the model catalogue (--refresh rediscovers)",
+  "slash.pricing": "Show the pricing table and manual overrides",
+  "slash.usage": "Show the usage summary (--limit n)",
+  "slash.chat": "Chat with the default model",
+  "wizard.lang": "Select (1: 中文  2: English): ",
+  "wizard.langInvalid": "Please enter 1 or 2",
+  "wizard.appId": "Application id [%s]: ",
+  "wizard.db": "SQLite database path [%s]: ",
+  "wizard.provider": "First provider preset (blank to skip) [%s]: ",
+  "wizard.nextStepsTitle": "Next steps",
+  "wizard.done": "Config ready. You are set up:",
+  "wizard.stepSetProvider": "set the provider credential, then continue",
+  "wizard.stepTest": "test the connection: mik provider test <id>",
+  "wizard.stepModels": "fetch the catalogue: mik models --provider <id> --refresh",
+  "wizard.stepServe": "start the service: mik serve (OpenAI-compatible on 127.0.0.1:3211)",
+  "wizard.stepDashboard": "open the dashboard: mik dashboard (3210)",
+  "wizard.stepRepl": "or just run mik to enter interactive mode (/help)",
+}
