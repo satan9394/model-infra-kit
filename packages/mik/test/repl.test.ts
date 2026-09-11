@@ -94,6 +94,29 @@ describe("handleLine (headless)", () => {
     }
   })
 
+  it("answers a bare /lang through the injected ask, without touching a TTY", async () => {
+    const s = await setup()
+    try {
+      const asked: string[] = []
+      // No TTY here: options.interactive is false and prompt() would block on
+      // stdin — the ask path proves /lang never falls back to it.
+      const ask = async (question: string) => {
+        asked.push(question)
+        return "2"
+      }
+      let current: "zh" | "en" = "zh"
+      const result = await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, current, (l) => (current = l), "/lang", ask)
+      expect(asked).toHaveLength(1)
+      expect(asked[0]).toContain("Select language")
+      expect(result.exit).toBe(false)
+      expect(current).toBe("en")
+      expect(s.out.join("\n")).toContain("Language switched to English")
+      expect(s.context.hub.readSetting("cli.lang")).toBe("en")
+    } finally {
+      await s.close()
+    }
+  })
+
   it("reports an unknown slash command", async () => {
     const s = await setup()
     try {

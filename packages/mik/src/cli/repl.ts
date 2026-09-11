@@ -12,7 +12,7 @@ import { createInterface } from "node:readline/promises"
 import type { ParsedCli } from "./args.js"
 import { messageOf, openContext, resolveEnv, resolveIo, type CliContext, type RunOptions } from "./context.js"
 import { formatMoney } from "./format.js"
-import { isLang, LANGS, LANG_LABELS, parseLangChoice, tr, trBoth, type Lang } from "./i18n.js"
+import { isLang, LANGS, LANG_LABELS, parseLangChoice, resolveLang, tr, trBoth, type Lang } from "./i18n.js"
 import { main } from "./index.js"
 import { isInteractive, prompt } from "./prompt.js"
 import { redact } from "../util/redact.js"
@@ -67,9 +67,18 @@ export interface ReplDeps {
 
 /**
  * Handle a single input line. Shared between the TTY loop and headless tests.
+ * `ask` lets the caller answer interactive sub-questions on its own input
+ * channel (the REPL injects its readline); without it, `/lang` falls back to
+ * `prompt()` so headless tests keep working.
  * Returning `true` means the REPL should exit.
  */
-export async function handleLine(deps: ReplDeps, currentLang: Lang, setLang: (lang: Lang) => void, line: string): Promise<{ exit: boolean; lang: Lang }> {
+export async function handleLine(
+  deps: ReplDeps,
+  currentLang: Lang,
+  setLang: (lang: Lang) => void,
+  line: string,
+  ask?: (question: string) => Promise<string>,
+): Promise<{ exit: boolean; lang: Lang }> {
   const { parsed, options, context } = deps
   const io = resolveIo(options)
   let lang = currentLang
@@ -84,8 +93,12 @@ export async function handleLine(deps: ReplDeps, currentLang: Lang, setLang: (la
       return { exit: false, lang }
     }
     if (name === "lang") {
-      const value = (slash.arg || (await prompt("Select language (zh / en): ")).trim()).trim()
-      const next = resolveLangChoice(value)
+      let raw = slash.arg
+      if (!raw.trim()) {
+        const question = "Select language (zh / en): "
+        raw = ask ? await ask(question) : await prompt(question)
+      }
+      const next = resolveLangChoice(raw.trim())
       if (!next) {
         io.err(tr(lang, "repl.langInvalid"))
         return { exit: false, lang }
@@ -139,14 +152,6 @@ async function chatScript(context: CliContext, options: RunOptions, lang: Lang, 
   }
 }
 
-function storedLang(context: CliContext, options: RunOptions): Lang {
-  const env = resolveEnv(options)
-  const stored = context.hub.readSetting("cli.lang") ?? undefined
-  if (isLang(env.MIK_LANG)) return env.MIK_LANG
-  if (isLang(stored)) return stored
-  return "zh"
-}
-
 /** Interactive REPL entry. Requires a TTY; tests drive `handleLine` instead. */
 export async function runRepl(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const io = resolveIo(options)
@@ -156,7 +161,8 @@ export async function runRepl(parsed: ParsedCli, options: RunOptions): Promise<n
   }
   const context = await openContext(parsed, options)
   try {
-    let lang = storedLang(context, options)
+    // Converged on `i18n.resolveLang`: env MIK_LANG → stored cli.lang → zh.
+    let lang = resolveLang(resolveEnv(options).MIK_LANG, context.hub.readSetting("cli.lang") ?? undefined)
     const setLang = (next: Lang) => {
       lang = next
     }
@@ -171,6 +177,9 @@ export async function runRepl(parsed: ParsedCli, options: RunOptions): Promise<n
       },
     })
     try {
+      // A bare `/lang` is answered on the REPL's own readline, never a second
+      // interface on the same stdin.
+      const ask = (question: string) => rl.question(question)
       io.out(tr(lang, "repl.welcome"))
       io.out(tr(lang, "repl.hintChat"))
       for (;;) {
@@ -181,7 +190,7 @@ export async function runRepl(parsed: ParsedCli, options: RunOptions): Promise<n
           // EOF (Ctrl+D) or a closed stream: leave cleanly.
           break
         }
-        const result = await handleLine({ parsed, options, context }, lang, setLang, line)
+        const result = await handleLine({ parsed, options, context }, lang, setLang, line, ask)
         lang = result.lang
         if (result.exit) break
       }

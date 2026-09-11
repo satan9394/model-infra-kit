@@ -19,14 +19,14 @@
 | 事实 | 出处 |
 |---|---|
 | 三个公共入口：`model-infra-kit`（库）、`model-infra-kit/server`（`createServer`）、`model-infra-kit/cli`（`main`） | `packages/mik/src/index.ts`、`packages/mik/package.json` 的 `exports` |
-| 库只有一个 npm 包 `model-infra-kit`（当前 `0.1.1`，Releases 页提供 tarball），`bin` 是 `mik` | `packages/mik/package.json`、GitHub Releases |
+| 库只有一个 npm 包 `model-infra-kit`（已发布到 npm，当前版本以 `npm view model-infra-kit version` 为准；Releases 页同时提供 tarball），`bin` 是 `mik` | `packages/mik/package.json`、GitHub Releases |
 | `@ai-sdk/*` 是**可选 peer**，用哪个协议装哪个包；缺包时 `loadProviderFactory()` 给出「装哪个包」的可读错误 | `packages/mik/README.md`、`packages/mik/src/index.ts` 导出 `loadProviderFactory` |
 | Node ≥ 22.13（`node:sqlite`），本机 24.14 | `README.md`、`packages/mik/package.json` 的 `engines` |
 | 端口：`mik serve` **3211**、看板 **3210**、示例 mock 供应商 **3212** | `README.md` 端口表、`apps/dashboard/package.json`、`apps/dashboard/scripts/mock-openai.mjs` |
 | 禁止使用 3080 / 3001 / 3111 / 8899（已被本机其它项目占用） | `README.md`、`AGENTS.md` |
 | 看板不随 npm 包发布；装包环境跑 `mik dashboard` 会报错并给指引 | `packages/mik/package.json` 的 `files`、`README.md`「看板」一节 |
 | 看板只走 HTTP API，从不打开 SQLite | `apps/dashboard/lib/config.ts`、`apps/dashboard/README.md` |
-| `mik serve` 默认不开 CORS（`cors` 选项默认关闭，CLI 无 `--cors` 开关） | `packages/mik/src/server/server.ts` 的 `ServerOptions.cors`、`packages/mik/src/cli/args.ts` 的 `serve` flags |
+| `mik serve` 默认不开 CORS（`cors` 选项默认关闭；CLI 提供 `--cors <origin>` 开关，见 §5.2） | `packages/mik/src/server/server.ts` 的 `ServerOptions.cors`、`packages/mik/src/cli/args.ts` 的 `serve` flags |
 | 同一次调用只计量一次：三条路径共用同一套注册表/价格目录/用量库 | `README.md`「三种接入方式」 |
 
 ---
@@ -151,7 +151,7 @@ Q4 需要多个进程/多个 app 共用一本账吗？
 
 Q5 宿主是浏览器端（纯前端）吗？
 ├─ 是 → → 不要在浏览器里嵌库（库依赖 node:sqlite 与 Node 内置模块）
-│       走调用面 ③：浏览器直连 3211/v1（需在 createServer 里开 cors，CLI 无 --cors 开关）
+│       走调用面 ③：浏览器直连 3211/v1（`mik serve --cors '*'` 任意源或 `--cors https://主站` 固定源，见 §5.2）
 │       或走调用面 ④ + 宿主自己的服务端代理（看板的做法，见 §5.1 做法②）
 └─ 否 → Q6
 
@@ -217,11 +217,11 @@ Q6 只想看成本、完全不想改宿主代码？
 
 | 能力 | 理由 | 优先级 |
 |---|---|---|
-| `POST /api/usage/events`（或等价的事件上报端点） | 卡片点名要求，但仓库不存在（实测 404）。没有它，跨语言/多进程宿主无法把「自己直连供应商」的用量灌进同一本账，只能进程内 `usage.record()`。**需先改 `docs/interfaces.md` 契约**（AGENTS 规则 5），并考虑鉴权、幂等（`requestId`）、appId 归属、脱敏 | P0 |
+| ~~`POST /api/usage/events`~~ 已实现（F19） | 已落地：返回 `{accepted,duplicates,rejected}`，`requestId` 幂等、不覆盖，`appId` 归属校验，缺 `cost` 时服务端计价，`redactDeep` 脱敏。契约见 `docs/interfaces.md`；见 §0 与矩阵 A ⑤ | 已完成 |
 | 看板可用性（见 §5.2） | 装包用户完全拿不到可视化，是当前最大的能力落差 | P0 |
 | 脚手架（`create-mik-*` 或 `mik init --template`） | 把「读文档 → 自己拼」变成「一条命令出可跑项目」，直接影响首次成功率 | P1 |
 | Docker 镜像 / compose（`mik serve` + 看板） | 非 Node 宿主的落地形态；也解决「两个端口两个进程」的运维摩擦 | P1 |
-| `mik serve --cors` 开关 | 浏览器端直连的前置条件 | P1 |
+| ~~`mik serve --cors` 开关~~ 已实现（T14） | `--cors <origin>` 已落地：`'*'` 任意源 / `https://…` 固定源，浏览器可直连 3211；CLI 对非法值报错，见 §5.2 | 已完成 |
 | GitHub 直装可用（拆独立仓库或补 `prepare` + 验证） | 免发布试最新源码；当前仓库布局不成立 | P2 |
 | 配置生成器 / 宿主插件 | 按需，取决于是否有明确宿主 | P2 |
 
@@ -249,10 +249,10 @@ Q6 只想看成本、完全不想改宿主代码？
 
 ### 7.2 端点存在性（源码 grep）
 
-- `packages/mik/src/server/api.ts` 的 `router.add(...)` 命中 21 条：`/api/health`、`/api/providers`(GET/POST)、`/api/providers/:id`(PATCH/DELETE)、`/api/providers/:id/test`、`/api/providers/:id/models`(GET)、`/api/providers/:id/models/refresh`(POST)、`/api/models`、`/api/models/:ref`、`/api/pricing`(GET)、`/api/pricing/:modelId`(PUT/DELETE)、`/api/pricing/sync`(POST)、`/api/usage/summary|trends|by-provider|by-model|logs|logs/:id`、`/api/events`。
+- `packages/mik/src/server/api.ts` 的 `router.add(...)` 注册了：`/api/health`、`/api/providers`(GET/POST)、`/api/providers/:id`(PATCH/DELETE)、`/api/providers/:id/test`、`/api/providers/:id/models`(GET)、`/api/providers/:id/models/refresh`(POST)、`/api/models`、`/api/models/:ref`、`/api/pricing`(GET)、`/api/pricing/:modelId`(PUT/DELETE)、`/api/pricing/sync`(POST)、`/api/usage/summary|trends|by-provider|by-model|logs|logs/:id`、`/api/usage/events`(POST，F19)、`/api/events`。
 - `packages/mik/src/server/server.ts:152-156` 注册 `GET /openapi.json`、`POST /v1/chat/completions`、`GET /v1/models`。
 - `apps/dashboard/app/api/mik/[...path]/route.ts`（GET/POST/PUT/PATCH/DELETE 全转发到 `<MIK_SERVER_URL>/api/<path>`）、`apps/dashboard/app/api/events/route.ts`（SSE 透传 `GET /api/events`）。
-- **反向确认**：全仓 grep `usage/events` 只命中 `tasks/T11-integration-playbook.md` 与本文件；`packages/mik/src/server/api.ts` 无该路由。
+- **反向确认（T11 时点）**：当时全仓 grep `usage/events` 只命中 `tasks/T11-integration-playbook.md` 与本文件；F19 已在该文件注册 `/api/usage/events`（见上方清单与 §0）。
 
 ### 7.3 本卡实测（活服务探针）
 
@@ -267,7 +267,7 @@ GET  /api/providers     → 200 {"providers":[]}
 GET  /api/pricing       → 200 {"state":{"status":"stale","source":"fallback"},"overrides":[]}
 GET  /v1/models         → 200 {"object":"list","data":[]}
 GET  /openapi.json      → 200 {"openapi":"3.1.0",...}
-POST /api/usage/events  → 404 {"error":{"code":"NOT_FOUND","message":"No route matches /api/usage/events."}}
+POST /api/usage/events  → 200 {"accepted":1,"duplicates":0,"rejected":0}   （F19 已实现；T11 实测时点为 404，见 §0 与 §2 ⑤）
 ```
 
 服务启动打印 `Listening on http://127.0.0.1:3271` / `OpenAI-compatible base URL: http://127.0.0.1:3271/v1` / `Press Ctrl+C to stop.`，验证完毕已停进程并确认端口释放。
@@ -282,4 +282,4 @@ POST /api/usage/events  → 404 {"error":{"code":"NOT_FOUND","message":"No route
 
 1. **`apps/dashboard/README.md`「已知限制」说 `mik serve` 当前不可用（属 T07）**——该限制已过时：T07/F06 已修复 `dist` 路径解析（`packages/mik/src/cli/commands/serve.ts` 的 `SERVER_CANDIDATES` 优先试 `./server.mjs`），本卡实测 `dist/cli.mjs serve` 正常起服务。建议后续卡同步该 README（不在本卡文件范围内）。
 2. **`apps/dashboard/scripts/serve-mik.mjs` 的注释仍写着「T07 修好后可弃用」**——同上，属陈旧注释。
-3. **卡片点名的 `POST /api/usage/events` 不存在**——已按事实处理，列入 §6.2 的 P0 能力缺口。
+3. **卡片点名的 `POST /api/usage/events` 当时不存在**——T11 按事实记录为缺口；F19 已实现（见 §0 与 §2 ⑤），§6.2 行已标记完成。

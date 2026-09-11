@@ -24,6 +24,17 @@ describe("i18n", () => {
     expect(tr("en", "repl.unknownCmd", "/nope")).toContain("/nope")
   })
 
+  it("provides a literal REPL prompt and localized wizard field prompts", () => {
+    expect(tr("zh", "repl.prompt")).toBe("mik>")
+    expect(tr("en", "repl.prompt")).toBe("mik>")
+    expect(tr("zh", "wizard.appId", "default")).toBe("应用 id [default]: ")
+    expect(tr("en", "wizard.appId", "default")).toBe("Application id [default]: ")
+    expect(tr("zh", "wizard.db", "/tmp/x.db")).toBe("SQLite 数据库路径 [/tmp/x.db]: ")
+    expect(tr("en", "wizard.db", "/tmp/x.db")).toBe("SQLite database path [/tmp/x.db]: ")
+    expect(tr("zh", "wizard.provider", "deepseek")).toBe("首个供应商预设（留空跳过）[deepseek]: ")
+    expect(tr("en", "wizard.provider", "deepseek")).toBe("First provider preset (blank to skip) [deepseek]: ")
+  })
+
   it("resolves language from env, then stored, then zh", () => {
     expect(resolveLang("en", undefined)).toBe("en")
     expect(resolveLang(undefined, "en")).toBe("en")

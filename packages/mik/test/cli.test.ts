@@ -5,7 +5,7 @@ import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, s
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
 import { openContext, offlineFetch } from "../src/cli/context.js"
 import { USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
@@ -19,6 +19,19 @@ import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
 import type { UsageEvent } from "../src/types.js"
 import { UsageService } from "../src/usage/service.js"
+
+/**
+ * The interactive `mik init` wizard is exercised headless: `prompt()` would
+ * otherwise create a readline on the test process stdin and block forever.
+ * The mock keeps the module's other exports intact for every command that
+ * imports prompt.js (init / repl / index / provider).
+ */
+const promptMock = vi.hoisted(() => ({ prompt: vi.fn() }))
+vi.mock("../src/cli/prompt.js", () => ({
+  isInteractive: (options: { interactive?: boolean } = {}) => options.interactive === true,
+  prompt: promptMock.prompt,
+  isAffirmative: (answer: string) => /^\s*y(es)?\s*$/i.test(answer),
+}))
 
 const tempDirs: string[] = []
 
@@ -357,6 +370,134 @@ describe("init", () => {
     const result = await run(["init", "--db", db, "--file", configPath, "--yes", "--offline"], dir)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain("--force")
+  })
+
+  it("resolves MIK_LANG=en over a stored cli.lang=zh even non-interactively", async () => {
+    const { dir, db, base } = sandbox()
+    const configPath = join(dir, "mik.config.json")
+
+    // Pre-seed the stored setting on the same database the init run will open.
+    const preset = await openContext(parseCliArgs(base), {
+      cwd: dir,
+      env: { ...process.env },
+      io: { out: () => {}, err: () => {} },
+      interactive: false,
+    })
+    preset.hub.writeSetting("cli.lang", "zh")
+    await preset.close()
+
+    const result = await run(
+      [
+        "init",
+        "--app-id",
+        "cli-app",
+        "--db",
+        db,
+        "--provider",
+        "deepseek",
+        "--file",
+        configPath,
+        "--yes",
+        ...base,
+      ],
+      dir,
+      { MIK_LANG: "en" },
+    )
+    expect(result.code).toBe(0)
+
+    // Config structure is unchanged: appId/db/initialProviders only.
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+      appId: string
+      db: string
+      initialProviders: Array<{ id: string; apiKeyRef?: string }>
+    }
+    expect(config.appId).toBe("cli-app")
+    expect(config.db).toBe(db)
+    expect(config.initialProviders[0]?.id).toBe("deepseek")
+    expect(config.initialProviders[0]?.apiKeyRef).toBe("env:DEEPSEEK_API_KEY")
+
+    // The resolved language (env wins over the stored zh) was persisted.
+    const check = await openContext(parseCliArgs(base), {
+      cwd: dir,
+      env: { ...process.env },
+      io: { out: () => {}, err: () => {} },
+      interactive: false,
+    })
+    expect(check.hub.readSetting("cli.lang")).toBe("en")
+    await check.close()
+  })
+
+  it("asks the wizard fields in the language chosen at the lang prompt", async () => {
+    const { dir, base } = sandbox()
+    const configPath = join(dir, "mik.config.json")
+    promptMock.prompt.mockReset()
+    promptMock.prompt
+      .mockResolvedValueOnce("1") // wizard.lang → 中文
+      .mockResolvedValueOnce("") // appId (default)
+      .mockResolvedValueOnce("") // db (default)
+      .mockResolvedValueOnce("") // provider (skip)
+
+    const result = await main(
+      ["init", "--file", configPath, ...base],
+      { io: { out: () => {}, err: () => {} }, cwd: dir, env: { ...process.env, MIK_LANG: "en" }, interactive: true },
+    )
+    expect(result).toBe(0)
+    const questions = promptMock.prompt.mock.calls.map((call) => String(call[0]))
+    expect(questions).toHaveLength(4)
+    // env MIK_LANG=en → first question is English; picking 1 switches the rest to zh.
+    expect(questions[0]).toContain("Select (1: 中文  2: English)")
+    expect(questions[1]).toContain("应用 id")
+    expect(questions[2]).toContain("数据库")
+    expect(questions[3]).toContain("预设")
+  })
+
+  it("retries the language prompt once on a bogus answer and follows the retry", async () => {
+    const { dir, base } = sandbox()
+    const configPath = join(dir, "mik.config.json")
+    const stderr: string[] = []
+    promptMock.prompt.mockReset()
+    promptMock.prompt
+      .mockResolvedValueOnce("garbage") // invalid → wizard.langInvalid + retry
+      .mockResolvedValueOnce("2") // retry → English
+      .mockResolvedValueOnce("") // appId (default)
+      .mockResolvedValueOnce("") // db (default)
+      .mockResolvedValueOnce("") // provider (skip)
+
+    const result = await main(
+      ["init", "--file", configPath, ...base],
+      { io: { out: () => {}, err: (text) => stderr.push(text) }, cwd: dir, env: { ...process.env }, interactive: true },
+    )
+    expect(result).toBe(0)
+    expect(stderr.join("\n")).toContain("请输入 1 或 2")
+    const questions = promptMock.prompt.mock.calls.map((call) => String(call[0]))
+    expect(questions).toHaveLength(5)
+    // No env/stored language → the wizard starts in zh for both attempts.
+    expect(questions[0]).toContain("Choose a language")
+    expect(questions[1]).toContain("Choose a language")
+    // The retry picked 2 → the field prompts follow English.
+    expect(questions[2]).toContain("Application id")
+    expect(questions[3]).toContain("SQLite database path")
+  })
+})
+
+describe("docs consistency (EVO-G02/G06)", () => {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
+  const doc = (relative: string) => readFileSync(join(repoRoot, relative), "utf8")
+
+  it("keeps version, publish status, --cors and the events endpoint in sync", () => {
+    const readme = doc("README.md")
+    const guide = doc("docs/agent-cli-guide.md")
+    const playbook = doc("docs/integration-playbook.md")
+    // No stale version number anywhere the user reads.
+    expect(readme).not.toContain("0.1.1")
+    expect(playbook).not.toContain("0.1.1")
+    // Publish status, --cors and /api/usage/events must not contradict the CLI.
+    expect(guide).not.toContain("尚未发布到 npm")
+    expect(playbook).not.toContain("CLI 无 --cors 开关")
+    expect(playbook).not.toContain("仓库不存在（实测 404）")
+    // The README documents the upgrade path with the Node version floor.
+    expect(readme).toContain("npm update model-infra-kit")
+    expect(readme).toContain("22.13")
   })
 })
 
