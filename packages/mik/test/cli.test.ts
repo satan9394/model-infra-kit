@@ -13,7 +13,7 @@ import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
 import { isDirectInvocation, main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
-import { findDashboardDir, missingDashboardError, walkUpFor } from "../src/cli/commands/dashboard.js"
+import { findDashboardDir, findPnpmScript, missingDashboardError, walkUpFor } from "../src/cli/commands/dashboard.js"
 import { loadServerModule, resolveCorsFlag, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
 import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
@@ -669,6 +669,57 @@ describe("dashboard directory resolution", () => {
     expect(error.message).toContain("not published with the npm package")
     expect(error.message).toContain("pnpm --filter @mik/dashboard")
     expect(error.message).toContain("README")
+  })
+})
+
+/**
+ * EVO-G09 / audit-reliability P2-2. The dashboard launcher used to pass
+ * `shell: !useLocalNext && process.platform === "win32"` on Windows; the option is
+ * gone, so the assertion below is on the *absence of the key*, not on a literal
+ * `true` (which was already unreachable in the default branch and caught nothing).
+ */
+describe("dashboard launch is shell-free", () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli", "commands", "dashboard.ts"),
+    "utf8",
+  )
+
+  it("never hands the dashboard command line to a shell", () => {
+    expect(source).not.toMatch(/shell\s*:/)
+  })
+
+  it("launches node itself, with the resolved entry point as an argument", () => {
+    expect(source).toContain("command = process.execPath")
+    expect(source).toContain("findPnpmScript(process.env)")
+    expect(source).toMatch(/args = \[pnpmScript, "exec", "next", "start", "-p", String\(port\)\]/)
+  })
+
+  it("resolves pnpm's JavaScript entry point rather than its .cmd shim", () => {
+    const root = tempDir()
+    mkdirSync(join(root, "node_modules", "pnpm", "bin"), { recursive: true })
+    writeFileSync(join(root, "pnpm"), "")
+    writeFileSync(join(root, "node_modules", "pnpm", "bin", "pnpm.mjs"), "")
+
+    expect(findPnpmScript({ PATH: root })).toBe(join(root, "node_modules", "pnpm", "bin", "pnpm.mjs"))
+  })
+
+  it("prefers the pnpm that launched the CLI when it is a JavaScript entry point", () => {
+    const root = tempDir()
+    const execPath = join(root, "pnpm.cjs")
+    writeFileSync(execPath, "")
+    expect(findPnpmScript({ npm_execpath: execPath, PATH: "" })).toBe(execPath)
+  })
+
+  it("returns null instead of throwing when pnpm is nowhere to be found", () => {
+    expect(findPnpmScript({ PATH: "" })).toBeNull()
+    // A `.cmd`/`.bat` shim is not something we can spawn, so it must not win.
+    const root = tempDir()
+    writeFileSync(join(root, "pnpm.cmd"), "")
+    expect(findPnpmScript({ npm_execpath: join(root, "pnpm.cmd"), PATH: root })).toBeNull()
+  })
+
+  it("finds pnpm on this machine, which is what the real `mik dashboard` smoke run needs", () => {
+    expect(findPnpmScript(process.env)).toMatch(/pnpm\.(?:mjs|cjs|js)$/)
   })
 })
 

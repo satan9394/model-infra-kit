@@ -1,7 +1,8 @@
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { LogsClient } from "@/components/logs-client"
-import { ErrorBanner, PageHeader } from "@/components/ui"
+import { PageHeader } from "@/components/ui"
+import { UpstreamNotice } from "@/components/upstream-notice"
 import { readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadLogs, loadShell } from "@/lib/server-data"
 
@@ -33,12 +34,13 @@ export default async function LogsView({ params, embedded }: ViewProps) {
         description="点任意一行查看详情抽屉：四类 token、四项成本、pricing_source / pricing_basis 与延迟"
         actions={<LiveRefresh topics={["usage.recorded"]} />}
       />
+      {/* EVO-G09 A1: neutral guide first, error banner only after a failed retry. */}
+      <UpstreamNotice message={errors[0]} />
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
         <p className="mb-4 text-xs text-slate-500">嵌入视图 · 区间 {range.label}</p>
       )}
-      {errors.length > 0 ? <ErrorBanner message={errors[0] ?? "未知错误"} /> : null}
       <LogsClient
         events={logs.ok ? logs.data.events : []}
         total={logs.ok ? logs.data.total : 0}

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
 import { superviseChild } from "../child-supervision.js"
@@ -59,6 +59,46 @@ export function missingDashboardError(): CliRuntimeError {
   )
 }
 
+/**
+ * pnpm's real entry point sits next to its shim: `<dir>/pnpm.cmd` is a two-line
+ * wrapper that runs `<dir>/node_modules/pnpm/bin/pnpm.mjs` with node.
+ */
+const PNPM_SCRIPT_RELATIVE = join("node_modules", "pnpm", "bin", "pnpm.mjs")
+
+/** Shim names to look for on PATH. Windows installs `pnpm.cmd`; POSIX a plain `pnpm`. */
+const PNPM_SHIM_NAMES = process.platform === "win32" ? ["pnpm.cmd", "pnpm.exe", "pnpm"] : ["pnpm"]
+
+/** PATH lookup tolerating the several spellings Windows uses for that variable. */
+function pathEntries(env: NodeJS.ProcessEnv): string[] {
+  return (env.PATH ?? env.Path ?? env.path ?? "").split(delimiter).filter((entry) => entry.length > 0)
+}
+
+/**
+ * Resolve the JavaScript entry point of pnpm, or `null` when pnpm is not installed.
+ *
+ * Spawning `pnpm.cmd` directly is *not* an option: since the fix for CVE-2024-27980
+ * Node refuses to launch `.cmd`/`.bat` shims unless the shell option is enabled,
+ * and throws EINVAL (verified on Node 24.14). A shell is precisely what this path
+ * avoids, so we run the same script the shim would run — `node <pnpm.mjs> …` — and
+ * keep the spawn shell-free. Returning `null` lets the caller print the packaging
+ * guidance instead of an opaque ENOENT.
+ */
+export function findPnpmScript(env: NodeJS.ProcessEnv = process.env): string | null {
+  // Set whenever `mik` itself was launched through pnpm (`pnpm exec mik …`), which
+  // is the common case inside this monorepo.
+  const execPath = env.npm_execpath
+  if (execPath && /\.(?:mjs|cjs|js)$/i.test(execPath) && existsSync(execPath)) return execPath
+
+  for (const entry of pathEntries(env)) {
+    for (const shim of PNPM_SHIM_NAMES) {
+      if (!existsSync(join(entry, shim))) continue
+      const script = join(entry, PNPM_SCRIPT_RELATIVE)
+      if (existsSync(script)) return script
+    }
+  }
+  return null
+}
+
 export async function runDashboard(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const port = flagNumber(parsed.values, "port", parsed.command?.usage) ?? 3210
   const env = resolveEnv(options)
@@ -79,14 +119,26 @@ export async function runDashboard(parsed: ParsedCli, options: RunOptions): Prom
 
   const nextBin = join(dir, "node_modules", "next", "dist", "bin", "next")
   const useLocalNext = existsSync(nextBin)
-  const command = useLocalNext ? process.execPath : "pnpm"
-  const args = useLocalNext ? [nextBin, "start", "-p", String(port)] : ["exec", "next", "start", "-p", String(port)]
+  // Both branches spawn node directly: no `shell` option anywhere, so no part of
+  // this command line is ever parsed by a shell (EVO-G09 / audit-reliability P2-2).
+  let command = process.execPath
+  let args: string[]
+  if (useLocalNext) {
+    args = [nextBin, "start", "-p", String(port)]
+  } else {
+    const pnpmScript = findPnpmScript(process.env)
+    if (!pnpmScript) {
+      throw new CliRuntimeError(
+        `Could not start the dashboard: no local next install in ${dir} and no pnpm entry point on PATH.\n${DASHBOARD_PACKAGING_HINT}`,
+      )
+    }
+    args = [pnpmScript, "exec", "next", "start", "-p", String(port)]
+  }
 
   io.out(`Starting dashboard from ${dir} on http://127.0.0.1:${port}`)
   const child = spawn(command, args, {
     cwd: dir,
     stdio: "inherit",
-    shell: !useLocalNext && process.platform === "win32",
     env: { ...env, PORT: String(port) },
   })
 

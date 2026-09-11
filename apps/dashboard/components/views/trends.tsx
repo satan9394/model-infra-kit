@@ -1,7 +1,8 @@
 import { TokenCostChart } from "@/components/charts/token-cost"
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
-import { Card, EmptyState, ErrorBanner, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
+import { Card, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
+import { UpstreamNotice } from "@/components/upstream-notice"
 import { formatCompact, formatInt, formatUsd, tokenTotal } from "@/lib/format"
 import { readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadShell, loadSummary, loadTrends } from "@/lib/server-data"
@@ -38,13 +39,14 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
         actions={<LiveRefresh topics={["usage.recorded"]} />}
       />
 
+      {/* EVO-G09 A1: neutral guide first, error banner only after a failed retry. */}
+      <UpstreamNotice message={errors[0]} />
+
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
         <p className="mb-4 text-xs text-slate-500">嵌入视图 · 区间 {range.label}</p>
       )}
-
-      {errors.length > 0 ? <ErrorBanner message={errors[0] ?? "未知错误"} /> : null}
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="区间 token 合计" value={formatCompact(totals ? tokenTotal(totals.tokens) : undefined)} hint={`${points.length} 个有数据的天`} />
