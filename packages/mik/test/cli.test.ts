@@ -465,13 +465,16 @@ describe("init", () => {
 
     const result = await main(
       ["init", "--file", configPath, ...base],
-      { io: { out: () => {}, err: (text) => stderr.push(text) }, cwd: dir, env: { ...process.env }, interactive: true },
+      // No MIK_LANG and no stored setting: the wizard follows the OS locale, so
+      // pin it (LC_ALL wins over LANG/LC_MESSAGES) instead of trusting the
+      // runner's locale — CI is usually en_*.
+      { io: { out: () => {}, err: (text) => stderr.push(text) }, cwd: dir, env: { ...process.env, LC_ALL: "zh_CN.UTF-8" }, interactive: true },
     )
     expect(result).toBe(0)
     expect(stderr.join("\n")).toContain("请输入 1 或 2")
     const questions = promptMock.prompt.mock.calls.map((call) => String(call[0]))
     expect(questions).toHaveLength(5)
-    // No env/stored language → the wizard starts in zh for both attempts.
+    // Locale pinned to zh_CN.UTF-8 → the wizard starts in zh for both attempts.
     expect(questions[0]).toContain("Choose a language")
     expect(questions[1]).toContain("Choose a language")
     // The retry picked 2 → the field prompts follow English.
