@@ -136,4 +136,7 @@
 - **G27｜实现者运行期间禁止 `git add -A`**。理由：R41 把 G08 实现者「临时删一个 i18n 键以自证对等测试会红」的**中间态**折进提交，导致 CI 出现假失败（32 vs 31 键），浪费一轮且污染历史。
   - 做法：只 `git add <自己改的文件>`；或等实现者交付、工作区稳定后再统一提交。
 - **G28｜跨平台测试断言的写法**：进程终止用 `exitCode !== null || signalCode !== null`（POSIX 信号死亡只设 `signalCode`）；已修 G04 遗留用例。
+### 发版闸门增补（R53）
+- **G36｜发版后必须验证「已发布产物」可装可用**：`npm publish` 后在一个**全新临时目录**执行 `npm i model-infra-kit@<版本>`，然后验四件事——① `node node_modules/model-infra-kit/dist/cli.mjs --version` 输出与发布版本一致；② 库面导出可用（`ModelInfra` 在 `dist/index.mjs` 中）；③ `dist/server.mjs` 随包发布；④ **真实功能冒烟**（起本地 mock → `ModelInfra.init` → `generate` → 断言文本与 `usage` 且 `summary().requests === 1`）。
+- 理由：仓库内 e2e 的 DIST 检查点只验**仓库 dist**，不验 **npm 产物**（`files` 白名单、子路径导出、peer 依赖解析都只在装包后才暴露）。R53 实测 0.2.5：安装干净、`mik 0.2.5`、30 个导出含 `ModelInfra`、`dist/server.mjs` 存在、功能冒烟 `text: release smoke ok` + `requests recorded: 1`。
 
