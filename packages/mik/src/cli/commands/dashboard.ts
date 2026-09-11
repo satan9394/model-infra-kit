@@ -4,9 +4,10 @@ import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
 import { superviseChild } from "../child-supervision.js"
-import { resolveCwd, resolveEnv, resolveIo, type RunOptions } from "../context.js"
+import { resolveCwd, resolveEnv, resolveIo, invocationLang, type RunOptions } from "../context.js"
 import { CliRuntimeError } from "../errors.js"
 import { assertPortFree } from "../ports.js"
+import { tr } from "../i18n.js"
 
 /** Where the dashboard app lives inside this monorepo. */
 export const DASHBOARD_RELATIVE_DIR = join("apps", "dashboard")
@@ -100,14 +101,15 @@ export function findPnpmScript(env: NodeJS.ProcessEnv = process.env): string | n
 }
 
 export async function runDashboard(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  const port = flagNumber(parsed.values, "port", parsed.command?.usage) ?? 3210
+  const lang = invocationLang(options)
+  const port = flagNumber(parsed.values, "port", parsed.command?.usage, lang) ?? 3210
   const env = resolveEnv(options)
   const cwd = resolveCwd(options)
   // `main()` dispatches with the raw options, so resolve the streams here — otherwise
   // the "Starting dashboard from …" line is silently dropped in real CLI runs.
   const io = resolveIo(options)
 
-  await assertPortFree(port, "dashboard")
+  await assertPortFree(port, "dashboard", lang)
 
   const dir = flagString(parsed.values, "dir") ?? env.MIK_DASHBOARD_DIR ?? findDashboardDir(cwd)
   if (!dir) {
@@ -135,7 +137,7 @@ export async function runDashboard(parsed: ParsedCli, options: RunOptions): Prom
     args = [pnpmScript, "exec", "next", "start", "-p", String(port)]
   }
 
-  io.out(`Starting dashboard from ${dir} on http://127.0.0.1:${port}`)
+  io.out(tr(invocationLang(options), "dashboard.starting", dir, String(port)))
   const child = spawn(command, args, {
     cwd: dir,
     stdio: "inherit",

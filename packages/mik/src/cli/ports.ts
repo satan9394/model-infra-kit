@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { connect } from "node:net"
 import { promisify } from "node:util"
 import { CliRuntimeError } from "./errors.js"
+import { tr, type Lang } from "./i18n.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -66,16 +67,17 @@ export async function portInUse(port: number): Promise<boolean> {
 /**
  * Refuse to start a service on a taken port. The project rule is to report and
  * exit rather than steal a port another project is already using.
+ *
+ * `lang` defaults to `en` so the exported signature stays source-compatible for
+ * embedders; every CLI call site passes the invocation language it already
+ * resolved, so these messages are localized on the zh surface too (EVO-G14).
  */
-export async function assertPortFree(port: number, command: string): Promise<void> {
+export async function assertPortFree(port: number, command: string, lang: Lang = "en"): Promise<void> {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new CliRuntimeError(`Invalid port ${port}. Use an integer between 1 and 65535.`)
+    throw new CliRuntimeError(tr(lang, "port.error.invalid", port))
   }
   const probe = await probePort(port)
   if (probe.inUse) {
-    throw new CliRuntimeError(
-      `Port ${port} is already in use (checked with netstat -ano). ` +
-        `Free it or run "mik ${command} --port <other-port>". Refusing to start.`,
-    )
+    throw new CliRuntimeError(tr(lang, "port.error.inUse", port, command))
   }
 }

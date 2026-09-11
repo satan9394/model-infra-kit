@@ -88,7 +88,12 @@ export function resolveCwd(options: RunOptions): string {
   return options.cwd ?? process.cwd()
 }
 
-/** A `fetch` that always fails, so `--offline` cannot accidentally reach out. */
+/**
+ * A `fetch` that always fails, so `--offline` cannot accidentally reach out.
+ *
+ * The message is deliberately short, untranslated and stable: it is embedded in
+ * a `warning:` line whose body comes from the caller (`llm-pricing`).
+ */
 export const offlineFetch: typeof globalThis.fetch = async (input) => {
   throw new Error(`offline mode: refusing to fetch ${typeof input === "string" ? input : "the network"}`)
 }
@@ -99,12 +104,20 @@ export function configPathFor(parsed: ParsedCli, options: RunOptions = {}): stri
   return flagString(parsed.values, "config") ?? env.MIK_CONFIG ?? join(cwd, DEFAULT_CONFIG_FILE)
 }
 
-export function loadConfig(path: string, io: CliIo): CliConfigFile {
+/**
+ * Read `mik.config.json`.
+ *
+ * `options` (or an explicit `lang`) carries the invocation's language, so a
+ * caller that injects `MIK_LANG=zh` gets a Chinese warning even on an English
+ * host. `loadConfig` runs *before* the hub exists, so it uses
+ * `invocationLang(options)` — never the real `process.env` (EVO-G12/G14).
+ */
+export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, lang: Lang = invocationLang(options)): CliConfigFile {
   if (!existsSync(path)) return {}
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      io.err(`warning: ${path} is not a JSON object; ignoring it.`)
+      io.err(tr(lang, "context.warning.notObject", path))
       return {}
     }
     const record = parsed as Record<string, unknown>
@@ -114,7 +127,7 @@ export function loadConfig(path: string, io: CliIo): CliConfigFile {
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     return config
   } catch (error) {
-    io.err(`warning: could not read ${path} (${redact(messageOf(error))}); ignoring it.`)
+    io.err(tr(lang, "context.warning.unreadable", path, redact(messageOf(error))))
     return {}
   }
 }
@@ -158,8 +171,13 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   const io = resolveIo(options)
   const env = resolveEnv(options)
   const cwd = resolveCwd(options)
+  // The hub does not exist yet, so the language can only come from the injected
+  // invocation environment (`RunOptions.env`) — never the real `process.env`.
+  // Same chain as `init`/the REPL's early guards, so warnings and usage errors
+  // can never disagree (EVO-G12/G14).
+  const lang = invocationLang(options)
   const configPath = configPathFor(parsed, options)
-  const config = loadConfig(configPath, io)
+  const config = loadConfig(configPath, io, options, lang)
 
   const dbPath = flagString(parsed.values, "db") ?? env.MIK_DB ?? config.db ?? defaultDbPath()
   const appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? config.appId ?? "default"
@@ -172,7 +190,13 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     cacheDir,
     syncCatalog: !offline && needsCatalogSync(parsed),
     pricingFetch: offline ? offlineFetch : undefined,
-    onWarn: (message, error) => io.err(`warning: ${redact(message)}${error ? ` (${redact(messageOf(error))})` : ""}`),
+    // Only the `warning:` frame is localized; a warning's *message* may come from
+    // a third-party library (`llm-pricing`) and is deliberately passed through
+    // untranslated — see the G14 report for that known cross-layer debt.
+    onWarn: (message, error) =>
+      io.err(
+        `${tr(lang, "context.warning.prefix")} ${redact(message)}${error ? ` (${redact(messageOf(error))})` : ""}`,
+      ),
     ...options.hub,
   })
 
