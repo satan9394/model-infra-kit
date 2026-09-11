@@ -294,7 +294,7 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
 
 ### 交互模式（斜杠命令，中英双语）
 
-在终端里直接运行 `mik`（不带子命令）进入 REPL：斜杠命令每个都带「中文 / English」说明，自由文本直接走默认模型对话，`/lang` 切换语言并持久化（`MIK_LANG` 环境变量优先）。
+在终端里直接运行 `mik`（不带子命令）进入 REPL：斜杠命令每个都带「中文 / English」说明，自由文本直接走默认模型对话，`/lang` 切换语言并持久化。**界面语言解析顺序为 `MIK_LANG → cli.lang → OS locale → en`**：显式设过语言就按设置走；从未设置过时跟随系统语言（`LC_ALL` → `LC_MESSAGES` → `LANG`，Windows 通常没有 `LANG`，改读 `Intl` 系统区域），`zh*` 选中文，其余（含无法判定）选英文。
 
 ```text
 $ mik
@@ -314,9 +314,11 @@ mik> 你好，介绍一下你自己
 
 `/help`、`/providers`、`/models`、`/pricing`、`/usage` 直接复用对应子命令；`/chat <prompt>` 和自由文本走默认模型；`Ctrl+D` 或 `/exit` 退出。
 
+**界面语言支持范围（边界声明）**：CLI 与 REPL 支持 `zh` / `en` 双语并可切换（`/lang`、`MIK_LANG`、`mik init` 向导），文案按 `MIK_LANG → cli.lang → OS locale → en` 解析。**看板当前仅中文**（`apps/dashboard` 尚未接入 i18n）——看板界面文案不随 `/lang`、`MIK_LANG` 或系统语言变化；看板国际化不在本版本范围内。
+
 ### 首次运行向导（语言 + 供应商 + 上手三步）
 
-`mik init` 在交互终端里先问语言（1: 中文 / 2: English），再问应用 id、数据库路径与首个供应商预设，随后按所选语言打印上手步骤（设密钥 → 测试连接 → 拉模型目录 → serve → dashboard → 交互模式）。语言选择会写入 `cli.lang` 设置并影响后续 REPL 措辞。
+`mik init` 在交互终端里先问语言（1: 中文 / 2: English），再问应用 id、数据库路径与首个供应商预设，随后按所选语言打印上手步骤（设密钥 → 测试连接 → 拉模型目录 → serve → dashboard → 交互模式）。语言选择会写入 `cli.lang` 设置并影响后续 REPL 措辞；**未选择过语言时不再硬编码中文，而是按 `MIK_LANG → cli.lang → OS locale → en` 解析**（中文系统给中文，其余给英文，随时可用 `/lang` 覆盖）。
 
 ```text
 $ node packages/mik/dist/cli.mjs --help
