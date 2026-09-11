@@ -245,7 +245,7 @@ npm i @ai-sdk/deepseek                # 你实际用的协议，见下
 - **升级**：宿主锁定 `^0.1.0`；mik 的公共面在 `docs/interfaces.md` 有契约，破坏性变更走次版本。
 - **离线**：装的时候要网络；运行时可以完全离线——注入一个抛错的 `pricingFetch`，`llm-pricing` 的内置价格档案照常计价（上面 `cost=$0.0002475 (modelsdev)` 就是离线算出来的）。
 - **体积**：`model-infra-kit` 打包后 95.1 kB / 解包 333.8 kB / 12 个文件；真正的大头是硬依赖 `ai`（6.7 MB）和 `llm-pricing`（0.2 MB），外加每个协议 peer 约 0.4 MB。宿主 CLI 一般把这些放在 dependencies（不进 bundle 的话无所谓）。
-- **注意**：`model-infra-kit` **尚未发布到 npm**（本机 `npm view model-infra-kit` 返回 404）。发布前先看 §5。
+- **注意**：`model-infra-kit` **已发布到 npm**（`npm i model-infra-kit` 直接可装；`npm view model-infra-kit version` 可查当前版本）。版本演进见 §4.1「升级」与上方矩阵的升级列。
 
 ### 4.2 ② workspace 源码引用
 

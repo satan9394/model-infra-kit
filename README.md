@@ -25,6 +25,7 @@
 | 本地打包 | `pnpm --filter model-infra-kit pack --pack-destination .tmp` 后 `npm i ./.tmp/model-infra-kit-<版本>.tgz` | 本机联调；无需网络 |
 | 源码引用 | 把本仓库作为 workspace 成员或 git submodule | 需要改内部实现时 |
 | 免安装 sidecar | 用上面的 tgz 安装后 `npx mik serve`，或直接跑 `node packages/mik/dist/cli.mjs serve` | 不改宿主代码，只改 `base_url` |
+| **升级** | 已有 npm 安装：`npm update model-infra-kit`；npx sidecar：`npx model-infra-kit@latest` | 前提 Node ≥ 22.13（见「环境要求」）；主版本内升级走 npm update，破坏性变更走次版本 |
 
 > 注意：**`npm i github:<账号>/model-infra-kit` 不能用**——仓库根 `package.json` 是 monorepo 壳，没有 `bin`/`files`/`prepare`，装到的是空壳。请走 npm 或 Releases。
 > 无论哪种方式，**都要另外装你实际用的 provider 包**（`@ai-sdk/*` 是可选 peer），见下方「① 嵌入式库」。
@@ -317,7 +318,7 @@ mik> 你好，介绍一下你自己
 
 ```text
 $ node packages/mik/dist/cli.mjs --help
-model-infra-kit (mik) 0.1.1
+model-infra-kit (mik) 0.1.7   # 示例版本；实机输出以 mik --version 为准
 Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.
 
 USAGE
