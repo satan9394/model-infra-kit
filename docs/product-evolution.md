@@ -40,16 +40,17 @@
 ## 路线图（R22 更新，含已开卡切片）
 
 - **已完成切片**：G01（→0.1.7）、G02（→0.1.8）、G03（→0.1.9）、G04（→0.2.0）。P0+P1 集群清零。
-- **进行中**：G05（tasks/EVO-G05-redact-contract.md）= G12 脱敏加固 + G08 配置优先级总表 + G13 契约补全（env 清单 / ModelInfraConfig 字段）。
-- **已开卡待派**：G06（tasks/EVO-G06-db-corruption-selfheal.md）= G11 SQLite 损坏自愈（隔离不删除 + 空库续启 + 醒目告警 + 大库跳过）。
-- **后续候选（未开卡）**：G14（成本对账文档 + 软预算告警，竞品论证的「计费可信度」价值项）、G09（i18n 扩展成本 / 语言检测）、G10（协议运行时注册）。
+- **已完成**：G01-G06 全部验收并发布（0.1.7 → 0.2.2）。
+- **进行中**：G07（tasks/EVO-G07-cost-budget.md）= G14 成本对账文档 + 软预算告警（只告警不硬执行）。
+- **已开卡待派**：G08（tasks/EVO-G08-i18n-locale.md）= G09 i18n 按语言分文件 + 键对等测试 + 系统语言检测 + 看板边界声明。
+- **后续候选（未开卡）**：G10（协议运行时注册——需评估宿主扩展价值与公共面成本）、G15-G24 技术债清理。
 - **技术债队列**：G15 非法语言二次重选提示、G16 README 版本动态化、G17 index.ts 换行（已在 G04 顺带修）、G18 防环断言升级为目录级 import 图检测、G19 runCommand/main 抽公共前置段、G20 G04 残余（真实 SIGINT 端到端 / 非 win32 分支 / 孙进程链——建议在 ubuntu+macos CI runner 补强）、G21 流程债（子代理失败率与既定对策）。
 - **NOT_NOW（拒绝清单，维持）**：虚拟 key/key 池、RPM/TPM 硬限额、观测性深度（trace/eval/playground）、智能路由与自动 failover、多租户/团队、云同步/多实例聚合、兑换码与面向终端的充值计费、任何纯装饰功能（主题色等）。
 
-## PRODUCT_STATE（R31，G01-G06 已验收关闭）
+## PRODUCT_STATE（R41，G01-G07 已验收关闭）
 
-- **当前成熟度**：v0.2.2，P0+P1 清零，P2 两项完成（G05 脱敏+契约、G06 账本损坏自愈）；**390 测试全绿、e2e exit 0、三环境电池 PASS**。
-- **本轮最高价值下一步**：G07（成本对账文档 + 软预算告警，第七 slice，卡片已就绪）；其后 G09（i18n 扩展）、G10（协议运行时注册）。
+- **当前成熟度**：v0.2.3，P0+P1 清零，P2 三项完成（G05 脱敏+契约、G06 账本自愈、G07 成本对账+软预算）；**407 测试全绿、e2e exit 0、三环境电池 PASS**。
+- **本轮最高价值下一步**：G08（i18n 架构收敛 + 系统语言检测，卡片已就绪）；其后 G09（看板首启 + 装包用户可发现性）。
 - **技术债**：dashboard 子进程孤儿（下一步 G04）、单字典 i18n（G09）、as unknown as 6 处、契约漂移（G08/G13）、DB 恢复缺失（G11）、runCommand/main 重复前置段、防环断言仅覆盖单写法、index.ts 末尾换行丢失（G17）。
 - **风险**：none 阻塞级；子代理在审计阶段曾跑死（已用「文件交付 + 前台/上限」协议解决）。
 
@@ -93,4 +94,20 @@
 - **本卡连带修掉的真实缺陷**：`store/driver.ts` 在 `PRAGMA journal_mode` 失败时泄漏句柄，Windows 上导致隔离必然 `EBUSY`（不修则本卡功能不可用）。
 - **验收后修订（post-ACCEPT amendment，已复跑门禁）**：Evaluator 独立复现「>64 MiB 库每次 open 都告警」的噪音并建议 per-path 去重；编排者已实现（模块级 `Set<path>`，每进程每库一次）并补测试，G06 专项 **8/8**、全量 **390/390**、e2e exit 0、三环境 PASS。
 - **新增技术债 G24（G06 建议项）**：① ~~大库告警去重~~（已修）；② A4 部分失败文案「still there」表述不准；③ 锁冲突缺独立用例；④ 契约写清 `-wal` 损坏时三件套一并隔离的真实行为（与卡片字面偏好有偏差）；⑤ 健康库带残留 `-wal`/`-shm` 未测；⑥ 符号链接边角（Windows 无法创建，实测 EPERM）。
+## 方向裁决：G10（协议运行时注册）——本轮不开卡（R37）
+
+**事实采集**：`Protocol` 是闭联合（`types.ts:7`）；协议落点为两张静态表 `SDK_PROTOCOLS`（`ai/protocols.ts:37`）与 `MODEL_LIST_PROTOCOLS`（`:246`）加 `PROTOCOL_PACKAGES`（`registry/presets.ts:17`）与预设表；宿主的既有逃生口是 `openai-compatible`（任何 OpenAI 兼容网关都能直连，无需新协议）。
+
+**裁决**：拆成两级，**本轮都不做**。
+- **G10a（LATER，低风险）**：把两张协议表合并为单表 + 在 `docs/interfaces.md` 写一份「新增内置协议的五处落点」配方。目的是降低**内置**扩展的单点改动面，**不改公共 API**。收益中等、成本低，可作为技术债清理项。
+- **G10b（NOT_NOW）**：面向宿主的 `registerProtocol()` 运行时注册。不做的理由：① 宿主有 `openai-compatible` 逃生口，未被真实需求证明；② 需要把 `Protocol` 从闭联合改为开放字符串，动摇「协议是一等公民、按数据映射」的类型约束与 `Record<Protocol, …>` 的穷尽性检查；③ 引入「宿主注册坏协议」的新失败面与文档/契约成本；④ 竞品调研明确反对「为对齐竞品而扩能力」，而架构审计也只把「合并单表」列为建议。**复评条件**：出现真实宿主需求（需要非 OpenAI 兼容 SDK 的网关）且 `openai-compatible` 无法覆盖时，再评估开卡。
+
+> 依据：`.tmp/audit-architecture.md` 4.1（协议扩展 5 处静态表）、`.tmp/audit-competitor.md` 第三节（❌ 不做清单与「禁止竞品照抄」原则）。
+
+## G07 验收留痕（R41）
+
+- 独立 Evaluator 判定 **ACCEPT**（8 项结论带行号证据，见 `.tmp/eval-G07.md`）：A1–A6 均有代码与实测双证，独立复跑 budget 15/15、tsc exit 0；自行 grep 证实 `costMicros` 全 src 唯一调用链在 init、运行期真零 SQL。
+- **验收后修订（post-ACCEPT amendments，已复跑门禁）**：S2 补 driver 级 SQL 计数用例（对照组同驱动，锁定「预算不引入额外 SQL」）→ budget 用例 15→17；S4 补「宿主 onWarn 抛错仍不重复告警」用例；S3 修正契约两处措辞（「每实例」而非每进程、appId 严格相等而非「空串计零」）。全量 **407** 测试全绿、tsc 0。
+- **S1（行为变化，已写入 release note）**：`hub.ts` 现向 `UsageService` 传 `onWarn`，使既有 `onEvent` 抛错的诊断从「死代码静默」变为「上报一条」；Evaluator 认可这是补齐既有承诺，编排者裁定保留并记录。
+- **新增技术债 G25**：预算基数只汇总 `usage_events` 明细行、不含已折叠 `usage_daily_rollups`（方向只会让告警偏晚、不误报，已在两处文档写明）。
 

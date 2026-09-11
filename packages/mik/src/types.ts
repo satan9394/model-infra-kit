@@ -244,6 +244,23 @@ export interface UsagePage {
   events: UsageEvent[]
 }
 
+/**
+ * Soft spend budget (EVO-G07). **Advisory only**: crossing the threshold sends
+ * one `onWarn` per process per window — it never refuses, queues or rate-limits
+ * a call. Absent config means the feature is off (no query, no warning).
+ */
+export interface BudgetConfig {
+  /** Threshold in USD. Must be a positive finite number; anything else is ignored. */
+  usd: number
+  /**
+   * Statistics window, defaulting to `"day"`. Boundaries are **UTC**
+   * (`Date.UTC(...)` day/month starts), never the host's local midnight.
+   */
+  window?: "day" | "month"
+  /** Only `"warn"` is supported today; any other value is treated as invalid config. */
+  onExceed?: "warn"
+}
+
 export interface ModelInfraConfig {
   /** Owning application. Stored on every usage event; lets one DB serve many apps. */
   appId?: string
@@ -259,6 +276,11 @@ export interface ModelInfraConfig {
   recordUsage?: boolean
   /** Cache directory for the pricing catalogue. Defaults to `~/.model-infra-kit/cache`. */
   cacheDir?: string
+  /**
+   * Soft, warn-only spend threshold for this `appId`. Default: not configured,
+   * which means the whole feature is inactive. Never blocks a request.
+   */
+  budget?: BudgetConfig
   /** Called for non-fatal problems (catalogue sync failure, missing price). */
   onWarn?: (message: string, error?: unknown) => void
 }

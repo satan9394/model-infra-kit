@@ -9,6 +9,7 @@ import { PricingService } from "./pricing/service.js"
 import { ProviderRegistry, splitModelRef } from "./registry/registry.js"
 import { Store } from "./store/database.js"
 import type {
+  BudgetConfig,
   CostInfo,
   ModelInfo,
   ModelInfraConfig,
@@ -19,7 +20,7 @@ import type {
   ToolCall,
   UsageEvent,
 } from "./types.js"
-import { UsageService } from "./usage/service.js"
+import { UsageService, budgetBaseMicros, isUsableBudget, type BudgetDeps } from "./usage/service.js"
 import { redact } from "./util/redact.js"
 
 const DEFAULT_APP_ID = "default"
@@ -168,8 +169,31 @@ function normalizeBaseUrl(url: string): string {
   return trimmed || DEFAULT_BASE_URL
 }
 
-/** Everything `record` needs to write one usage row. */
-interface UsageRecordInput {
+/**
+ * Turn a host's `budget` config into the usage service's dependency.
+ *
+ * The current window's already-recorded cost is summed **once**, here at init,
+ * and then carried in memory: the per-`record()` path must never pay for a table
+ * scan (rule 6). Every failure mode is non-fatal — an invalid config is handed
+ * over untouched so the service can report it once and ignore it, and a failing
+ * sum degrades the base to 0.
+ */
+function budgetDepsFor(
+  budget: BudgetConfig | undefined,
+  context: { store: Store; appId: string; warn: (message: string, error?: unknown) => void },
+): BudgetDeps | undefined {
+  if (!budget) return undefined
+  if (!isUsableBudget(budget)) return { ...budget }
+  const window = budget.window ?? "day"
+  const now = Date.now()
+  return {
+    ...budget,
+    window,
+    baseMicros: budgetBaseMicros({ store: context.store, appId: context.appId, window, now, onWarn: context.warn }),
+  }
+}
+
+/** Everything `record` needs to write one usage row. */interface UsageRecordInput {
   requestId: string
   at: number
   source: string
@@ -367,6 +391,8 @@ export class ModelInfra {
       appId,
       enabled: config.recordUsage ?? true,
       onEvent: config.onUsage ? (event) => safely(() => config.onUsage!(event), warn) : undefined,
+      onWarn: warn,
+      budget: budgetDepsFor(config.budget, { store, appId, warn }),
     })
 
     const models: ModelCatalog = {
