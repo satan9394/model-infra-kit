@@ -27,9 +27,22 @@ export type SqlDriverFactory = (path: string) => SqlDriver | Promise<SqlDriver>
 export async function nodeSqliteDriver(path: string): Promise<SqlDriver> {
   const { DatabaseSync } = await import("node:sqlite")
   const db = new DatabaseSync(path)
-  db.exec("PRAGMA journal_mode = WAL")
-  db.exec("PRAGMA busy_timeout = 5000")
-  db.exec("PRAGMA foreign_keys = ON")
+  try {
+    db.exec("PRAGMA journal_mode = WAL")
+    db.exec("PRAGMA busy_timeout = 5000")
+    db.exec("PRAGMA foreign_keys = ON")
+  } catch (error) {
+    // A corrupt file fails here (`PRAGMA journal_mode` reads the header). The
+    // handle must not stay open: on Windows an open file cannot be moved, so
+    // leaving it would make the caller's quarantine — and thus the whole
+    // self-heal — impossible.
+    try {
+      db.close()
+    } catch {
+      // Keep the setup failure, which is the interesting one.
+    }
+    throw error
+  }
   return {
     exec: (sql: string) => db.exec(sql),
     prepare: (sql: string) => db.prepare(sql) as unknown as SqlStatement,

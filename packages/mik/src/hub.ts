@@ -318,7 +318,7 @@ export class ModelInfra {
 
     let store: Store
     try {
-      store = await Store.open({ path: config.db })
+      store = await Store.open({ path: config.db, onWarn: warn })
     } catch (error) {
       // `Store.open` already reports storage failures as ModelInfraError with a
       // precise message; re-wrapping only buries it behind a second prefix.
