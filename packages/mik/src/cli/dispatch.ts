@@ -64,28 +64,54 @@ export async function dispatch(parsed: ParsedCli, options: RunOptions): Promise<
 }
 
 /**
+ * Result of the shared invocation preamble: either a short-circuit exit code
+ * (parse error, `--version`, `--help`) or the parsed invocation to route.
+ */
+export type PreparedInvocation =
+  | { readonly kind: "exit"; readonly code: number }
+  | { readonly kind: "parsed"; readonly parsed: ParsedCli }
+
+/**
+ * The preamble every entry shares (EVO-G11 / G19): parse argv, then short-circuit
+ * on `--version` and `--help`.
+ *
+ * `main` (index.ts) and `runCommand` had these ~10 lines duplicated; both now
+ * call this. Nothing about the observed behaviour changed — version/help still
+ * print and exit `EXIT_OK`, a parse failure still goes through `report`, and the
+ * no-command branch is deliberately **not** handled here because the TTY→REPL
+ * fork belongs to index.ts (see the module header).
+ */
+export function prepareInvocation(argv: readonly string[], io: CliIo): PreparedInvocation {
+  let parsed: ParsedCli
+  try {
+    parsed = parseCliArgs(argv)
+  } catch (error) {
+    return { kind: "exit", code: report(error, io) }
+  }
+
+  if (parsed.version) {
+    io.out(renderVersion())
+    return { kind: "exit", code: EXIT_OK }
+  }
+  if (parsed.help) {
+    io.out(helpFor(parsed))
+    return { kind: "exit", code: EXIT_OK }
+  }
+  return { kind: "parsed", parsed }
+}
+
+/**
  * Parse argv and run one command (version/help included). Convenience entry
  * for the REPL's slash commands, which always carry a command; the bare-`mik`
  * (no-command) branch — TTY→REPL / non-TTY→root help — is owned by index.ts.
  */
 export async function runCommand(argv: readonly string[], options: RunOptions = {}): Promise<number> {
   const io = resolveIo(options)
-  let parsed: ParsedCli
-  try {
-    parsed = parseCliArgs(argv)
-  } catch (error) {
-    return report(error, io)
-  }
+  const prepared = prepareInvocation(argv, io)
+  if (prepared.kind === "exit") return prepared.code
 
   try {
-    if (parsed.version) {
-      io.out(renderVersion())
-      return EXIT_OK
-    }
-    if (parsed.help) {
-      io.out(helpFor(parsed))
-      return EXIT_OK
-    }
+    const { parsed } = prepared
     if (!parsed.command) {
       // No-command handling lives in index.ts (it owns the TTY→REPL fork).
       // Mirror the non-TTY fallback so this entry stays deterministic: the

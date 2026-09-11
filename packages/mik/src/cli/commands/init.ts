@@ -64,12 +64,15 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     if (interactive) {
       // First-run guide: language first (like a typical CLI onboarding), then
       // the field prompts in that language. A bogus language answer prints the
-      // hint and asks once more; a second bogus answer keeps the default.
+      // hint and asks once more; a second bogus answer prints the same hint
+      // again (EVO-G11 / G15: it used to fall back to the default silently)
+      // and then keeps the resolved default.
       const firstAnswer = (await prompt(tr(lang, "wizard.lang"))).trim()
       let choice = parseLangChoice(firstAnswer)
       if (!choice) {
         io.err(tr(lang, "wizard.langInvalid"))
         choice = parseLangChoice((await prompt(tr(lang, "wizard.lang"))).trim())
+        if (!choice) io.err(tr(lang, "wizard.langInvalid"))
       }
       if (choice) lang = choice
       const answers = [

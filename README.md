@@ -324,7 +324,7 @@ mik> 你好，介绍一下你自己
 
 ```text
 $ node packages/mik/dist/cli.mjs --help
-model-infra-kit (mik) 0.1.7   # 示例版本；实机输出以 mik --version 为准
+model-infra-kit (mik) <version>   # 版本号不硬编码，实机输出以 mik --version 为准
 Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.
 
 USAGE
