@@ -47,12 +47,24 @@
 - **技术债队列**：G15 非法语言二次重选提示、G16 README 版本动态化、G17 index.ts 换行（已在 G04 顺带修）、G18 防环断言升级为目录级 import 图检测、G19 runCommand/main 抽公共前置段、G20 G04 残余（真实 SIGINT 端到端 / 非 win32 分支 / 孙进程链——建议在 ubuntu+macos CI runner 补强）、G21 流程债（子代理失败率与既定对策）。
 - **NOT_NOW（拒绝清单，维持）**：虚拟 key/key 池、RPM/TPM 硬限额、观测性深度（trace/eval/playground）、智能路由与自动 failover、多租户/团队、云同步/多实例聚合、兑换码与面向终端的充值计费、任何纯装饰功能（主题色等）。
 
-## PRODUCT_STATE（R68，G01-G11 已验收关闭）
+## PRODUCT_STATE（R82，G01-G12 已验收关闭）
 
-- **当前成熟度**：v0.2.7，P0+P1 清零，P2 七项完成（G05 脱敏+契约、G06 账本自愈、G07 成本对账+软预算、G08 i18n 架构+语言检测、G09 看板首启+可发现性、G10 技术债清理、G11 架构整洁度）；**447 测试全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
-- **本轮最高价值下一步**：G12（CLI 入门面本地化：`--help` 横幅/用法/未知命令报错，卡片已就绪；依据是发布产物实测证据）。
-- **技术债**：见下方 G15–G44 清单；已清 G20/G23/G29/G30（G10）与 G10a/G18/G19/G16/G15（G11）；待清 G41（守卫仍未覆盖的动态表达式形态）、G37 其余子命令文案、G38–G40、G42–G44。
-- **风险**：无阻塞级；流程铁律 G26–G28/G36 已写入运行手册并每轮执行；新增 G42「评审快照用 commit sha 固定」。
+- **当前成熟度**：v0.2.8，P0+P1 清零，P2 八项完成（…、G11 架构整洁度、G12 CLI 入门面本地化）；**451 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
+- **本轮最高价值下一步**：G13（子命令输出本地化第一批：`provider` 7 处 + `usage` 5 处；卡片与 4 份改前基线均已就绪）。
+- **技术债**：见下方 G15–G49 清单；已清 G20/G23/G29/G30（G10）、G10a/G18/G19/G16/G15（G11）、G37 入门面子集（G12）；待清 G37 其余子命令、G38–G44、G45–G49（G12 评审建议）。
+- **风险**：无阻塞级；流程铁律 G26–G28/G36 已写入运行手册；**新增最重要的教训**：本机 locale 会让 locale 相关缺陷「假绿」——见下。
+
+## G12 验收留痕（R82）
+
+- **判定：两位独立 Evaluator 先后给出 REJECT（结论一致），编排者修完两项阻断后 CI 三 OS 全绿**。两次 REJECT 都**指出了编排者（=本卡实现者）的盲区**，是本项目迄今最有价值的评审之一。
+- **阻断项 1（A2 违规）**：`i18n/en.ts` 的 `cli.flagNotAllowed` 英文值比 0.2.7 多一对引号——实测 `usage summary --port 1234`：0.2.7 为 `error: --port is not valid for "usage summary".`，当前为 `error: "--port" is not valid for …`。
+  **为何漏网**：我的 4 条基线 + 9 条探针**全用未知选项 `--nope`**（由 `node:util` 先抛错、走 en 透传分支）；而 `flagNotAllowed` 只在「**已知但属于别的命令**的选项」（如 `--port`）时触发——**第三种错误形状**。修法：字典值去掉第一对引号；并**补第 5 条基线**（放错位置的已知选项）闭合样本集。
+  **附注**：第一位 Evaluator 建议改成 `--%s is not valid…`，第二位明确指出那会输出 `----port` 是错的，正确是 `"%s is not valid for \"%s\"."` —— **两位评审互相纠错**，说明多重独立评审的价值。
+- **阻断项 2（A5 不成立 + CI 必红）**：`context.ts` 的 `requireArg(..., lang = invocationLang({}))` 传**空对象** → 回落**真实 `process.env`**，丢弃注入的 `RunOptions.env`；4 个调用点都没传 lang。后果：注入 `MIK_LANG=zh` + 真实英文 locale 时输出**中英混排**（`错误： Missing required argument <id>.`），**CI 三 OS 必红**。
+  **最重要的教训（本卡的核心收获）**：我在本机（zh-CN）跑出「451 全绿」并据此认为 A5 达标——**那是本机 locale 造成的假绿**。Evaluator 用 `LC_ALL=en_US.UTF-8` 复跑得到 **1 failed / 450 passed**，一举揭穿。**「本地全绿」对 locale 相关改动毫无证明力**（G26 的加强版：不只是「测试要注入环境」，而是**验证者本身所处的环境会决定他能否看见缺陷**）。修法：`requireArg` 改为接受并透传 `options`，4 个调用点显式传入。
+- **整改后验证**：zh-CN 与 en-US 两种 locale 下均 **451 全绿**；5 条 en 基线（含新增形状）差异 **0**；e2e `All checks passed`；三环境 PASS；**CI 三 OS 全绿**（34631996615）；**G36 发布产物验证**：`mik 0.2.8`、30 导出、`server.mjs` 在包内、**产物双语实测生效**（zh→「可嵌入的模型层…」/ en→`Embeddable model layer…`）、功能冒烟 `text: g36-028 ok` + `recorded: 1`。
+- **编排事故（如实记录）**：本卡先后派了三个 Implementer（我以为前两个已死、实际都在运行）导致三写者竞争 → 已写入铁律「派新 Worker 前必须先查 `list_agents`」；随后编排者**亲自补齐实现**，故本卡判定完全依赖独立 Evaluator——而它**恰恰在编排者盲区找到两处缺陷**，证明了该环节不可省。
+- **新增技术债**：**G45**（`tr()` 直调处缺键会渲染空文案——需补与 `hasKey` 同级的兜底断言）；**G46**（e2e 缺一条 `MIK_LANG=zh` 的 dist 冒烟）；**G47**（en 冻结面按「每种错误形状各一条」扩到 8 条，或把 en `--help` 快照进受版本控制的 fixture——`.tmp/` 被 gitignore，基线进不了 CI）；**G48**（`dispatch.ts` 结尾缺换行）；**G49**（zh 的 `cli.missingOptionValue` 照抄了 node 的 `<value>` 占位符，en 侧须继续透传）。
 
 ## G11 验收留痕（R68）
 
