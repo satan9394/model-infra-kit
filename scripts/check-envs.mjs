@@ -175,46 +175,73 @@ async function spawnEnv(label, cmd, args, timeout) {
   })
 }
 
+/** Fresh, distinct ports for one environment (a retry must not reuse a stale pair). */
+async function freshPorts(id) {
+  const from = { "powershell": [3350, 3360], "git-bash": [3450, 3460], "wsl-ubuntu": [3550, 3560] }[id] ?? [3350, 3360]
+  let serve = await pickPort(from[0])
+  let mock = await pickPort(from[1])
+  // pickPort may fall back to its `from` value when everything above is busy;
+  // keep the pair distinct without wandering into another environment's range.
+  if (mock === serve) mock = await pickPort(serve + 1)
+  return { serve, mock }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   ensureDist(args.build)
   const work = mkdtempSync(join(tmpdir(), "mik-envs-"))
   try {
     const wanted = (args.only ?? VALID_ENVS).filter((id) => !args.skip.includes(id))
-    const ports = {
-      "powershell": { serve: await pickPort(3350), mock: await pickPort(3360) },
-      "git-bash": { serve: await pickPort(3450), mock: await pickPort(3460) },
-      "wsl-ubuntu": { serve: await pickPort(3550), mock: await pickPort(3560) },
-    }
+    const ports = {}
     // Allocate sequentially per env to keep them distinct.
-    for (const id of wanted) {
-      ports[id].serve = await pickPort(ports[id].serve)
-      ports[id].mock = await pickPort(ports[id].mock)
-    }
+    for (const id of wanted) ports[id] = await freshPorts(id)
 
     const results = []
     for (const id of wanted) {
-      const env = { id, ports: ports[id] }
-      results.push(await runEnv(env, args.timeout))
+      let result = await runEnv({ id, ports: ports[id] }, args.timeout)
+      // G23: a single bounded retry for *failures only* (never for SKIPs). A
+      // transient port/process hiccup then shows up as `PASS (retried)`; a real
+      // failure survives the retry and still fails the run.
+      if (result.ok === false) {
+        ports[id] = await freshPorts(id)
+        const retry = await runEnv({ id, ports: ports[id] }, args.timeout)
+        retry.retried = true
+        retry.firstAttempt = { code: result.code, failedStep: result.failedStep }
+        result = retry
+      }
+      results.push(result)
     }
 
     if (args.json) {
-      console.log(JSON.stringify({ exit: results.some((r) => r.ok === false) ? 1 : 0, results: results.map((r) => ({ label: r.label, status: r.ok === true ? "PASS" : r.ok === null ? "SKIP" : "FAIL", code: r.code ?? null, failedStep: r.failedStep, reason: r.ok === null ? r.reason ?? "" : "", outputTail: r.out?.trim().split("\n").slice(-8) ?? [] })) }, null, 2))
-      return
+      console.log(JSON.stringify({ exit: results.some((r) => r.ok === false) ? 1 : 0, results: results.map((r) => ({ label: r.label, status: r.ok === true ? "PASS" : r.ok === null ? "SKIP" : "FAIL", retried: r.retried === true, code: r.code ?? null, failedStep: r.failedStep, reason: r.ok === null ? r.reason ?? "" : "", outputTail: r.out?.trim().split("\n").slice(-8) ?? [] })) }, null, 2))
+      // `--json` is the CI-facing mode: it must carry the same exit status as the
+      // human path, or a failing run would look green to a pipeline.
+      process.exit(results.some((r) => r.ok === false) ? 1 : 0)
     }
 
     let failed = 0
+    let retried = 0
     for (const r of results) {
       const status = r.ok === true ? "PASS" : r.ok === null ? "SKIP" : "FAIL"
+      const label = r.ok === true && r.retried ? `${status} (retried)` : status
       if (r.ok === false) failed += 1
-      console.log(`${status.padEnd(4)} ${r.label}${r.ok === null && r.reason ? `  (${r.reason})` : ""}`)
+      if (r.ok === true && r.retried) retried += 1
+      console.log(`${label.padEnd(4)} ${r.label}${r.ok === null && r.reason ? `  (${r.reason})` : ""}`)
+      // A retry that *succeeds* still has to leave a diagnostic trail: the whole
+      // point of surfacing `PASS (retried)` is to make the flake visible, and a
+      // flake with no recorded first failure cannot be investigated.
+      if (r.ok === true && r.retried) {
+        console.log(`      首次失败: ${r.firstAttempt?.failedStep ?? "(未知)"}（code ${r.firstAttempt?.code ?? "n/a"}），重试后通过`)
+      }
       if (r.ok === false) {
+        if (r.retried) console.log(`      首次失败: ${r.firstAttempt?.failedStep ?? "(未知)"}（code ${r.firstAttempt?.code ?? "n/a"}），重试后仍失败`)
         console.log(`      第一步失败: ${r.failedStep ?? "(未知)"}`)
         const tail = r.out.trim().split("\n").slice(-14).join("\n")
         console.log(indent(tail))
       }
     }
-    console.log(failed === 0 ? "\n全部环境通过。" : `\n${failed} 个环境失败。`)
+    const summary = failed === 0 ? (retried > 0 ? `\n全部环境通过（其中 ${retried} 个在重试后通过）。` : "\n全部环境通过。") : `\n${failed} 个环境失败${retried > 0 ? `（另有 ${retried} 个在重试后通过）` : ""}。`
+    console.log(summary)
     process.exit(failed === 0 ? 0 : 1)
   } finally {
     rmSync(work, { recursive: true, force: true })

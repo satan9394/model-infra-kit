@@ -427,8 +427,42 @@ describe("init", () => {
     await check.close()
   })
 
-  it("asks the wizard fields in the language chosen at the lang prompt", async () => {
-    const { dir, base } = sandbox()
+  it("prints the init output in zh when the injected locale is zh (G29)", async () => {
+    const { dir, db, base } = sandbox()
+    const configPath = join(dir, "mik.config.json")
+    // LC_ALL pins the OS-locale branch: no MIK_LANG, no stored cli.lang, so the
+    // resolved language is zh. Nothing here reads the runner's real locale.
+    const result = await run(
+      ["init", "--app-id", "cli-app", "--db", db, "--provider", "deepseek", "--file", configPath, "--yes", ...base],
+      dir,
+      { LC_ALL: "zh_CN.UTF-8", MIK_LANG: "" },
+    )
+    expect(result.code).toBe(0)
+    // Structure and order are unchanged: wrote-line, appId, db, provider line.
+    expect(result.stdout).toContain(`已写入 ${configPath}`)
+    expect(result.stdout).toContain("  appId  cli-app")
+    expect(result.stdout).toContain(`  db     ${db}`)
+    expect(result.stdout).toContain("已注册供应商")
+    expect(result.stdout).not.toContain("Wrote ")
+  })
+
+  it("prints the init output in en when MIK_LANG=en (G29)", async () => {
+    const { dir, db, base } = sandbox()
+    const configPath = join(dir, "mik.config.json")
+    const result = await run(
+      ["init", "--app-id", "cli-app", "--db", db, "--provider", "deepseek", "--file", configPath, "--yes", ...base],
+      dir,
+      { MIK_LANG: "en", LC_ALL: "zh_CN.UTF-8" },
+    )
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain(`Wrote ${configPath}`)
+    expect(result.stdout).toContain("  appId  cli-app")
+    expect(result.stdout).toContain(`  db     ${db}`)
+    expect(result.stdout).toContain("Registered provider")
+    expect(result.stdout).not.toContain("已写入")
+  })
+
+  it("asks the wizard fields in the language chosen at the lang prompt", async () => {    const { dir, base } = sandbox()
     const configPath = join(dir, "mik.config.json")
     promptMock.prompt.mockReset()
     promptMock.prompt

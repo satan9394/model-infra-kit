@@ -17,6 +17,7 @@ import {
 import { CliRuntimeError, CliUsageError } from "../errors.js"
 import { isInteractive, prompt } from "../prompt.js"
 import { parseLangChoice, resolveCliLang, tr, type Lang } from "../i18n.js"
+import { redact } from "../../util/redact.js"
 
 function presetList(): string {
   return PROVIDER_PRESETS.map((preset) => preset.id).join(", ")
@@ -41,14 +42,18 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
   const force = flagBool(parsed.values, "force")
   const filePath = flagString(parsed.values, "file") ?? join(cwd, DEFAULT_CONFIG_FILE)
 
+  // Language resolution follows the contract MIK_LANG → cli.lang → OS locale →
+  // en. The stored setting needs an open hub, so the flag-only subset is used
+  // for messages raised before `withContext` (e.g. the `--force` guard); inside
+  // the callback the stored preference is folded in and wins over the guess.
+  // No hardcoded default language: a user who never chose one gets their system
+  // language. Every user-visible line below goes through `tr()`, so `init`
+  // output is fully localized.
+  const earlyLang: Lang = resolveCliLang(resolveEnv(options), undefined)
   if (existsSync(filePath) && !force) {
-    throw new CliRuntimeError(`${filePath} already exists. Re-run with --force to overwrite it.`)
+    throw new CliRuntimeError(tr(earlyLang, "init.exists", filePath))
   }
 
-  // Language resolution follows the contract MIK_LANG → cli.lang → OS locale →
-  // en. The stored setting is read through the opened hub, so the
-  // non-interactive path honors it too. No hardcoded default language: a user
-  // who never chose one gets their system language.
   return withContext(parsed, options, async (context) => {
     const env = resolveEnv(options)
     let lang: Lang = resolveCliLang(env, context.hub.readSetting("cli.lang") ?? undefined)
@@ -77,16 +82,16 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
       presetId = answers[2]?.trim() || presetId
     }
 
-    if (!appId) throw new CliUsageError("The application id cannot be empty.")
+    if (!appId) throw new CliUsageError(tr(lang, "init.appIdEmpty"))
     if (presetId && !getPreset(presetId)) {
-      throw new CliUsageError(`Unknown provider preset "${presetId}". Known presets: ${presetList()}.`)
+      throw new CliUsageError(tr(lang, "init.unknownPreset", presetId, presetList()))
     }
 
     const config = buildConfig(appId, db, presetId)
     writeFileSync(filePath, `${JSON.stringify(config, null, 2)}\n`, "utf8")
-    io.out(`Wrote ${filePath}`)
-    io.out(`  appId  ${appId}`)
-    io.out(`  db     ${db}`)
+    io.out(tr(lang, "init.wrote", filePath))
+    io.out(tr(lang, "init.appIdLine", appId))
+    io.out(tr(lang, "init.dbLine", db))
 
     context.hub.writeSetting("cli.lang", lang)
 
@@ -95,20 +100,29 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     if (entry) {
       try {
         const record = context.hub.providers.add(entry)
-        context.io.out(`Registered provider "${record.id}" (${record.protocol}, ${record.baseUrl ?? "no base URL"}).`)
+        context.io.out(
+          tr(
+            lang,
+            "init.providerRegistered",
+            record.id,
+            record.protocol,
+            record.baseUrl ?? tr(lang, "init.noBaseUrl"),
+          ),
+        )
       } catch (error) {
-        context.io.err(`warning: could not register provider "${entry.id}": ${messageOf(error)}`)
+        // Error text goes through `redact()`; the message template is localized.
+        context.io.err(tr(lang, "init.providerRegisterFailed", entry.id, redact(messageOf(error))))
       }
     }
     context.io.out("")
     context.io.out(tr(lang, "wizard.done"))
     const step = (key: string) => context.io.out(`  ${tr(lang, key)}`)
     if (preset?.envKey) {
-      context.io.out(`  1. set ${preset.envKey} (or use --api-key-ref file:~/.model-infra-kit/secrets/${preset.id}-api-key)`)
+      context.io.out(tr(lang, "init.stepSetEnvKey", preset.envKey, preset.id))
     } else if (presetId) {
-      context.io.out(`  1. ${tr(lang, "wizard.stepSetProvider")}: mik provider add ${presetId} --api-key-ref env:VAR`)
+      context.io.out(tr(lang, "init.stepAddProvider", tr(lang, "wizard.stepSetProvider"), presetId))
     } else {
-      context.io.out(`  1. ${tr(lang, "wizard.stepSetProvider")}: mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY`)
+      context.io.out(tr(lang, "init.stepAddDeepseek", tr(lang, "wizard.stepSetProvider")))
     }
     step("wizard.stepTest")
     step("wizard.stepModels")
