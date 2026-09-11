@@ -16,6 +16,7 @@ import {
 } from "../context.js"
 import { CliRuntimeError, CliUsageError } from "../errors.js"
 import { isInteractive, prompt } from "../prompt.js"
+import { isLang, parseLangChoice, tr, type Lang } from "../i18n.js"
 
 function presetList(): string {
   return PROVIDER_PRESETS.map((preset) => preset.id).join(", ")
@@ -48,8 +49,13 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
   let appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? "default"
   let db = flagString(parsed.values, "db") ?? env.MIK_DB ?? defaultDbPath()
   let presetId = flagString(parsed.values, "provider")
+  let lang: Lang = isLang(env.MIK_LANG) ? env.MIK_LANG : "zh"
 
   if (interactive) {
+    // First-run guide: language first (like a typical CLI onboarding), then the
+    // existing prompts. A bogus answer keeps the current default.
+    const langAnswer = await prompt(tr("zh", "wizard.lang"))
+    lang = parseLangChoice(langAnswer) ?? lang
     const answers = [
       await prompt(`Application id [${appId}]: `),
       await prompt(`SQLite database path [${db}]: `),
@@ -75,6 +81,7 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
   const entry = config.initialProviders?.[0]
 
   return withContext(parsed, options, async (context) => {
+    context.hub.writeSetting("cli.lang", lang)
     if (entry) {
       try {
         const record = context.hub.providers.add(entry)
@@ -84,14 +91,20 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
       }
     }
     context.io.out("")
-    context.io.out("Next steps")
-    if (preset?.envKey) context.io.out(`  1. set ${preset.envKey} (or use --api-key-ref file:~/.model-infra-kit/secrets/${preset.id}-api-key)`)
-    else if (presetId) context.io.out(`  1. configure a credential for "${presetId}" with mik provider add ${presetId} --api-key-ref env:VAR`)
-    else context.io.out("  1. add a provider: mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY")
-    context.io.out(`  2. mik provider test ${presetId ?? "<id>"}`)
-    context.io.out(`  3. mik models --provider ${presetId ?? "<id>"} --refresh`)
-    context.io.out("  4. mik serve       # OpenAI-compatible endpoint on 127.0.0.1:3211")
-    context.io.out("  5. mik dashboard   # dashboard on 3210")
+    context.io.out(tr(lang, "wizard.done"))
+    const step = (key: string) => context.io.out(`  ${tr(lang, key)}`)
+    if (preset?.envKey) {
+      context.io.out(`  1. set ${preset.envKey} (or use --api-key-ref file:~/.model-infra-kit/secrets/${preset.id}-api-key)`)
+    } else if (presetId) {
+      context.io.out(`  1. ${tr(lang, "wizard.stepSetProvider")}: mik provider add ${presetId} --api-key-ref env:VAR`)
+    } else {
+      context.io.out(`  1. ${tr(lang, "wizard.stepSetProvider")}: mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY`)
+    }
+    step("wizard.stepTest")
+    step("wizard.stepModels")
+    step("wizard.stepServe")
+    step("wizard.stepDashboard")
+    step("wizard.stepRepl")
     return 0
   })
 }

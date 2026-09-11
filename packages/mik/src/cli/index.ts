@@ -18,6 +18,8 @@ import { runPricing } from "./commands/pricing.js"
 import { runProvider } from "./commands/provider.js"
 import { runServe } from "./commands/serve.js"
 import { runUsage } from "./commands/usage.js"
+import { isInteractive } from "./prompt.js"
+import { runRepl } from "./repl.js"
 import { redact } from "../util/redact.js"
 
 export const EXIT_OK = 0
@@ -76,7 +78,14 @@ export async function main(argv: readonly string[], options: RunOptions = {}): P
       io.out(renderVersion())
       return EXIT_OK
     }
-    if (parsed.help || !parsed.command) {
+    if (parsed.help) {
+      io.out(helpFor(parsed))
+      return EXIT_OK
+    }
+    if (!parsed.command) {
+      // Bare `mik` with a terminal enters the guided REPL (slash commands with
+      // bilingual descriptions). Without a TTY it falls back to root help.
+      if (isInteractive(options)) return await runRepl(parsed, options)
       io.out(helpFor(parsed))
       return EXIT_OK
     }
