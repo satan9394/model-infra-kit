@@ -23,7 +23,7 @@ ModelInfraError, isModelInfraError, toModelInfraError, ModelInfraErrorCode
 CredentialStore { parse; resolve; tryResolve; set; delete; list; describe }
 
 // src/store/database.ts
-Store.open({ path?, driver? }) → Store { providers; models; pricing; usage; settings; driver; close() }
+Store.open({ path?, driver?, onWarn?, trashDir?, maxIntegrityCheckBytes? }) → Store { providers; models; pricing; usage; settings; driver; close() }
 ```
 
 ---
@@ -430,3 +430,40 @@ writeSetting(key: string, value: string): void
 | S13 | 新增公共成员补进本文件 | 各修复卡 |
 | S14 | `warnedMissing` 加上限 | F02 |
 | S15 | `credential/store.ts` 的 `rmSync` 改为移入 `~/.model-infra-kit/trash/` | F04 |
+
+## EVO-G06（G11）— SQLite 损坏自愈
+
+`Store.open()` 新增三个可选入参（**仅新增**，既有调用零变化）：
+
+```ts
+export interface StoreOptions {
+  path?: string
+  driver?: SqlDriverFactory
+  /** 非致命通知：跳过大库完整性检查、损坏库被隔离。默认静默。 */
+  onWarn?: (message: string, error?: unknown) => void
+  /** 损坏库的隔离根目录。默认 `~/.model-infra-kit/trash`（与 F04 同一 trash 根）。 */
+  trashDir?: string
+  /** 完整性检查的体积预算（字节）。默认 64 MiB；仅供测试注入。 */
+  maxIntegrityCheckBytes?: number
+}
+
+// src/store/trash.ts（新增）
+export function defaultTrashDir(): string
+export function trashStamp(now?: Date): string
+export function quarantineFile(path: string, targetDir: string): string
+export function quarantineDatabase(
+  dbPath: string,
+  options?: { trashDir?: string; now?: Date },
+): { dir: string; files: string[] }
+```
+
+打开顺序变为：建目录 → `assertWritableFile` → 打开驱动 → 写探针 → **`PRAGMA quick_check`** → `migrate`。
+
+- 仅**文件型**库检查；`:memory:` 完全跳过。
+- 只有明确损坏签名（`quick_check` 返回非 `ok` 行，或 `SQLITE_CORRUPT` / `SQLITE_NOTADB` / `database disk image is malformed` / `file is not a database`）才判定损坏；权限/锁/路径错误仍抛 `STORAGE`。
+- 库文件 > 64 MiB 跳过检查（规则 6 启动不阻塞），并通过 `onWarn` 说明跳过原因。
+- 判定损坏 → 主库与同级 `-wal`/`-shm` **移动**到 `~/.model-infra-kit/trash/db-corrupt-<UTC 时间戳>/`（绝不删除）；隔离失败仍抛 `STORAGE` 且原文件留在原地。
+- 隔离成功后以同路径建空库（正常 `migrate`）并 `onWarn` 一条醒目告警，含隔离目录完整路径、账本已重置、SQLite 抢救指引。
+- 告警文案是公共行为约定：必须含隔离目录路径、`reset` 语义与恢复指引。
+- `ModelInfra.init()` 把自身的 `onWarn` 透传给 `Store.open`，因此宿主无需额外接线即可看到告警。
+
