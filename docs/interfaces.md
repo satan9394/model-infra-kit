@@ -358,6 +358,57 @@ writeSetting(key: string, value: string): void
 
 ---
 
+## 配置真相（EVO-G05 补充）
+
+> 目的：把「配置从哪来、谁压过谁」写成契约唯一真相。此前只存在于 `cli/context.ts:140-143` 与 `hub.ts:317` 的注释里，且两条路径的优先序**不同**。
+
+### 配置优先级总表
+
+| 层 | CLI 用法（`mik <cmd>`） | 库用法（`ModelInfra.init()`） |
+|---|---|---|
+| 1（最高） | 命令行 flag（`--db`/`--app-id`/`--config`/`--cache-dir`） | 显式入参 `config.*` |
+| 2 | 环境变量（`MIK_*`） | 环境变量（`MIK_APP_ID`） |
+| 3 | `mik.config.json` | ——（库不读该文件） |
+| 4（最低） | 内置默认（`~/.model-infra-kit/usage.db`、`appId="default"`） | 内置默认 |
+
+- 代码位置：CLI 见 `src/cli/context.ts:140-143`；库见 `src/hub.ts:317`（`config.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID`）。
+- **差异是有意设计**：库宿主显式传参应压过环境变量（显式 > 隐式）；CLI 的 flag 同样压过 env。两条路径的「env vs 文件/默认」不可比，因为库不读 `mik.config.json`。
+- **settings 表**（`cli.lang` 等小设置）只由 CLI 的 REPL/向导读写（`hub.readSetting`/`writeSetting`），优先级低于环境变量：`MIK_LANG` → `cli.lang` → `zh`（见上文「小设置持久化」节）。
+- `mik.config.json` 只承载 `appId` / `db` / `initialProviders`（`src/cli/context.ts:25-34`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费。
+- 已由测试锁定：`packages/mik/test/config-precedence.test.ts`。
+
+### 环境变量清单（源码实测，逐个 grep 确认；含 CLI 与库两条路径）
+
+| 变量 | 读取位置 | 语义 |
+|---|---|---|
+| `MIK_DB` | `cli/context.ts:140`、`cli/commands/init.ts:55` | SQLite 路径（CLI；`--db` 优先） |
+| `MIK_APP_ID` | `cli/context.ts:141`、`cli/commands/init.ts:54`、`hub.ts:317` | 账本所属应用 id；多宿主共用一库时用于隔离 |
+| `MIK_CONFIG` | `cli/context.ts:75` | `mik.config.json` 的替代路径（`--config` 优先） |
+| `MIK_CACHE_DIR` | `cli/context.ts:142` | 价格目录缓存目录（`--cache-dir` 优先） |
+| `MIK_OFFLINE` | `cli/context.ts:143`（`"1"` 为真） | 完全离线：禁用目录同步与在线价格拉取（flag `--offline` 为 `||` 关系，不是覆盖） |
+| `MIK_LANG` | `cli/commands/init.ts:53`、`cli/repl.ts:165`（`cli/i18n.ts` 只提供 `resolveLang`） | CLI/REPL 界面语言 `zh`/`en`；优先于 `cli.lang` 设置 |
+| `MIK_SERVER_TOKEN` | `cli/commands/serve.ts:119` | `mik serve` 写端点 token（`--token` 优先）；未设置时写端点默认 401 |
+| `MIK_PROVIDER_TIMEOUT_MS` | `ai/bridge.ts:31` | 供应商连接测试 / 模型发现的超时毫秒数（`provider.meta.timeoutMs` 优先） |
+| `MIK_BASE_URL` | `hub.ts:408` | 库路径：默认服务基址（供 `hub.baseUrl` 使用） |
+| `MIK_DASHBOARD_DIR` | `cli/commands/dashboard.ts:72` | `mik dashboard` 定位看板目录的覆盖点 |
+
+> `MIK_TOKEN` 只出现在 `src/server/index.ts` 的用法示例注释里（宿主自行传给 `createServer({ token })`），**CLI 不读取**。
+
+### `ModelInfraConfig` 字段清单（`src/types.ts`）
+
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `appId` | `string` | `"default"` | 写入每条用量事件；一库多应用 |
+| `db` | `string` | `~/.model-infra-kit/usage.db` | SQLite 路径，或 `:memory:` |
+| `providers` | `ProviderConfig[]` | `[]` | 首次运行时注册的供应商（库中已有同 id 时不覆盖） |
+| `defaultModel` | `string` | 无 | 请求省略 `model` 时使用的 `provider:model` |
+| `syncCatalog` | `boolean` | `true` | 启动时后台同步模型目录（离线 / `--offline` 时关闭） |
+| `recordUsage` | `boolean` | `true` | 是否持久化用量事件 |
+| `cacheDir` | `string` | `~/.model-infra-kit/cache` | 价格目录缓存目录 |
+| `onWarn` | `(message, error?) => void` | 无 | 非致命问题回调（目录同步失败、缺价等） |
+
+该接口与 F16 记录的 `ModelInfraOptions`（`baseUrl`/`maxRetries`/`pricingCatalog`/`pricingFetch`/`onUsage`）共同构成 `ModelInfra.init()` 的入参。
+
 ## 指挥裁决（R01 评审后，2026-09-09）
 
 | 编号 | 裁决 | 落到哪张卡 |

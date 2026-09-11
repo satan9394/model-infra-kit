@@ -37,19 +37,25 @@
 | G13 | 契约漂移：env 清单/ModelInfraConfig 字段未进 interfaces.md | interfaces.md vs context.ts:75/142/143、types.ts:247-263 | 新 Worker 按文档实现会漏行为开关 | 文档"引用型"非"真值型" | P2 |
 | G14 | 值得做能力（竞品论证）：成本对账文档 / 软预算告警(默认关) / Day-0 可选价格同步(默认关) | audit-competitor 第三节（带来源 URL） | 补「计费可信度」「超支预警」 | — | P2/P3 |
 
-## 路线图
+## 路线图（R22 更新，含已开卡切片）
 
-- **NOW**：G01（P0 安全集群，本轮 vertical slice）。
-- **NEXT**：G02、G03、G04、G05、G06、G07（P1 集群；G07 一行、G06 纯文档，成本极低合入）。
-- **LATER**：G08、G09、G10、G11、G12、G13、G14（软预算/对账文档/可选同步）。
-- **NOT_NOW（拒绝清单）**：竞品 DON'T 清单（虚拟 key、限额硬执行、观测性、路由/failover、多租户、云同步、充值计费）+ 纯装饰（主题色等）。
+- **已完成切片**：G01（→0.1.7）、G02（→0.1.8）、G03（→0.1.9）、G04（→0.2.0）。P0+P1 集群清零。
+- **进行中**：G05（tasks/EVO-G05-redact-contract.md）= G12 脱敏加固 + G08 配置优先级总表 + G13 契约补全（env 清单 / ModelInfraConfig 字段）。
+- **已开卡待派**：G06（tasks/EVO-G06-db-corruption-selfheal.md）= G11 SQLite 损坏自愈（隔离不删除 + 空库续启 + 醒目告警 + 大库跳过）。
+- **后续候选（未开卡）**：G14（成本对账文档 + 软预算告警，竞品论证的「计费可信度」价值项）、G09（i18n 扩展成本 / 语言检测）、G10（协议运行时注册）。
+- **技术债队列**：G15 非法语言二次重选提示、G16 README 版本动态化、G17 index.ts 换行（已在 G04 顺带修）、G18 防环断言升级为目录级 import 图检测、G19 runCommand/main 抽公共前置段、G20 G04 残余（真实 SIGINT 端到端 / 非 win32 分支 / 孙进程链——建议在 ubuntu+macos CI runner 补强）、G21 流程债（子代理失败率与既定对策）。
+- **NOT_NOW（拒绝清单，维持）**：虚拟 key/key 池、RPM/TPM 硬限额、观测性深度（trace/eval/playground）、智能路由与自动 failover、多租户/团队、云同步/多实例聚合、兑换码与面向终端的充值计费、任何纯装饰功能（主题色等）。
 
-## PRODUCT_STATE（R19，G01-G04 已验收关闭；P1 集群清零）
+## PRODUCT_STATE（R26，G01-G05 已验收关闭）
 
-- **当前成熟度**：v0.2.0，**P0+P1 缺口全部关闭**（G01 安全默认 / G02 REPL+向导+i18n 契约 / G03 环收敛 / G04 dashboard 子进程托管）；371 测试全绿、e2e exit 0、三环境电池 PASS。
-- **本轮最高价值下一步**：G05（redact 脱敏加固 + 配置/契约真相表，第五 slice，卡片已就绪）；其后 LATER 集群（G11 DB 恢复 / G09 i18n 扩展 / G10 协议注册 / G14 成本对账与软预算）。
+- **当前成熟度**：v0.2.1，P0+P1 清零，P2 首项（G05 脱敏加固+配置契约）已 ACCEPT；**382 测试全绿、e2e exit 0、三环境电池 PASS**。
+- **本轮最高价值下一步**：G06（DB 损坏自愈，第六 slice，卡片已就绪）；其后 G14（成本对账文档 + 软预算告警）、G09（i18n 扩展）、G10（协议运行时注册）。
 - **技术债**：dashboard 子进程孤儿（下一步 G04）、单字典 i18n（G09）、as unknown as 6 处、契约漂移（G08/G13）、DB 恢复缺失（G11）、runCommand/main 重复前置段、防环断言仅覆盖单写法、index.ts 末尾换行丢失（G17）。
 - **风险**：none 阻塞级；子代理在审计阶段曾跑死（已用「文件交付 + 前台/上限」协议解决）。
 
+## G05 验收留痕（R26）
 
+- 独立 Evaluator（极小判断任务）判定 **ACCEPT**，7 项结论 + 8 条建议（S1-S8）见 `.tmp/eval-G05.md`；编排者已把 S1-S8 **全部就地处理**：S1 头部规则改为「掩掉任意方案的 Authorization 值」（覆盖 ApiKey/Negotiate 与 JSON 引号键形态，补测试）、S2 env 清单补 `MIK_BASE_URL`/`MIK_DASHBOARD_DIR`、S3 修正 `MIK_LANG` 读取位置、S4 总表补 settings 层与 config 文件边界说明、S5 裸 Bearer 改为「仅凭据形态才掩」（消除散文误杀，另补回归测试）、S6 电池 `grep -qF` + 版本非空保护、S7/S8 文档与报告笔误。
+- **本卡连带修掉的真实缺陷**：① `Authorization: Basic/digest` 等非 Bearer 方案凭据原样泄露；② 裸 Bearer 规则误掩散文（`the Bearer token is required`）；③ `check-envs` 电池版本断言写死 `mik 0.1` 导致 0.2.0 起三环境必然全红。
+- **新增技术债**：G22（优先序测试仅覆盖 `appId`）、G23（三环境电池偶发假阴：本轮 wsl-ubuntu 曾 FAIL 后复跑 PASS，疑似遗留进程占端口，建议加有界重试或端口占用预检加固）。
 

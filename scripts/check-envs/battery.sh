@@ -38,7 +38,11 @@ fail() { echo "STEP $1 fail"; echo "FAIL[$NAME] $1"; echo "$2" 2>/dev/null || tr
 pass() { echo "STEP $1 ok"; }
 
 echo "== [$NAME] bin: direct =="
-node packages/mik/dist/cli.mjs --version | grep -q "mik 0.1" && pass "bin-direct" || fail "bin-direct"
+# Compare against the package version instead of a pinned string: bumping the
+# version must never turn the battery red (and this proves build == manifest).
+WANT_VERSION=$(node -p "require('./packages/mik/package.json').version")
+if [ -z "$WANT_VERSION" ]; then echo "FAIL[$NAME] could not read the package version"; exit 1; fi
+node packages/mik/dist/cli.mjs --version | grep -qF "mik $WANT_VERSION" && pass "bin-direct" || fail "bin-direct"
 echo "== [$NAME] bin: via symlink (Linux/macOS npm bin regression) =="
 if [ "$SYMLINK_MODE" = "skip" ]; then
   echo "  skipped: Windows node does not resolve ESM relative imports through a symlink entry (npm uses .cmd shims there); covered by npx/PowerShell checks."
@@ -49,7 +53,7 @@ else
   # A real symlink reproduces npm's Unix bin exactly; if the platform cannot make
   # one (Windows Git Bash without privileges), a copy still exercises the shebang.
   ln -sf "$LINKTARGET" "$LINK" 2>/dev/null || cp -f "$LINKTARGET" "$LINK"
-  "$LINK" --version | grep -q "mik 0.1" && pass "bin-symlink" || fail "bin-symlink"
+  "$LINK" --version | grep -qF "mik $WANT_VERSION" && pass "bin-symlink" || fail "bin-symlink"
 fi
 echo "== [$NAME] mock + serve + curl =="
 node apps/dashboard/scripts/mock-openai.mjs --port "$MOCKPORT" >/tmp/mik-mock-$NAME.log 2>&1 &

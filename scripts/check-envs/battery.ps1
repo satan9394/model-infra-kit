@@ -25,8 +25,12 @@ function Fail([string]$Step, [string]$Message = "") {
 function Pass([string]$Step) { Write-Output "STEP $Step ok" }
 
 Write-Output "== [$Name] bin: direct =="
+# Compare against the package version instead of a pinned string: bumping the
+# version must never turn the battery red (and this proves build == manifest).
+$wantVersion = (Get-Content "packages\mik\package.json" -Raw | ConvertFrom-Json).version
+if (-not $wantVersion) { Fail "bin-direct" "could not read the package version" }
 $v = node packages/mik/dist/cli.mjs --version
-if ("$v" -match "mik 0\.1") { Pass "bin-direct" } else { Fail "bin-direct" $v }
+if ("$v" -match [regex]::Escape("mik $wantVersion")) { Pass "bin-direct" } else { Fail "bin-direct" $v }
 
 Write-Output "== [$Name] mock + serve + curl =="
 $mock = Start-Process node -ArgumentList "apps\dashboard\scripts\mock-openai.mjs","--port",$MockPort -PassThru -WindowStyle Hidden
