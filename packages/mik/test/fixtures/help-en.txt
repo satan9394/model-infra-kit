@@ -1,0 +1,34 @@
+model-infra-kit (mik) 0.2.8
+Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.
+
+USAGE
+  mik <command> [options]
+
+COMMANDS
+  init        Write mik.config.json (app id, database path, first provider)
+  serve       Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)
+  dashboard   Start the dashboard app (default 3210)
+  provider    List, add, remove and test providers
+  models      List the model catalogue, optionally refreshing it from the provider
+  pricing     Inspect, sync and override model prices
+  usage       Query recorded usage: summary, trends, logs, CSV export
+
+GLOBAL OPTIONS
+      --db <path>         SQLite database file (default ~/.model-infra-kit/usage.db)
+      --app-id <id>       Owning application id (default: default)
+      --config <path>     CLI config file (default ./mik.config.json)
+      --cache-dir <path>  Pricing catalogue cache directory
+      --offline           Never touch the network (skip catalogue sync and provider probes)
+  -h, --help              Show help
+  -v, --version           Show version
+
+EXAMPLES
+  mik init --app-id my-app --provider deepseek
+  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY
+  mik provider test deepseek
+  mik models --provider deepseek --refresh
+  mik pricing set deepseek-chat --input 0.27 --output 1.10
+  mik usage summary --from 2026-09-01
+  mik usage export --format csv --out usage.csv
+
+Run "mik <command> --help" for details on any command.

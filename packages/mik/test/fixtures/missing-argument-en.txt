@@ -1,0 +1,2 @@
+error: Missing required argument <id>.
+usage: mik provider remove <id> [--yes]
