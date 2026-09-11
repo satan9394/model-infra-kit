@@ -182,23 +182,32 @@ describe("i18n language detection (A2)", () => {
   })
 
   it("falls back to en when no env, stored or locale clue exists", () => {
-    // The machine running the suite must not decide this: clear the three locale
-    // variables for the duration of the assertion and restore them afterwards.
-    const saved: Record<string, string | undefined> = {
-      LC_ALL: process.env.LC_ALL,
-      LC_MESSAGES: process.env.LC_MESSAGES,
-      LANG: process.env.LANG,
-    }
-    try {
-      delete process.env.LC_ALL
-      delete process.env.LC_MESSAGES
-      delete process.env.LANG
-      expect(resolveLang(undefined, undefined)).toBe("en")
-    } finally {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
+    // Injected env only: the machine running the suite must never decide this, so
+    // nothing here reads or mutates the real `process.env`.
+    expect(resolveLang(undefined, undefined, { env: {} })).toBe("en")
+    expect(resolveLang(undefined, undefined, { env: {}, locale: "" })).toBe("en")
+    expect(resolveLang(undefined, undefined, { env: { LANG: "" } })).toBe("en")
+  })
+
+  it("keeps the documented public export surface (no accidental removals)", () => {
+    // A source-level check because `Lang` is a type-only export and would not show
+    // up on the runtime namespace. Guards the 11 names the contract promises.
+    const source = readFileSync(new URL("../src/cli/i18n.ts", import.meta.url), "utf8")
+    const exported = [
+      "Lang",
+      "LANGS",
+      "LANG_LABELS",
+      "hasKey",
+      "i18nKeys",
+      "tr",
+      "trBoth",
+      "dictFor",
+      "isLang",
+      "resolveLang",
+      "parseLangChoice",
+    ]
+    for (const name of exported) {
+      expect(source, name).toMatch(new RegExp(`export (?:type |const |function )?${name}\\b`))
     }
   })
 
