@@ -1115,3 +1115,271 @@ describe("catalogue sync scope (F08)", () => {
     expect(failing.warnings.join("\n")).toContain("dead")
   })
 })
+
+// ---------------------------------------------------------------------------
+// EVO-G13 — `provider …` / `usage …` output localization
+// ---------------------------------------------------------------------------
+
+describe("subcommand i18n (EVO-G13)", () => {
+  /** Every case injects MIK_LANG through `run()`; nothing reads the host locale. */
+  const ZH = { MIK_LANG: "zh" }
+  const EN = { MIK_LANG: "en" }
+
+  /**
+   * The frozen pre-change English baselines, byte-for-byte (`.tmp/baseline-g13-*`
+   * captured from the 0.2.8 build; the trailing `\n` is what the CLI emits).
+   * Hardcoded here so the regression gate travels with the repo instead of with
+   * the gitignored `.tmp/` directory (technical debt G47).
+   */
+  const EN_PROVIDER_LIST =
+    "No providers configured.\n\nAdd one with:\n" +
+    "  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY\n" +
+    "  mik provider list\n"
+  const EN_PROVIDER_HELP =
+    "mik provider — List, add, remove and test providers\n\n" +
+    "USAGE\n  mik provider <list|add|remove|test> [options]\n\n" +
+    "ACTIONS\n  list    List configured providers and the default model\n" +
+    "  add     Add or update a provider (preset fills protocol, base URL and env var)\n" +
+    "  remove  Remove a provider from the database\n" +
+    "  test    Probe a provider with one minimal call\n\n" +
+    "GLOBAL OPTIONS\n" +
+    "      --db <path>         SQLite database file (default ~/.model-infra-kit/usage.db)\n" +
+    "      --app-id <id>       Owning application id (default: default)\n" +
+    "      --config <path>     CLI config file (default ./mik.config.json)\n" +
+    "      --cache-dir <path>  Pricing catalogue cache directory\n" +
+    "      --offline           Never touch the network (skip catalogue sync and provider probes)\n" +
+    "  -h, --help              Show help\n" +
+    "  -v, --version           Show version\n"
+  const EN_USAGE_SUMMARY_EMPTY =
+    "Range - → - · app=default\n\n" +
+    "Requests        0\n" +
+    "Successes       0\n" +
+    "Failures        0\n" +
+    "Success rate    0.0%\n" +
+    "Cost (USD)      0.0000\n" +
+    "Cost range      0.0000 – 0.0000\n" +
+    "Input tokens    0\n" +
+    "Output tokens   0\n" +
+    "Cache read      0\n" +
+    "Cache write     0\n" +
+    "Reasoning       0\n" +
+    "Cache hit rate  0.0%\n" +
+    "Avg latency     0 ms\n" +
+    "First token     0 ms\n"
+  const EN_USAGE_LOGS_EMPTY = "Range - → - · app=default\n\nNo usage recorded in this range.\n"
+
+  /** Framework prose that must never survive on the zh surface. */
+  const ENGLISH_FRAMEWORK_WORDS = [
+    "Requests",
+    "Successes",
+    "Failures",
+    "Success rate",
+    "Cost (USD)",
+    "Input tokens",
+    "No usage recorded",
+    "No providers configured",
+    "Add one with",
+    "Default model:",
+    "Refusing to remove",
+    "Aborted",
+    "Remove provider",
+    "Showing ",
+    "UNKNOWN",
+  ]
+
+  function noEnglishProse(stdout: string): void {
+    for (const word of ENGLISH_FRAMEWORK_WORDS) {
+      expect(stdout, `zh output leaked "${word}"`).not.toContain(word)
+    }
+  }
+
+  /** One `cli-app` event: enough to exercise every label and value path. */
+  async function seedUsageEvent(dbPath: string): Promise<void> {
+    const store = await Store.open({ path: dbPath })
+    const usage = new UsageService({ store, appId: "cli-app", enabled: true })
+    usage.record({
+      requestId: "g13-r-1",
+      ts: Date.parse("2026-09-01T10:00:00.000Z"),
+      source: "generate",
+      providerId: "deepseek",
+      modelRequested: "deepseek:deepseek-chat",
+      modelActual: "deepseek-chat",
+      usage: { input: 1200, output: 300, cacheRead: 800, cacheWrite: 0, reasoning: 64 },
+      cost: { usd: 0.012345, low: 0.01, high: 0.02, basis: "flat", source: "modelsdev" },
+      latencyMs: 850,
+      status: "ok",
+      isStreaming: false,
+    })
+    store.close()
+  }
+
+  it("A1 — localizes the provider list empty state and headers into Chinese", async () => {
+    const { dir, base } = sandbox()
+    const empty = await run(["provider", "list", ...base], dir, ZH)
+    expect(empty.code).toBe(0)
+    expect(empty.stdout).toContain("还没有配置任何供应商。")
+    expect(empty.stdout).toContain("添加一条：")
+    // The example argv stays copy-pasteable.
+    expect(empty.stdout).toContain("  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY")
+    noEnglishProse(empty.stdout)
+
+    await run(["provider", "add", "deepseek", "--preset", "deepseek", "--api-key-ref", "env:DEEPSEEK_API_KEY", ...base], dir, ZH)
+    const listed = await run(["provider", "list", ...base], dir, ZH)
+    expect(listed.code).toBe(0)
+    for (const header of ["供应商", "名称", "协议", "接口地址", "密钥引用", "启用", "默认"]) {
+      expect(listed.stdout, header).toContain(header)
+    }
+    expect(listed.stdout).toContain("默认模型：")
+    expect(listed.stdout).toContain("数据库：")
+    // Data values are untouched and still copy-pasteable.
+    expect(listed.stdout).toContain("deepseek")
+    expect(listed.stdout).toContain("https://api.deepseek.com/v1")
+    expect(listed.stdout).toContain("env:DEEPSEEK_API_KEY")
+    noEnglishProse(listed.stdout)
+  })
+
+  it("A2 — keeps the English provider list and help byte-for-byte", async () => {
+    const { dir, base } = sandbox()
+    const list = await run(["provider", "list", ...base], dir, EN)
+    expect(list.code).toBe(0)
+    expect(`${list.stdout}\n`).toBe(EN_PROVIDER_LIST)
+
+    const help = await run(["provider", "--help"], dir, EN)
+    expect(help.code).toBe(0)
+    expect(`${help.stdout}\n`).toBe(EN_PROVIDER_HELP)
+    expect(`${help.stdout}\n`).not.toContain("供应商")
+  })
+
+  it("A1 — localizes the provider add notice, success and next-step lines", async () => {
+    const { dir, base } = sandbox()
+    const result = await run(["provider", "add", "deepseek", "--preset", "deepseek", ...base], dir, ZH)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("提示：未提供 --api-key-ref")
+    expect(result.stdout).toContain("DEEPSEEK_API_KEY")
+    expect(result.stdout).toContain("已添加供应商「deepseek」。")
+    expect(result.stdout).toContain("更新时间：")
+    expect(result.stdout).toContain("验证：mik provider test deepseek")
+    noEnglishProse(result.stdout)
+  })
+
+  it("A1 — localizes provider error paths and keeps their exit codes", async () => {
+    const { dir, base } = sandbox()
+    // Runtime error (exit 1): the provider is not configured.
+    const missing = await run(["provider", "remove", "ghost", ...base], dir, ZH)
+    expect(missing.code).toBe(1)
+    expect(missing.stderr).toContain("供应商「ghost」未配置。")
+    expect(missing.stderr).not.toContain("is not configured")
+
+    // Offline refusal (exit 1) for the card's `provider test <unknown>` shape.
+    const test = await run(["provider", "test", "no-such-provider", "--offline", ...base], dir, ZH)
+    expect(test.code).toBe(1)
+    expect(test.stderr).toContain("需要网络访问")
+
+    // Usage error (exit 2): an unknown protocol.
+    const protocol = await run(["provider", "add", "x", "--protocol", "bogus", ...base], dir, ZH)
+    expect(protocol.code).toBe(2)
+    expect(protocol.stderr).toContain("未知协议「bogus」。")
+    expect(protocol.stderr).toContain("用法：")
+  })
+
+  it("A1 — localizes the usage summary labels and keeps the value column aligned", async () => {
+    const { dir, db, base } = sandbox()
+    await seedUsageEvent(db)
+    const result = await run(["usage", "summary", "--app-id", "cli-app", ...base], dir, ZH)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("区间 ")
+    // `app=` stays a literal key name so the filter can be copied back.
+    expect(result.stdout).toContain("· app=cli-app")
+    for (const label of ["请求数", "成功数", "失败数", "成功率", "成本 (USD)", "成本区间", "平均延迟", "首 token 延迟"]) {
+      expect(result.stdout, label).toContain(label)
+    }
+    // Data values keep their exact formatting.
+    expect(result.stdout).toContain("0.0123")
+    // CJK labels are padded by display width: the widest label (首 token 延迟,
+    // 13 columns) + the two-space gutter puts every value in column 15. Naive
+    // `.length` padding would leave 请求数 five spaces short.
+    expect(result.stdout).toContain(`${"请求数"}${" ".repeat(9)}1`)
+    noEnglishProse(result.stdout)
+  })
+
+  it("A2 — keeps the English usage summary and logs byte-for-byte", async () => {
+    const { dir, base } = sandbox()
+    const summary = await run(["usage", "summary", ...base], dir, EN)
+    expect(summary.code).toBe(0)
+    expect(`${summary.stdout}\n`).toBe(EN_USAGE_SUMMARY_EMPTY)
+
+    const logs = await run(["usage", "logs", ...base], dir, EN)
+    expect(logs.code).toBe(0)
+    expect(`${logs.stdout}\n`).toBe(EN_USAGE_LOGS_EMPTY)
+
+    const { dir: seededDir, db, base: seededBase } = sandbox()
+    await seedUsageEvent(db)
+    const showing = await run(["usage", "logs", "--app-id", "cli-app", ...seededBase], seededDir, EN)
+    expect(showing.code).toBe(0)
+    expect(showing.stdout).toContain("Showing 1 of 1 event(s) (offset 0).")
+    expect(showing.stdout).toContain("LATENCY")
+    expect(showing.stdout).toContain("COST USD")
+  })
+
+  it("A3 — keeps the script-facing export output identical under zh", async () => {
+    const { dir, db, base } = sandbox()
+    await seedUsageEvent(db)
+    const args = ["usage", "export", "--format", "csv", "--app-id", "cli-app", ...base]
+    const en = await run(args, dir, EN)
+    const zh = await run(args, dir, ZH)
+    expect(zh.code).toBe(0)
+    // The CSV is a data format: byte-identical in both languages, fixed header.
+    expect(zh.stdout).toBe(en.stdout)
+    expect(zh.stdout.split("\n")[0]).toBe(USAGE_CSV_HEADER)
+
+    // ...while the human line next to `--out` is localized.
+    const target = join(dir, "out", "usage.csv")
+    const wrote = await run([...args, "--out", target], dir, ZH)
+    expect(wrote.code).toBe(0)
+    expect(wrote.stdout).toContain("已写入 1 行到")
+    expect(readFileSync(target, "utf8").split("\n")[0]).toBe(USAGE_CSV_HEADER)
+  })
+
+  it("A1 — localizes the empty state for logs and trends", async () => {
+    const { dir, base } = sandbox()
+    const logs = await run(["usage", "logs", ...base], dir, ZH)
+    expect(logs.code).toBe(0)
+    expect(logs.stdout).toContain("该区间没有用量记录。")
+    noEnglishProse(logs.stdout)
+
+    const trends = await run(["usage", "trends", "--days", "7", ...base], dir, ZH)
+    expect(trends.code).toBe(0)
+    expect(trends.stdout).toContain("该区间没有用量记录。")
+    noEnglishProse(trends.stdout)
+  })
+
+  it("A1/A5 — localizes usage flag errors, keeping the flag names literal and exit code 2", async () => {
+    const { dir, base } = sandbox()
+    const limit = await run(["usage", "logs", "--limit", "0", ...base], dir, ZH)
+    expect(limit.code).toBe(2)
+    expect(limit.stderr).toContain("--limit 必须是 1 到 1000 之间的整数")
+    expect(limit.stderr).toContain("错误：")
+    expect(limit.stderr).not.toContain("must be an integer")
+
+    const range = await run(["usage", "summary", "--from", "not-a-date", ...base], dir, ZH)
+    expect(range.code).toBe(2)
+    expect(range.stderr).toContain("--from 需要 YYYY-MM-DD")
+  })
+
+  it("A3 — localizes the zh trends/logs table headers without touching the data", async () => {
+    const { dir, db, base } = sandbox()
+    await seedUsageEvent(db)
+    const logs = await run(["usage", "logs", "--app-id", "cli-app", ...base], dir, ZH)
+    expect(logs.code).toBe(0)
+    for (const header of ["时间", "应用", "供应商", "模型", "状态", "输入", "输出", "成本 USD", "延迟"]) {
+      expect(logs.stdout, header).toContain(header)
+    }
+    // Row data (ids, model, status) stays literal; the timestamp column is local
+    // time, so it is deliberately not pinned to a literal here.
+    expect(logs.stdout).toContain("cli-app")
+    expect(logs.stdout).toContain("deepseek-chat")
+    expect(logs.stdout).toContain("ok")
+    expect(logs.stdout).toContain("显示 1 / 1 条事件（offset 0）。")
+    noEnglishProse(logs.stdout)
+  })
+})

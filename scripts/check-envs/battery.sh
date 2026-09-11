@@ -26,6 +26,10 @@ cd "$ROOT"
 mkdir -p "$ROOT/.tmp"   # payload + CSV land here; must exist in a fresh checkout
 export MIK_DB="$DB"
 export MIK_APP_ID="envcheck"
+# The battery asserts English CLI wording (`usage summary` must contain
+# "Requests"): a tool is not a user and must not follow the machine's locale, or
+# the whole check goes red on a zh-CN host and green in CI (G12/G13).
+export MIK_LANG="en"
 export K="sk-envcheck"
 # G01: without a token the serve's write endpoints 401, so the battery gives
 # the serve a token and every write below carries it.

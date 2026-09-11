@@ -11,6 +11,10 @@ param(
 Set-Location $Root
 $env:MIK_DB = $Db
 $env:MIK_APP_ID = "envcheck"
+# The battery asserts English CLI wording (`usage summary` must contain
+# "Requests"): a tool is not a user and must not follow the machine's locale, or
+# the whole check goes red on a zh-CN host and green in CI (G12/G13).
+$env:MIK_LANG = "en"
 $env:K = "sk-envcheck"
 # G01: without a token the serve's write endpoints 401, so the battery gives
 # the serve a token and every write below carries it.

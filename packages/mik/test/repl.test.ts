@@ -27,7 +27,15 @@ async function setup() {
   const db = join(dir, "repl.db")
   const parsed = parseCliArgs(["--db", db, "--app-id", "repl-test", "--offline", "--cache-dir", join(dir, "cache")])
   const { io, out, err } = captureIo()
-  const options = { io, env: { ...process.env, MIK_DB: db, MIK_OFFLINE: "1", MIK_APP_ID: "repl-test" }, interactive: false }
+  // `MIK_LANG=en` is injected for the same reason `cli.test.ts`'s `run()` helper
+  // does it (G12): `/providers` now dispatches into a localized command, so
+  // without a pinned language this test would render Chinese on a zh-CN host and
+  // English in CI. Tests must never depend on the runner's locale.
+  const options = {
+    io,
+    env: { ...process.env, MIK_LANG: "en", MIK_DB: db, MIK_OFFLINE: "1", MIK_APP_ID: "repl-test" },
+    interactive: false,
+  }
   const context = await openContext(parsed, options)
   return { parsed, options: { io, env: options.env, interactive: false } as typeof options, context, out, err, close: () => context.close() }
 }
