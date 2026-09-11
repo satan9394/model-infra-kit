@@ -71,7 +71,7 @@ function rate(parsed: ParsedCli, key: string): number | undefined {
 }
 
 async function runSet(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  const modelId = requireArg(parsed, 0, "<modelId>")
+  const modelId = requireArg(parsed, 0, "<modelId>", options)
   const inputPerM = rate(parsed, "input")
   const outputPerM = rate(parsed, "output")
   const cacheReadPerM = rate(parsed, "cacheRead")

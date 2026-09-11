@@ -8,8 +8,9 @@
  * TTY→REPL fork, stays in index.ts.
  */
 import { parseCliArgs, type ParsedCli } from "./args.js"
-import { messageOf, resolveIo, type CliIo, type RunOptions } from "./context.js"
+import { invocationLang, messageOf, resolveIo, type CliIo, type RunOptions } from "./context.js"
 import { CliUsageError } from "./errors.js"
+import { tr, type Lang } from "./i18n.js"
 import { renderActionHelp, renderCommandHelp, renderRootHelp, renderVersion } from "./help.js"
 import { runDashboard } from "./commands/dashboard.js"
 import { runInit } from "./commands/init.js"
@@ -24,20 +25,20 @@ export const EXIT_OK = 0
 export const EXIT_FAILURE = 1
 export const EXIT_USAGE = 2
 
-export function helpFor(parsed: ParsedCli): string {
-  if (parsed.command && parsed.action) return renderActionHelp(parsed.command, parsed.action)
-  if (parsed.command) return renderCommandHelp(parsed.command)
-  return renderRootHelp()
+export function helpFor(parsed: ParsedCli, lang: Lang = "en"): string {
+  if (parsed.command && parsed.action) return renderActionHelp(parsed.command, parsed.action, lang)
+  if (parsed.command) return renderCommandHelp(parsed.command, lang)
+  return renderRootHelp(lang)
 }
 
 /** Map an error to a user-facing message and process exit code. */
-export function report(error: unknown, io: CliIo): number {
+export function report(error: unknown, io: CliIo, lang: Lang = "en"): number {
   if (error instanceof CliUsageError) {
-    io.err(`error: ${redact(error.message)}`)
-    if (error.usage) io.err(`usage: ${error.usage}`)
+    io.err(`${tr(lang, "cli.errorPrefix")} ${redact(error.message)}`)
+    if (error.usage) io.err(`${tr(lang, "cli.usagePrefix")} ${error.usage}`)
     return EXIT_USAGE
   }
-  io.err(`error: ${redact(messageOf(error))}`)
+  io.err(`${tr(lang, "cli.errorPrefix")} ${redact(messageOf(error))}`)
   return EXIT_FAILURE
 }
 
@@ -59,7 +60,12 @@ export async function dispatch(parsed: ParsedCli, options: RunOptions): Promise<
     case "usage":
       return runUsage(parsed, options)
     default:
-      throw new CliUsageError(`Unknown command "${parsed.command?.name ?? ""}".`, "mik --help")
+      // Defensive: `parseCliArgs` already rejects an unknown command, so this is
+      // only reachable for a `CommandSpec` no runner was registered for.
+      throw new CliUsageError(
+        tr(invocationLang(options), "cli.unknownCommand", parsed.command?.name ?? ""),
+        "mik --help",
+      )
   }
 }
 
@@ -81,12 +87,12 @@ export type PreparedInvocation =
  * no-command branch is deliberately **not** handled here because the TTY→REPL
  * fork belongs to index.ts (see the module header).
  */
-export function prepareInvocation(argv: readonly string[], io: CliIo): PreparedInvocation {
+export function prepareInvocation(argv: readonly string[], io: CliIo, lang: Lang = "en"): PreparedInvocation {
   let parsed: ParsedCli
   try {
-    parsed = parseCliArgs(argv)
+    parsed = parseCliArgs(argv, lang)
   } catch (error) {
-    return { kind: "exit", code: report(error, io) }
+    return { kind: "exit", code: report(error, io, lang) }
   }
 
   if (parsed.version) {
@@ -94,7 +100,7 @@ export function prepareInvocation(argv: readonly string[], io: CliIo): PreparedI
     return { kind: "exit", code: EXIT_OK }
   }
   if (parsed.help) {
-    io.out(helpFor(parsed))
+    io.out(helpFor(parsed, lang))
     return { kind: "exit", code: EXIT_OK }
   }
   return { kind: "parsed", parsed }
@@ -107,7 +113,8 @@ export function prepareInvocation(argv: readonly string[], io: CliIo): PreparedI
  */
 export async function runCommand(argv: readonly string[], options: RunOptions = {}): Promise<number> {
   const io = resolveIo(options)
-  const prepared = prepareInvocation(argv, io)
+  const lang = invocationLang(options)
+  const prepared = prepareInvocation(argv, io, lang)
   if (prepared.kind === "exit") return prepared.code
 
   try {
@@ -117,11 +124,11 @@ export async function runCommand(argv: readonly string[], options: RunOptions = 
       // Mirror the non-TTY fallback so this entry stays deterministic: the
       // REPL never calls it without a command, and this matches `main`'s
       // non-interactive bare-`mik` output.
-      io.out(helpFor(parsed))
+      io.out(helpFor(parsed, lang))
       return EXIT_OK
     }
     return await dispatch(parsed, options)
   } catch (error) {
-    return report(error, io)
+    return report(error, io, lang)
   }
 }

@@ -11,8 +11,9 @@
  */
 import { realpathSync } from "node:fs"
 import { pathToFileURL } from "node:url"
-import { messageOf, resolveIo, type RunOptions } from "./context.js"
+import { invocationLang, messageOf, resolveIo, type RunOptions } from "./context.js"
 import { EXIT_FAILURE, EXIT_OK, dispatch, helpFor, prepareInvocation, report } from "./dispatch.js"
+import { resolveCliLang, tr } from "./i18n.js"
 import { isInteractive } from "./prompt.js"
 import { runRepl } from "./repl.js"
 import { redact } from "../util/redact.js"
@@ -20,8 +21,11 @@ import { redact } from "../util/redact.js"
 /** Run one CLI invocation. Returns the process exit code; never calls `process.exit`. */
 export async function main(argv: readonly string[], options: RunOptions = {}): Promise<number> {
   const io = resolveIo(options)
+  // Help and usage errors are rendered before the hub exists, so the language
+  // comes from the environment alone (same chain as the REPL/init guards).
+  const lang = invocationLang(options)
   // Shared preamble with runCommand (EVO-G11 / G19): parse → version → help.
-  const prepared = prepareInvocation(argv, io)
+  const prepared = prepareInvocation(argv, io, lang)
   if (prepared.kind === "exit") return prepared.code
 
   try {
@@ -30,12 +34,12 @@ export async function main(argv: readonly string[], options: RunOptions = {}): P
       // Bare `mik` with a terminal enters the guided REPL (slash commands with
       // bilingual descriptions). Without a TTY it falls back to root help.
       if (isInteractive(options)) return await runRepl(parsed, options)
-      io.out(helpFor(parsed))
+      io.out(helpFor(parsed, lang))
       return EXIT_OK
     }
     return await dispatch(parsed, options)
   } catch (error) {
-    return report(error, io)
+    return report(error, io, lang)
   }
 }
 
@@ -60,7 +64,10 @@ if (isDirectInvocation()) {
       process.exitCode = code
     },
     (error: unknown) => {
-      process.stderr.write(`error: ${redact(messageOf(error))}\n`)
+      // Last-resort handler for an unexpected rejection: there is no injected
+      // `RunOptions` here, so the language comes from the real process env.
+      const prefix = tr(resolveCliLang(process.env, undefined), "cli.errorPrefix")
+      process.stderr.write(`${prefix} ${redact(messageOf(error))}\n`)
       process.exitCode = EXIT_FAILURE
     },
   )

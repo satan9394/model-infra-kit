@@ -32,7 +32,12 @@
 1. **框架文案进字典**：在 `cli/i18n/{zh,en}.ts` 补键（两侧逐个对等），覆盖：横幅标题与描述、`usage:` 行、`error:` 前缀、未知命令、缺参数/未知选项等用法错误、`--help` 的命令表标题与各命令一行说明。
 2. **命令表本地化**：`mik --help` 列出的每个命令说明走字典；**命令名、参数名、示例保持原样英文**（它们是可复制的字面量）。
 3. **解析顺序一致**：一律 `resolveCliLang(process.env, undefined)`（`MIK_LANG → OS locale → en`）；不得为测试在解析层开注入后门（可在函数签名上接受 `env` 参数以便单测注入，与 `resolveCliLang` 现有风格一致）。
-4. **en 零回归**：`MIK_LANG=en` 下的输出与改前**逐字节相同**（可用 `git stash` 前后对照验证）。
+4. **en 零回归**：`MIK_LANG=en` 下的输出与改前**逐字节相同**。**对照物是编排者已固化的基线文件**（取自发布产物 0.2.7），**不要用 `git stash`**（本机钩子对改动工作区的 git 操作敏感，且基线文件更可靠）：
+   - `.tmp/baseline-help-en-0.2.7.txt`（`--help`，退出码 0）
+   - `.tmp/baseline-unknown-en-0.2.7.txt`（未知命令，退出码 **2**）
+   - `.tmp/baseline-missingarg-en-0.2.7.txt`（`provider remove` 缺 `<id>`，退出码 **2**）
+   - `.tmp/baseline-unknownopt-en-0.2.7.txt`（`--nope`，退出码 **2**）
+   做法：先 `pnpm --filter model-infra-kit build`，再 `node packages/mik/dist/cli.mjs <args>` 输出到临时文件，与基线做 `Compare-Object`/`diff`，结果应为空；退出码也要**逐一对上**。
 
 ## 涉及模块
 

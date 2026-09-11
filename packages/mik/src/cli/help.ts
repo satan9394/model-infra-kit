@@ -1,5 +1,32 @@
 import { COMMANDS, GLOBAL_FLAGS, type ActionSpec, type CommandSpec, type FlagSpec } from "./args.js"
+import { tr, type Lang } from "./i18n.js"
 import { readVersion } from "./version.js"
+
+/**
+ * Framework text for the `--help` frame (EVO-G12).
+ *
+ * The language is resolved by the caller — the CLI entry renders help *before*
+ * the hub (and therefore `cli.lang`) exists, so it can only use
+ * `resolveCliLang(env, undefined)`. The default `"en"` keeps every existing
+ * embedder call (`renderRootHelp()`) byte-identical.
+ *
+ * Only the frame is translated: command names, flag names and the `usage:`
+ * examples stay English because they are copy-pasteable literals.
+ */
+function text(lang: Lang, key: string, fallback: string): string {
+  const translated = tr(lang, key)
+  return translated === "" ? fallback : translated
+}
+
+/** Localized one-line summary for a command, falling back to `args.ts`. */
+function commandSummary(command: CommandSpec, lang: Lang): string {
+  return text(lang, `cmd.${command.name}.summary`, command.summary)
+}
+
+/** Localized one-line summary for an action (`mik provider --help` → ACTIONS). */
+function actionSummary(command: CommandSpec, action: ActionSpec, lang: Lang): string {
+  return text(lang, `cmd.${command.name}.${action.name}.summary`, action.summary)
+}
 
 function flagLine(spec: FlagSpec): string {
   const short = spec.short ? `-${spec.short}, ` : "    "
@@ -13,22 +40,26 @@ function flagBlock(flags: readonly FlagSpec[]): string[] {
   return flags.map((spec, index) => `${(lines[index] ?? "").padEnd(width)}  ${spec.description}`)
 }
 
-export function renderRootHelp(): string {
-  const commands = COMMANDS.map((command) => `  ${command.name.padEnd(12)}${command.summary}`)
+export function renderRootHelp(lang: Lang = "en"): string {
+  const commands = COMMANDS.map((command) => `  ${command.name.padEnd(12)}${commandSummary(command, lang)}`)
   return [
     `model-infra-kit (mik) ${readVersion()}`,
-    "Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.",
+    text(
+      lang,
+      "help.banner",
+      "Embeddable model layer: multi-provider access, model catalog, token usage and cost tracking.",
+    ),
     "",
-    "USAGE",
+    text(lang, "help.heading.usage", "USAGE"),
     "  mik <command> [options]",
     "",
-    "COMMANDS",
+    text(lang, "help.heading.commands", "COMMANDS"),
     ...commands,
     "",
-    "GLOBAL OPTIONS",
+    text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"),
     ...flagBlock(GLOBAL_FLAGS),
     "",
-    "EXAMPLES",
+    text(lang, "help.heading.examples", "EXAMPLES"),
     "  mik init --app-id my-app --provider deepseek",
     "  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY",
     "  mik provider test deepseek",
@@ -37,31 +68,43 @@ export function renderRootHelp(): string {
     "  mik usage summary --from 2026-09-01",
     "  mik usage export --format csv --out usage.csv",
     "",
-    "Run \"mik <command> --help\" for details on any command.",
+    text(lang, "help.footer", "Run \"mik <command> --help\" for details on any command."),
   ].join("\n")
 }
 
-export function renderCommandHelp(command: CommandSpec): string {
-  const lines = [`mik ${command.name} — ${command.summary}`, "", "USAGE", `  ${command.usage}`]
+export function renderCommandHelp(command: CommandSpec, lang: Lang = "en"): string {
+  const lines = [
+    `mik ${command.name} — ${commandSummary(command, lang)}`,
+    "",
+    text(lang, "help.heading.usage", "USAGE"),
+    `  ${command.usage}`,
+  ]
   if (command.actions) {
-    lines.push("", "ACTIONS")
+    lines.push("", text(lang, "help.heading.actions", "ACTIONS"))
     const width = Math.max(0, ...command.actions.map((action) => action.name.length))
     for (const action of command.actions) {
-      lines.push(`  ${action.name.padEnd(width)}  ${action.summary}`)
+      lines.push(`  ${action.name.padEnd(width)}  ${actionSummary(command, action, lang)}`)
     }
   }
   if (command.flags && command.flags.length > 0) {
-    lines.push("", "OPTIONS", ...flagBlock(command.flags))
+    lines.push("", text(lang, "help.heading.options", "OPTIONS"), ...flagBlock(command.flags))
   }
-  lines.push("", "GLOBAL OPTIONS", ...flagBlock(GLOBAL_FLAGS))
+  lines.push("", text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"), ...flagBlock(GLOBAL_FLAGS))
   if (command.details) lines.push("", ...command.details)
   return lines.join("\n")
 }
 
-export function renderActionHelp(command: CommandSpec, action: ActionSpec): string {
-  const lines = [`mik ${command.name} ${action.name} — ${action.summary}`, "", "USAGE", `  ${action.usage}`]
-  if (action.flags && action.flags.length > 0) lines.push("", "OPTIONS", ...flagBlock(action.flags))
-  lines.push("", "GLOBAL OPTIONS", ...flagBlock(GLOBAL_FLAGS))
+export function renderActionHelp(command: CommandSpec, action: ActionSpec, lang: Lang = "en"): string {
+  const lines = [
+    `mik ${command.name} ${action.name} — ${actionSummary(command, action, lang)}`,
+    "",
+    text(lang, "help.heading.usage", "USAGE"),
+    `  ${action.usage}`,
+  ]
+  if (action.flags && action.flags.length > 0) {
+    lines.push("", text(lang, "help.heading.options", "OPTIONS"), ...flagBlock(action.flags))
+  }
+  lines.push("", text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"), ...flagBlock(GLOBAL_FLAGS))
   if (action.details) lines.push("", ...action.details)
   return lines.join("\n")
 }
