@@ -247,6 +247,8 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
 
 `--dir <path>` 可指向任意一份看板副本（该目录需含 `package.json`）；自行部署时也走 `next start`，看板只读 `mik serve` 的 HTTP API。仓库内启动时先打印一行 `Starting dashboard from <dir> on http://127.0.0.1:3210`。
 
+`mik dashboard` 会托管它拉起的 Next.js 子进程：Ctrl+C（SIGINT/SIGTERM）或父进程正常退出时按**进程树**回收（Windows 走 `taskkill /T /F`，其它平台先 `SIGTERM`、200ms 后补 `SIGKILL`），不会残留占住 3210 的 `next`。注意 `SIGKILL`（`kill -9`、任务管理器强杀）无法拦截，父进程被杀时清理钩子不会执行；此时若 3210 被占，可换 `--port <n>` 起看板，或手动结束残留的 `next` 进程（Windows：`taskkill /pid <pid> /T /F`，pid 取自 `netstat -ano | findstr :3210`）。
+
 打开 <http://127.0.0.1:3210>。页面：概览 `/`、趋势 `/trends`、供应商 `/providers`、模型目录 `/models`、价格 `/pricing`、日志 `/logs`。
 
 **嵌入模式**：看板提供无导航的 `/embed/overview`、`/embed/trends`、`/embed/logs`、`/embed/pricing`，可直接 iframe 或由主站做路由反代（`/usage/* → 3210/embed/*`），把用量可视化嵌进你自己的网页；嵌入页默认近 7 天、无筛选面板，SSE 实时增量仍生效。写法详见 [`apps/dashboard/README.md`](apps/dashboard/README.md) 的「嵌入模式」一节。SSE 实时增量、空数据与上游不可用时的降级行为见同一文档。
