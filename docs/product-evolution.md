@@ -140,3 +140,10 @@
 - **G36｜发版后必须验证「已发布产物」可装可用**：`npm publish` 后在一个**全新临时目录**执行 `npm i model-infra-kit@<版本>`，然后验四件事——① `node node_modules/model-infra-kit/dist/cli.mjs --version` 输出与发布版本一致；② 库面导出可用（`ModelInfra` 在 `dist/index.mjs` 中）；③ `dist/server.mjs` 随包发布；④ **真实功能冒烟**（起本地 mock → `ModelInfra.init` → `generate` → 断言文本与 `usage` 且 `summary().requests === 1`）。
 - 理由：仓库内 e2e 的 DIST 检查点只验**仓库 dist**，不验 **npm 产物**（`files` 白名单、子路径导出、peer 依赖解析都只在装包后才暴露）。R53 实测 0.2.5：安装干净、`mik 0.2.5`、30 个导出含 `ModelInfra`、`dist/server.mjs` 存在、功能冒烟 `text: release smoke ok` + `requests recorded: 1`。
 
+
+## EVO-G10 留痕（R55）— 技术债清理轮：i18n 残留 / 死导出裁定 / 电池重试 / G20 结论
+
+- **G29（i18n 残留）已收敛**：`cli/repl.ts` 与 `cli/commands/init.ts` 的用户可见文案全部改走字典（新增 `repl.langPrompt`/`repl.chatUsage` 与 `init.*` 系列键，zh/en 同名对等）；`mik init` 的输出结构与顺序保持不变（命令示例、路径、变量名原样，只替换说明文案），两处英文 `CliUsageError` 改为按当前语言取文案。
+- **G30（死导出）裁定：保留**。`dictFor`/`hasKey` 在 `src/` 内无调用方，仅在测试与宿主侧使用；因 G08 已把「11 个导出齐全（只增不减）」写进契约，删除会与公开面契约冲突，故在 `docs/interfaces.md` F16 的 `@internal` 风格小节登记（宿主便利、不承诺 semver），并写明删除时的同步改法。
+- **G23（电池假阴）已收敛**：`scripts/check-envs.mjs` 对**失败的环境**自动重试**一次**（重试前用 `pickPort` 重新分配动态端口），重试成功记 `PASS (retried)` 并在摘要标注；**重试仍失败 → FAIL**，退出码语义不变（0 全通过 / 1 有失败 / 2 用法错误）。已用「临时改坏版本断言」自证：重试后仍 FAIL、退出码非 0。
+- **G20 结论入档**：非 win32 分支已由 CI 三 OS 全量单测覆盖（G08 之后 CI 会跑 `child-supervision.test.ts`）；**真实 SIGINT 端到端降级为 LATER**（理由：需真实 TTY/信号注入，成本高于收益）。

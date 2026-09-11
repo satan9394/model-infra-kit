@@ -341,6 +341,17 @@ get isEnabled(): boolean     // 与构造入参 `enabled` 同值；false 时 rec
 - 两个只读 getter 是宿主便利（源码注释即写明 "Additive convenience, not part of the contract"），用于日志/自检/看板展示。
 - **不要**用它们做权限或隔离判断：多 app 隔离由 `UsageService` 内部保证（见上文 `get()` 语义）。
 
+```ts
+// src/cli/i18n.ts — dictFor / hasKey（EVO-G10 裁定：保留 + 标 @internal 风格）
+export function dictFor(lang: Lang): Record<string, string>  // @internal 风格
+export function hasKey(key: string): boolean                 // @internal 风格
+```
+
+- 裁定（EVO-G10 / G30）：**保留，不删**。理由：EVO-G08 已把「11 个导出齐全（只增不减）」写进契约，删除会与既有公开面契约冲突；且二者是宿主做自检/自建管线的便利出口。
+- 标签：**`@internal` 风格** — 为宿主便利而存在，**不承诺 semver**，可在次版本调整（含返回值形状）。
+- 事实：**`src/` 内无调用方，仅测试与宿主使用**（`i18nKeys()` / `tr()` / `trBoth()` 才是内部实际使用的入口）。
+- 未删的替代方案（若未来要删）：需同步改 `docs/interfaces.md` F16 的导出清单、G08 的「11 个导出」计数断言，以及可能的 `src/cli/index.ts` 再导出——成本明确，收益不足，本轮不动。
+
 ### 小设置持久化（v0.1.6 新增）— 稳定
 
 CLI 的首次运行向导与 REPL 需要把「界面语言」这类**小设置**落库，故 `ModelInfra` 公开两个薄封装（等价于直读 `settings` 表，但不暴露 Store）：

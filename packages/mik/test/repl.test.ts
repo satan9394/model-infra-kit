@@ -107,7 +107,9 @@ describe("handleLine (headless)", () => {
       let current: "zh" | "en" = "zh"
       const result = await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, current, (l) => (current = l), "/lang", ask)
       expect(asked).toHaveLength(1)
-      expect(asked[0]).toContain("Select language")
+      // G29: the sub-question follows the language in effect (zh here).
+      expect(asked[0]).toContain("选择语言")
+      expect(asked[0]).not.toContain("Select language")
       expect(result.exit).toBe(false)
       expect(current).toBe("en")
       expect(s.out.join("\n")).toContain("Language switched to English")
@@ -117,8 +119,42 @@ describe("handleLine (headless)", () => {
     }
   })
 
-  it("reports an unknown slash command", async () => {
+  it("asks the bare-/lang prompt in the active language (G29)", async () => {
     const s = await setup()
+    try {
+      const asked: string[] = []
+      const ask = async (question: string) => {
+        asked.push(question)
+        return "en"
+      }
+      // zh first: the question must be Chinese, not the old hardcoded English.
+      const zh = await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, "zh", () => {}, "/lang", ask)
+      expect(zh.lang).toBe("en")
+      const en = await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, "en", () => {}, "/lang", ask)
+      expect(en.lang).toBe("en")
+      expect(asked[0]).toContain("选择语言")
+      expect(asked[0]).not.toContain("Select language")
+      expect(asked[1]).toContain("Select language")
+      expect(asked[1]).not.toContain("选择语言")
+    } finally {
+      await s.close()
+    }
+  })
+
+  it("reports a bare /chat with a localized usage hint (G29)", async () => {
+    const s = await setup()
+    try {
+      await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, "zh", () => {}, "/chat")
+      await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, "en", () => {}, "/chat")
+      const err = s.err.join("\n")
+      expect(err).toContain("用法：/chat <prompt>")
+      expect(err).toContain("Usage: /chat <prompt>")
+    } finally {
+      await s.close()
+    }
+  })
+
+  it("reports an unknown slash command", async () => {    const s = await setup()
     try {
       await handleLine({ parsed: s.parsed, options: s.options, context: s.context }, "zh", () => {}, "/nope")
       expect(s.err.join("\n")).toContain("未知命令 /nope")

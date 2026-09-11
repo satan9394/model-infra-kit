@@ -95,7 +95,9 @@ export async function handleLine(
     if (name === "lang") {
       let raw = slash.arg
       if (!raw.trim()) {
-        const question = "Select language (zh / en): "
+        // The sub-question is localized to the language *currently* in effect,
+        // so a zh session is never asked in English (and vice versa).
+        const question = tr(lang, "repl.langPrompt")
         raw = ask ? await ask(question) : await prompt(question)
       }
       const next = resolveLangChoice(raw.trim())
@@ -112,7 +114,7 @@ export async function handleLine(
     }
     if (name === "chat") {
       if (!slash.arg.trim()) {
-        io.err("Usage: /chat <prompt>")
+        io.err(tr(lang, "repl.chatUsage"))
         return { exit: false, lang }
       }
       await chatScript(context, options, lang, slash.arg.trim())
