@@ -527,16 +527,21 @@ export function flagBool(values: CliValues, key: string): boolean {
   return values[key] === true
 }
 
-export function flagNumber(values: CliValues, key: string, usage?: string): number | undefined {
+/**
+ * Parse a numeric flag. `lang` must be threaded from the *injected* invocation
+ * environment (never `process.env`), so a non-numeric value reports in the same
+ * language as the rest of the run (EVO-G14).
+ */
+export function flagNumber(values: CliValues, key: string, usage?: string, lang: Lang = "en"): number | undefined {
   const raw = flagString(values, key)
   if (raw === undefined) return undefined
   const value = Number(raw)
-  if (!Number.isFinite(value)) throw new CliUsageError(`--${key} expects a number, got "${raw}".`, usage)
+  if (!Number.isFinite(value)) throw new CliUsageError(tr(lang, "cli.flagExpectsNumber", key, raw), usage)
   return value
 }
 
-export function requireFlagNumber(values: CliValues, key: string, usage?: string): number {
-  const value = flagNumber(values, key, usage)
-  if (value === undefined) throw new CliUsageError(`--${key} is required.`, usage)
+export function requireFlagNumber(values: CliValues, key: string, usage?: string, lang: Lang = "en"): number {
+  const value = flagNumber(values, key, usage, lang)
+  if (value === undefined) throw new CliUsageError(tr(lang, "cli.flagRequired", key), usage)
   return value
 }

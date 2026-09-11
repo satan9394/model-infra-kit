@@ -69,6 +69,8 @@ export const en: Record<string, string> = {
   "cli.missingOptionValue": "Option \"%s\" needs a value.",
   "cli.flagNotAllowed": "%s is not valid for \"%s\".",
   "cli.missingArgument": "Missing required argument %s.",
+  "cli.flagExpectsNumber": "--%s expects a number, got \"%s\".",
+  "cli.flagRequired": "--%s is required.",
   "cmd.init.summary": "Write mik.config.json (app id, database path, first provider)",
   "cmd.serve.summary": "Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)",
   "cmd.dashboard.summary": "Start the dashboard app (default 3210)",
@@ -180,4 +182,82 @@ export const en: Record<string, string> = {
   "usage.error.badOffset": "--offset must be zero or greater, got %s.",
   "usage.error.badFormat": "--format \"%s\" is not supported yet; only csv is available.",
   "usage.error.unknownAction": "Unknown usage action \"%s\".",
+  // Closing slice (EVO-G14): `models` / `serve` / `pricing` / `dashboard` output
+  // plus the framework `warning:` lines in `context.ts`. Same rule as G13 —
+  // prose localizes, data values (URL, port, token placeholder, model id, money,
+  // timestamps, counts, `app=`/`status=` key names) stay literal. The English
+  // values below are byte-for-byte the pre-G14 literals.
+  "models.header.provider": "PROVIDER",
+  "models.header.model": "MODEL",
+  "models.header.context": "CONTEXT",
+  "models.header.maxOut": "MAX OUT",
+  "models.header.inputPerM": "IN/M",
+  "models.header.outputPerM": "OUT/M",
+  "models.header.source": "SOURCE",
+  "models.header.caps": "CAPS",
+  "models.refresh.offline": "\"mik models --refresh\" needs network access; --offline is set.",
+  "models.refresh.noProviders": "No providers configured; nothing to refresh.",
+  "models.refresh.addOne":
+    "Add one with: mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY",
+  "models.refresh.ok": "Refreshed %s: %s models",
+  "models.refresh.failed": "warning: could not refresh \"%s\": %s",
+  "models.empty.provider": "No models stored for provider \"%s\".",
+  "models.empty.none": "No models stored yet.",
+  "models.empty.discover": "Discover them with: mik models --refresh  (needs a provider with a working credential)",
+  "models.summary": "%s model(s). Prices are USD per million tokens (4 decimals).",
+  "serve.listening": "Listening on %s",
+  "serve.baseUrl": "OpenAI-compatible base URL: %s",
+  "serve.tokenRequired": "Bearer token required (value not shown).",
+  "serve.writeDisabled": "Write endpoints disabled: set --token or MIK_SERVER_TOKEN to enable them.",
+  "serve.corsOrigin": "CORS allowed: %s",
+  "serve.corsAny": "CORS allowed for any origin.",
+  "serve.pressCtrlC": "Press Ctrl+C to stop.",
+  "serve.stopped": "Stopped.",
+  "serve.error.badCors":
+    "Invalid --cors value \"%s\". Use '*' for any origin, or a specific origin such as https://app.example.",
+  "serve.error.missingBundle": "Could not find the HTTP server bundle (mik/server).\n  Tried:\n%s\n  Build the package first: pnpm --filter model-infra-kit build",
+  "serve.error.noCreateServer": "%s does not export createServer().",
+  "serve.error.loadFailed": "Could not load the HTTP server (mik/server) from %s. %s\n  Build the package first: pnpm --filter model-infra-kit build",
+  "pricing.catalog": "Catalogue",
+  // Trailing spaces are deliberate: they keep the four labels aligned as a block
+  // and preserve the original English bytes exactly (EVO-G14 A2).
+  "pricing.state.status": "status  ",
+  "pricing.state.source": "source  ",
+  "pricing.state.loaded": "loaded  ",
+  "pricing.state.error": "error   ",
+  "pricing.overrides": "Manual overrides",
+  "pricing.overrides.empty": "No manual price overrides.",
+  "pricing.overrides.setWith": "Set one with: mik pricing set <modelId> --input <usd/M> [--output <usd/M>]",
+  "pricing.header.model": "MODEL",
+  "pricing.header.name": "NAME",
+  "pricing.header.inputPerM": "INPUT/M",
+  "pricing.header.outputPerM": "OUTPUT/M",
+  "pricing.header.cacheReadPerM": "CACHE READ/M",
+  "pricing.header.cacheWritePerM": "CACHE WRITE/M",
+  "pricing.header.updated": "UPDATED",
+  "pricing.sync.offline": "\"mik pricing sync\" needs network access; --offline is set.",
+  "pricing.sync.failed": "error: the price catalogue could not be refreshed; the bundled archive is still in use.",
+  "pricing.set.done": "Manual price set for \"%s\". It outranks every catalogue.",
+  "pricing.error.negativeRate": "--%s must be zero or greater, got %s.",
+  "pricing.error.needsRate":
+    "a manual price needs --input and/or --output; without one, every request would be recorded as $0.",
+  "pricing.error.unknownAction": "Unknown pricing action \"%s\".",
+  "dashboard.starting": "Starting dashboard from %s on http://127.0.0.1:%s",
+  "port.error.invalid": "Invalid port %s. Use an integer between 1 and 65535.",
+  "port.error.inUse":
+    "Port %s is already in use (checked with netstat -ano). Free it or run \"mik %s --port <other-port>\". Refusing to start.",
+  "dashboard.error.notAPackage": "%s does not look like a package (no package.json).\n%s",
+  "dashboard.error.noEntryPoint":
+    "Could not start the dashboard: no local next install in %s and no pnpm entry point on PATH.\n%s",
+  "dashboard.error.spawnFailed": "Could not start the dashboard: %s",
+  "dashboard.error.missingApp": "Could not find the dashboard app (%s).\n%s",
+  "dashboard.hint.packaging":
+    "The dashboard is not published with the npm package: model-infra-kit ships the library, the CLI and the HTTP server only.\n" +
+    "  Installed from npm? Run the dashboard from a clone of the repository, or deploy apps/dashboard yourself.\n" +
+    "  In the monorepo: pnpm --filter @mik/dashboard dev   (or build + start)\n" +
+    "  Or point the CLI at an existing copy: mik dashboard --dir <path>\n" +
+    "  See the \"Dashboard\" section of the project README.",
+  "context.warning.notObject": "warning: %s is not a JSON object; ignoring it.",
+  "context.warning.unreadable": "warning: could not read %s (%s); ignoring it.",
+  "context.warning.prefix": "warning:",
 }

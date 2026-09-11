@@ -1,9 +1,10 @@
 import type { ModelCapabilities, ModelInfo } from "../../types.js"
 import { redact } from "../../util/redact.js"
 import { flagBool, flagString, type ParsedCli } from "../args.js"
-import { messageOf, withContext, type RunOptions } from "../context.js"
+import { contextLang, messageOf, withContext, type RunOptions } from "../context.js"
 import { CliRuntimeError } from "../errors.js"
 import { formatMoney, formatTable, formatTokens } from "../format.js"
+import { tr } from "../i18n.js"
 
 export function describeCapabilities(capabilities: ModelCapabilities): string {
   const tags: string[] = []
@@ -21,23 +22,26 @@ export async function runModels(parsed: ParsedCli, options: RunOptions): Promise
 
   return withContext(parsed, options, async (context) => {
     const { io, hub } = context
+    // The language of the *command body*: the injected env plus a stored
+    // `cli.lang` set by `/lang` in the REPL. Never the real `process.env`.
+    const lang = contextLang(context, options)
 
     if (refresh) {
       if (context.offline) {
-        throw new CliRuntimeError(`"mik models --refresh" needs network access; --offline is set.`)
+        throw new CliRuntimeError(tr(lang, "models.refresh.offline"))
       }
       const targets = providerId ? [providerId] : hub.providers.list().map((provider) => provider.id)
       if (targets.length === 0) {
-        io.out("No providers configured; nothing to refresh.")
-        io.out("Add one with: mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY")
+        io.out(tr(lang, "models.refresh.noProviders"))
+        io.out(tr(lang, "models.refresh.addOne"))
         return 0
       }
       for (const id of targets) {
         try {
           const models = await hub.models.refresh(id)
-          io.out(`Refreshed ${id}: ${formatTokens(models.length)} models`)
+          io.out(tr(lang, "models.refresh.ok", id, formatTokens(models.length)))
         } catch (error) {
-          io.err(`warning: could not refresh "${id}": ${redact(messageOf(error))}`)
+          io.err(tr(lang, "models.refresh.failed", id, redact(messageOf(error))))
         }
       }
       io.out("")
@@ -45,12 +49,8 @@ export async function runModels(parsed: ParsedCli, options: RunOptions): Promise
 
     const models = hub.models.list(providerId)
     if (models.length === 0) {
-      io.out(
-        providerId
-          ? `No models stored for provider "${providerId}".`
-          : "No models stored yet.",
-      )
-      io.out("Discover them with: mik models --refresh  (needs a provider with a working credential)")
+      io.out(providerId ? tr(lang, "models.empty.provider", providerId) : tr(lang, "models.empty.none"))
+      io.out(tr(lang, "models.empty.discover"))
       return 0
     }
 
@@ -70,13 +70,22 @@ export async function runModels(parsed: ParsedCli, options: RunOptions): Promise
 
     io.out(
       formatTable(
-        ["PROVIDER", "MODEL", "CONTEXT", "MAX OUT", "IN/M", "OUT/M", "SOURCE", "CAPS"],
+        [
+          tr(lang, "models.header.provider"),
+          tr(lang, "models.header.model"),
+          tr(lang, "models.header.context"),
+          tr(lang, "models.header.maxOut"),
+          tr(lang, "models.header.inputPerM"),
+          tr(lang, "models.header.outputPerM"),
+          tr(lang, "models.header.source"),
+          tr(lang, "models.header.caps"),
+        ],
         rows,
         ["left", "left", "right", "right", "right", "right", "left", "left"],
       ),
     )
     io.out("")
-    io.out(`${formatTokens(models.length)} model(s). Prices are USD per million tokens (4 decimals).`)
+    io.out(tr(lang, "models.summary", formatTokens(models.length)))
     return 0
   })
 }

@@ -81,7 +81,7 @@ function startOfTomorrow(): number {
 
 /** `--days` only fills a missing bound; explicit `--from`/`--to` always win. */
 function applyDays(query: UsageQuery, parsed: ParsedCli, lang: Lang): UsageQuery {
-  const days = flagNumber(parsed.values, "days", parsed.action?.usage) ?? 30
+  const days = flagNumber(parsed.values, "days", parsed.action?.usage, lang) ?? 30
   if (!Number.isInteger(days) || days < 1 || days > 3650) {
     throw new CliUsageError(tr(lang, "usage.error.badDays", days))
   }
@@ -213,8 +213,8 @@ function logRows(events: readonly UsageEvent[]): string[][] {
 async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const flagLang = invocationLang(options)
   const query = buildUsageQuery(parsed, flagLang)
-  const limit = flagNumber(parsed.values, "limit", parsed.action?.usage) ?? 20
-  const offset = flagNumber(parsed.values, "offset", parsed.action?.usage) ?? 0
+  const limit = flagNumber(parsed.values, "limit", parsed.action?.usage, flagLang) ?? 20
+  const offset = flagNumber(parsed.values, "offset", parsed.action?.usage, flagLang) ?? 0
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
     throw new CliUsageError(tr(flagLang, "usage.error.badLimit", limit))
   }

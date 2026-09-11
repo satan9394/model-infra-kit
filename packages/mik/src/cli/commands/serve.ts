@@ -2,9 +2,10 @@ import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import type { ModelInfra } from "../../hub.js"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
-import { messageOf, resolveEnv, withContext, type RunOptions } from "../context.js"
+import { contextLang, invocationLang, messageOf, resolveEnv, withContext, type RunOptions } from "../context.js"
 import { CliRuntimeError } from "../errors.js"
 import { assertPortFree } from "../ports.js"
+import { tr, type Lang } from "../i18n.js"
 import type { CorsOptions } from "../../server/http.js"
 
 export interface ServerHandle {
@@ -48,15 +49,13 @@ export function serverModuleCandidates(from: string | URL = import.meta.url): UR
 }
 
 /** The first candidate that exists on disk; throws when no known layout matches. */
-export function resolveServerModuleUrl(from: string | URL = import.meta.url): URL {
+export function resolveServerModuleUrl(from: string | URL = import.meta.url, lang: Lang = "en"): URL {
   const candidates = serverModuleCandidates(from)
   for (const candidate of candidates) {
     if (existsSync(fileURLToPath(candidate))) return candidate
   }
   throw new CliRuntimeError(
-    `Could not find the HTTP server bundle (mik/server).\n` +
-      `  Tried:\n${candidates.map((candidate) => `    ${candidate.href}`).join("\n")}\n` +
-      `  Build the package first: pnpm --filter model-infra-kit build`,
+    tr(lang, "serve.error.missingBundle", candidates.map((candidate) => `    ${candidate.href}`).join("\n")),
   )
 }
 
@@ -67,20 +66,17 @@ export function resolveServerModuleUrl(from: string | URL = import.meta.url): UR
  * once built), so both layouts are tried. Loading it on demand also keeps every
  * other subcommand independent of the server's own dependencies.
  */
-export async function loadServerModule(from: string | URL = import.meta.url): Promise<ServerModule> {
-  const url = resolveServerModuleUrl(from)
+export async function loadServerModule(from: string | URL = import.meta.url, lang: Lang = "en"): Promise<ServerModule> {
+  const url = resolveServerModuleUrl(from, lang)
   try {
     const loaded = (await import(url.href)) as { createServer?: unknown }
     if (typeof loaded.createServer !== "function") {
-      throw new CliRuntimeError(`${url.href} does not export createServer().`)
+      throw new CliRuntimeError(tr(lang, "serve.error.noCreateServer", url.href))
     }
     return loaded as unknown as ServerModule
   } catch (error) {
     if (error instanceof CliRuntimeError) throw error
-    throw new CliRuntimeError(
-      `Could not load the HTTP server (mik/server) from ${url.href}. ${messageOf(error)}\n` +
-        `  Build the package first: pnpm --filter model-infra-kit build`,
-    )
+    throw new CliRuntimeError(tr(lang, "serve.error.loadFailed", url.href, messageOf(error)))
   }
 }
 
@@ -111,39 +107,41 @@ function waitForShutdown(stop: () => void | Promise<void>): Promise<void> {
 }
 
 export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  const port = flagNumber(parsed.values, "port", parsed.action?.usage ?? parsed.command?.usage) ?? 3211
+  const lang = invocationLang(options)
+  const port = flagNumber(parsed.values, "port", parsed.action?.usage ?? parsed.command?.usage, lang) ?? 3211
   const host = flagString(parsed.values, "host") ?? "127.0.0.1"
   const env = resolveEnv(options)
   // A token on the command line is visible to other processes; the environment
   // variable is offered as the quieter alternative and never printed.
   const token = flagString(parsed.values, "token") ?? (env.MIK_SERVER_TOKEN || undefined)
-  const cors = resolveCorsFlag(flagString(parsed.values, "cors"))
+  const cors = resolveCorsFlag(flagString(parsed.values, "cors"), lang)
 
   // Checked before the database is even opened, so a taken port fails fast.
-  await assertPortFree(port, "serve")
+  await assertPortFree(port, "serve", lang)
 
   return withContext(parsed, options, async (context) => {
-    const module = await loadServerModule()
+    const lang = contextLang(context, options)
+    const module = await loadServerModule(import.meta.url, lang)
     const handle = await module.createServer({ hub: context.hub, port, host, token, cors })
-    context.io.out(`Listening on ${handle.url}`)
-    context.io.out(`OpenAI-compatible base URL: ${context.hub.baseUrl}`)
-    if (token) context.io.out("Bearer token required (value not shown).")
-    else if (process.stdout.isTTY) context.io.out("写端点已禁用：设置 --token 或 MIK_SERVER_TOKEN 启用。")
-    if (cors) context.io.out(typeof cors === "object" ? `CORS allowed: ${cors.origin}` : "CORS allowed for any origin.")
-    context.io.out("Press Ctrl+C to stop.")
+    context.io.out(tr(lang, "serve.listening", handle.url))
+    context.io.out(tr(lang, "serve.baseUrl", context.hub.baseUrl))
+    if (token) context.io.out(tr(lang, "serve.tokenRequired"))
+    else if (process.stdout.isTTY) context.io.out(tr(lang, "serve.writeDisabled"))
+    if (cors) {
+      context.io.out(typeof cors === "object" ? tr(lang, "serve.corsOrigin", cors.origin) : tr(lang, "serve.corsAny"))
+    }
+    context.io.out(tr(lang, "serve.pressCtrlC"))
     await waitForShutdown(() => handle.close())
-    context.io.out("Stopped.")
+    context.io.out(tr(lang, "serve.stopped"))
     return 0
   })
 }
 
 /** `--cors` → server option: `*` (or `*:*`) means any origin, otherwise a fixed origin. */
-export function resolveCorsFlag(raw: string | undefined): boolean | CorsOptions | undefined {
+export function resolveCorsFlag(raw: string | undefined, lang: Lang = "en"): boolean | CorsOptions | undefined {
   if (raw === undefined) return undefined
   const value = raw.trim()
   if (value === "*" || value === "*:*") return true
   if (/^https?:\/\/[^\s]+$/i.test(value)) return { origin: value }
-  throw new CliRuntimeError(
-    `Invalid --cors value "${raw}". Use '*' for any origin, or a specific origin such as https://app.example.`,
-  )
+  throw new CliRuntimeError(tr(lang, "serve.error.badCors", raw))
 }

@@ -1383,3 +1383,68 @@ describe("subcommand i18n (EVO-G13)", () => {
     noEnglishProse(logs.stdout)
   })
 })
+
+describe("remaining CLI surface i18n (EVO-G14)", () => {
+  /** Every case injects MIK_LANG through `run()`; nothing reads the host locale. */
+  const ZH = { MIK_LANG: "zh" }
+  const EN = { MIK_LANG: "en" }
+
+  it("localizes the invalid-port error for `dashboard` (port checks were the last `throw` leftover)", async () => {
+    const { dir, base } = sandbox()
+    const zh = await run(["dashboard", "--port", "0", ...base], dir, ZH)
+    expect(zh.code).toBe(1)
+    expect(zh.stderr).toContain("端口 0 不合法")
+    expect(zh.stderr).not.toContain("Invalid port")
+  })
+
+  it("localizes the invalid-port error for `serve` as well", async () => {
+    const { dir, base } = sandbox()
+    const zh = await run(["serve", "--port", "0", ...base], dir, ZH)
+    expect(zh.code).toBe(1)
+    expect(zh.stderr).toContain("端口 0 不合法")
+    expect(zh.stderr).not.toContain("Invalid port")
+  })
+
+  it("keeps the invalid-port error in English under MIK_LANG=en (A2)", async () => {
+    const { dir, base } = sandbox()
+    const en = await run(["dashboard", "--port", "0", ...base], dir, EN)
+    expect(en.code).toBe(1)
+    expect(en.stderr).toContain("Invalid port 0. Use an integer between 1 and 65535.")
+  })
+
+  it("localizes the `models list` empty state", async () => {
+    const { dir, base } = sandbox()
+    const zh = await run(["models", "list", ...base], dir, ZH)
+    expect(zh.code).toBe(0)
+    expect(zh.stdout).toContain("还没有存储任何模型。")
+    expect(zh.stdout).toContain("发现模型：")
+    expect(zh.stdout).not.toContain("No models stored yet")
+  })
+
+  it("localizes the `pricing list` catalogue heading and its state labels", async () => {
+    const { dir, base } = sandbox()
+    const zh = await run(["pricing", "list", ...base], dir, ZH)
+    expect(zh.code).toBe(0)
+    expect(zh.stdout).toContain("价格目录")
+    expect(zh.stdout).not.toContain("Catalogue")
+    // The four field labels are prose and must be localized; the *values*
+    // (`stale`/`fallback`, `modelsdev`) are data and stay literal.
+    for (const label of ["状态", "来源", "载入", "错误"]) {
+      expect(zh.stdout, label).toContain(label)
+    }
+    for (const leaked of ["status  ", "source  ", "loaded  ", "error   "]) {
+      expect(zh.stdout, `zh leaked "${leaked}"`).not.toContain(leaked)
+    }
+  })
+
+  it("localizes the `warning:` frame while leaving the third-party body alone", async () => {
+    const { dir, base } = sandbox()
+    // An unreadable config makes the CLI emit its own `warning:` line before any
+    // command output. Only the frame is ours to translate (EVO-G14/R101).
+    writeFileSync(join(dir, "mik.config.json"), "{ not json", "utf8")
+    const zh = await run(["models", "list", ...base], dir, ZH)
+    expect(zh.code).toBe(0)
+    expect(zh.stderr).toContain("警告：")
+    expect(zh.stderr).not.toContain("warning: ")
+  })
+})
