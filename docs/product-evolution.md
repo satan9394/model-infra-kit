@@ -47,12 +47,19 @@
 - **技术债队列**：G15 非法语言二次重选提示、G16 README 版本动态化、G17 index.ts 换行（已在 G04 顺带修）、G18 防环断言升级为目录级 import 图检测、G19 runCommand/main 抽公共前置段、G20 G04 残余（真实 SIGINT 端到端 / 非 win32 分支 / 孙进程链——建议在 ubuntu+macos CI runner 补强）、G21 流程债（子代理失败率与既定对策）。
 - **NOT_NOW（拒绝清单，维持）**：虚拟 key/key 池、RPM/TPM 硬限额、观测性深度（trace/eval/playground）、智能路由与自动 failover、多租户/团队、云同步/多实例聚合、兑换码与面向终端的充值计费、任何纯装饰功能（主题色等）。
 
-## PRODUCT_STATE（R45，G01-G08 已验收关闭）
+## PRODUCT_STATE（R51，G01-G09 已验收关闭）
 
-- **当前成熟度**：v0.2.4，P0+P1 清零，P2 四项完成（G05 脱敏+契约、G06 账本自愈、G07 成本对账+软预算、G08 i18n 架构+系统语言检测）；**425 测试全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS**。
-- **本轮最高价值下一步**：G09（看板首启 + 装包用户可发现性，实现中）；其后 G29（i18n 债：repl/init 残留硬编码英文串）、技术债清理轮。
-- **技术债**：见下方 G15–G31 清单；较突出的有 G20（CI 补强）、G26–G28（验证流程铁律）、G29（双语覆盖残留）、G30（dictFor/hasKey 无 src 调用方待裁定）。
-- **风险**：无阻塞级；两条流程风险已被铁律覆盖（G26 每次 push 查 CI、G27 不停机 `git add -A`）。
+- **当前成熟度**：v0.2.5，P0+P1 清零，P2 五项完成（G05 脱敏+契约、G06 账本自愈、G07 成本对账+软预算、G08 i18n 架构+语言检测、G09 看板首启+可发现性）；**431 测试全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS**。
+- **本轮最高价值下一步**：G10（技术债清理轮：i18n 残留 + 死导出裁定 + 电池稳健性，卡片已就绪）；其后 G10a（协议表合并）与看板 i18n（若值得）。
+- **技术债**：见下方 G15–G35 清单；较突出的有 G20（CI 补强，已部分结论化）、G23（电池偶发假阴，G10 处理）、G26–G28（验证流程铁律）、G29/G30（G10 处理）。
+- **风险**：无阻塞级；三条流程风险已有铁律或卡（G26 每次 push 查 CI、G27 不停机 `git add -A`、G32 环境依赖断言）。
+
+## G09 验收留痕（R51）
+
+- 独立 Evaluator 判定 **ACCEPT**（7 项全为建议级、0 阻断，见 `.tmp/eval-G09.md`）；它自行复跑全量 431 测试，并**纠正了编排者的一个错误认知**：原 e2e「顺序断言」有**半边恒真**（错误横幅被 `retried && !pending` 包住，SSR 首屏永不出现，故 `bannerAt` 恒为 -1）。
+- **验收后修订（已复跑门禁）**：e2e 断言改为**真实不变式**——用 `data-testid` 锚点断言首屏**存在** `upstream-guide`、**不存在** `upstream-error`，并保留指引文案断言；补跑 A5 的 `check-envs`（三环境 PASS）；显式提交两个 untracked 新文件（`upstream-notice.tsx`、`apps/dashboard/test/first-run.test.ts`）。
+- **证据**：tsc 0、431 测试、e2e exit 0、三环境 PASS、CI 三 OS 绿（`bf5d0b6`）；真实冒烟（去 shell 后 `mik dashboard` 起 → 3210 → 结束 → 端口释放 → 无孤儿）。
+- **新增技术债**：**G32**（`cli.test.ts` 有一条「本机找到 pnpm」的环境断言，在 standalone 安装 pnpm 的 runner 上可能红——本轮 CI 三平台实测绿，若日后红应加环境前置 skip，**不得放宽生产逻辑**）；**G33**（`dashboard.ts` 的 PATH 兜底只认 `node_modules/pnpm/bin/pnpm.mjs`，standalone/Homebrew 装法返回 null）；**G34**（无 `navigator.clipboard` 时「复制命令」静默无反馈）；**G35**（重试后原始错误在中性卡与红横幅重复出现）。
 
 ## G08 验收留痕（R45）
 
