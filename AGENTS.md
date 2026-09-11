@@ -98,13 +98,17 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 - **评审快照请用 commit sha 固定**（G42）：G11 评审期间工作区被并发提交，Evaluator 不得不自行做快照漂移核对。派单时给 sha，评审时先 `git rev-parse HEAD` 对照。
 - **恒真断言会反复出现**（G43）：G11 卡 A1 的 grep 断言在**改前改后皆为真**（旧表声明形态与预期不同），与 G09 的 `shell: true` 同类。**写卡时先把断言跑一遍，确认它现在会红**；不会红的断言等于没写。
 
-## 当前状态（R70）
+- **本地全绿对 locale/平台相关改动毫无证明力**（G12 的核心教训，比 G26 更狠）：G12 让 CLI 跟随 OS locale 后，编排者在本机（zh-CN）跑出「451 全绿」并据此宣称达标——**那是本机 locale 造成的假绿**；独立 Evaluator 在 `LC_ALL=en_US.UTF-8` 下复跑得到 **1 failed / 450 passed**，一举揭穿（CI 三 OS 也必红）。教训：**验证者自身所处的环境决定他能否看见缺陷**——跑 locale/平台相关改动时，必须**主动切到与开发机不同的环境**（`LC_ALL=en_US.UTF-8` + `LANG=en_US.UTF-8`）复跑，或直接以 CI 为准。
+- **基线样本集必须闭合**（G12）：我用 4 条英文基线 + 9 条探针宣称「en 零回归」，但它们**全用未知选项 `--nope`**（由 `node:util` 先抛错、走透传分支）；而 `flagNotAllowed` 只在「**已知但属于别的命令**的选项」（如 `--port`）时触发——**第三种错误形状**，正是我漏掉的那一条。做法：**按错误形状分类枚举**（未知选项 / 未知命令 / 缺参数 / 放错位置的已知选项 / 缺选项值），每种至少一条基线。
+- **注入式 API 不得回落到真实环境**（G12）：`requireArg(parsed, i, name, lang = invocationLang({}))` 传**空对象**，于是忽略调用方注入的 `RunOptions.env`、去读真实 `process.env` —— 单测注入 `MIK_LANG=zh` 到不了它，产出**中英混排**。做法：凡有 `RunOptions`/`env` 注入的入口，默认值必须**透传那个注入对象**，而不是新建 `{}`。
+- **评审建议也要交叉验证**（G12）：第一位 Evaluator 建议把字典值改成 `--%s is not valid…`，第二位指出那会输出 `----port`、正确的是 `"%s is not valid for \"%s\"."`。**多个独立评审会互相纠错**——收到建议后先自己复现一遍再照做。
 
-- **版本 v0.2.7**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 447 例**（`pnpm --filter model-infra-kit test`，20 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。
-- **已验收发布的切片**：G01–G11（`0.1.7` → `0.2.7`）。产品演进全貌、GAP_MAP、技术债 G15–G44、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
-- **进行中**：G12（CLI 入门面本地化：`--help` 横幅 / 用法 / 未知命令报错），卡见 `tasks/EVO-G12-cli-help-i18n.md`。
-- **已排定下一个**：G37 其余部分——各子命令的输出文案（`usage` / `models` / `pricing` / `serve` / `provider` / `dashboard`）仍为英文。
+## 当前状态（R83）
+
+- **版本 v0.2.8**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 451 例**（`pnpm --filter model-infra-kit test`，20 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。
+- **已验收发布的切片**：G01–G12（`0.1.7` → `0.2.8`）。产品演进全貌、GAP_MAP、技术债 G15–G49、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
+- **进行中 / 下一个**：G13（子命令输出本地化第一批：`provider` 7 处 + `usage` 5 处），卡见 `tasks/EVO-G13-subcommand-i18n.md`；改前基线已固化在 `.tmp/baseline-g13-*.txt`（注意 `.tmp/` 被 gitignore，进不了 CI——见技术债 G47）。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
 - 每轮收尾铁律：机械门禁 → 独立 Evaluator 验收 → 提交（只 add 自己的文件）+ 升版 patch → `npm publish` → `gh release create` → **CI 三 OS 绿** → **G36 发布产物验证** → 更新 `docs/product-evolution.md`。
 
