@@ -173,6 +173,28 @@ describe("EVO-G11/G18 — src module graph", () => {
     expect(cycle?.[0]).toBe(cycle?.[cycle.length - 1])
   })
 
+  it("resolves every relative specifier, so no edge can silently vanish (B4)", () => {
+    // The cycle guard can only see edges it resolves. A relative specifier that
+    // does not map onto a real file (an interpolated template such as
+    // import(`./${name}.js`), a concatenation, or an extensionless path) would be
+    // dropped from the graph and could therefore hide a real cycle. Pin that set
+    // to empty: any new unresolvable relative import fails here.
+    const unresolved: string[] = []
+    for (const file of FILES) {
+      const code = stripComments(readFileSync(join(SRC_DIR, file), "utf8"))
+      for (const pattern of SPECIFIER_PATTERNS) {
+        pattern.lastIndex = 0
+        for (const match of code.matchAll(pattern)) {
+          const specifier = match[1] ?? ""
+          if (!specifier.startsWith(".")) continue
+          const target = resolveRelative(file, specifier)
+          if (!FILE_SET.has(target)) unresolved.push(`${file} → ${specifier}`)
+        }
+      }
+    }
+    expect(unresolved).toEqual([])
+  })
+
   it("has no import cycles anywhere under src/**", () => {
     expect(findCycle(moduleGraph())).toBeNull()
   })

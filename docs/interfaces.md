@@ -279,10 +279,12 @@ export const PROTOCOL_PACKAGES: Record<Protocol, string>  // 稳定：protocol �
 export function packageForProtocol(protocol: Protocol): string | undefined  // 稳定：上表的读取器
 
 // src/ai/protocols.ts
-export const PROTOCOLS: Record<Protocol, ProtocolSpec>                  // 稳定：**唯一源表**（protocol → { sdk, list }），G10a 起
+export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol>          // 稳定：由 PROTOCOLS 派生的视图（勿单独编辑），已公开导出
+export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol>  // 稳定：由 PROTOCOLS 派生的视图（勿单独编辑），已公开导出
+
+// src/ai/protocols.ts — 模块级导出，**未进公共面**（`src/index.ts` 不 re-export，`dist` 导出数仍为 30）
+export const PROTOCOLS: Record<Protocol, ProtocolSpec>             // **唯一源表**（protocol → { sdk, list }），G10a 起
 export interface ProtocolSpec { sdk: SdkProtocol; list: ModelListProtocol }
-export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol>          // 稳定：由 PROTOCOLS 派生的只读视图（勿单独编辑）
-export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol>  // 稳定：由 PROTOCOLS 派生的只读视图（勿单独编辑）
 export interface DiscoveredModel {
   modelId: string
   displayName?: string
@@ -296,11 +298,15 @@ export function loadProviderFactory(protocol: Protocol): Promise<ProviderFactory
 ```
 
 - `loadProviderFactory()` 失败面：未知 protocol → `PROVIDER`；peer 未安装 → `PROVIDER`，文案含 `npm i <pkg>`；包在但没有期望导出 → `PROVIDER`。三种都不抛裸 `ERR_MODULE_NOT_FOUND`。
-- `PROTOCOLS` 是「协议是一等公民」（规则 3）的落点：每个协议一行；`SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 都是它的派生视图（`Object.fromEntries` 投影），**不要直接编辑这两张派生表**——改了会在下次投影时被覆盖。任何 provider 差异只能进 `provider.meta`。
+- `PROTOCOLS` 是「协议是一等公民」（规则 3）的落点：每个协议一行；`SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 都是它的派生视图（`Object.fromEntries` 投影），**不要直接编辑这两张派生表**——改了会在下次投影时被覆盖。它们不是不可变对象（例如 `test/ai-bridge.test.ts` 会临时改写 `SDK_PROTOCOLS.openai` 来模拟 peer 缺失，随后还原），「勿编辑」是约定而非类型约束。任何 provider 差异只能进 `provider.meta`。
 
 ### 新增内置协议配方（EVO-G11 / G10a）
 
-加一个内置协议**只改 4 处**，按下表顺序走完即可（顺序重要：类型先行，后面几处的 `Record<Protocol, …>` 才会立刻报缺项，漏一处 `tsc` 就红）：
+加一个内置协议要改 **4 处编译期落点**，按下表顺序走完即可（顺序重要：类型先行，后面几处的 `Record<Protocol, …>` 才会立刻报缺项，漏一处 `tsc` 就红）：
+
+> **另有两处「镜像/文案」落点不会被 `tsc` 抓住**（EVO-G11 评估 B2），加协议时记得顺手同步，否则帮助文案与看板类型会**静默过期**：
+> - `src/cli/args.ts` 的 `FLAG_PROTOCOL.description` 把协议名单**写死在字符串里**（`mik provider add --help` 会展示）；
+> - 跨包镜像 `apps/dashboard/lib/types.ts` 的协议字面量。
 
 1. **协议类型联合** — `src/types.ts` 的 `Protocol` 加成员（如 `"mistral"`）。这是唯一的类型真相，其余三处都挂在它下面。
 2. **协议源表** — `src/ai/protocols.ts` 的 `PROTOCOLS` 加**一行**：`{ sdk: { npmPackage, factoryExports, factoryOptions }, list: { url, headers, parse, defaultCapabilities } }`。`SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 会自动派生，**不需要动**。
