@@ -279,8 +279,10 @@ export const PROTOCOL_PACKAGES: Record<Protocol, string>  // 稳定：protocol �
 export function packageForProtocol(protocol: Protocol): string | undefined  // 稳定：上表的读取器
 
 // src/ai/protocols.ts
-export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol>          // 稳定：protocol → factoryExports + factoryOptions
-export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol>  // 稳定：protocol → 模型列表探测（url / headers / parse / defaultCapabilities）
+export const PROTOCOLS: Record<Protocol, ProtocolSpec>                  // 稳定：**唯一源表**（protocol → { sdk, list }），G10a 起
+export interface ProtocolSpec { sdk: SdkProtocol; list: ModelListProtocol }
+export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol>          // 稳定：由 PROTOCOLS 派生的只读视图（勿单独编辑）
+export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol>  // 稳定：由 PROTOCOLS 派生的只读视图（勿单独编辑）
 export interface DiscoveredModel {
   modelId: string
   displayName?: string
@@ -294,7 +296,18 @@ export function loadProviderFactory(protocol: Protocol): Promise<ProviderFactory
 ```
 
 - `loadProviderFactory()` 失败面：未知 protocol → `PROVIDER`；peer 未安装 → `PROVIDER`，文案含 `npm i <pkg>`；包在但没有期望导出 → `PROVIDER`。三种都不抛裸 `ERR_MODULE_NOT_FOUND`。
-- `SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 是「协议是一等公民」（规则 3）的落点：每个协议一行，任何 provider 差异只能进 `provider.meta`。
+- `PROTOCOLS` 是「协议是一等公民」（规则 3）的落点：每个协议一行；`SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 都是它的派生视图（`Object.fromEntries` 投影），**不要直接编辑这两张派生表**——改了会在下次投影时被覆盖。任何 provider 差异只能进 `provider.meta`。
+
+### 新增内置协议配方（EVO-G11 / G10a）
+
+加一个内置协议**只改 4 处**，按下表顺序走完即可（顺序重要：类型先行，后面几处的 `Record<Protocol, …>` 才会立刻报缺项，漏一处 `tsc` 就红）：
+
+1. **协议类型联合** — `src/types.ts` 的 `Protocol` 加成员（如 `"mistral"`）。这是唯一的类型真相，其余三处都挂在它下面。
+2. **协议源表** — `src/ai/protocols.ts` 的 `PROTOCOLS` 加**一行**：`{ sdk: { npmPackage, factoryExports, factoryOptions }, list: { url, headers, parse, defaultCapabilities } }`。`SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS` 会自动派生，**不需要动**。
+3. **包名表** — `src/registry/presets.ts` 的 `PROTOCOL_PACKAGES` 加同一包名（第 2 步的 `npmPackage` 通常就取它）；`packageForProtocol()` 与 `registry` 的 npmPackage 兜底共用此表。
+4. **预设表（可选，仅当要发默认预设）** — `src/registry/presets.ts` 的 `PROVIDER_PRESETS` 加预设条目（`id` / `protocol` / `baseUrl` / `envKey`）。如果只允许用户自带 `baseUrl`，这步可跳过。
+
+补完后跑：`pnpm --filter model-infra-kit typecheck`（`Record<Protocol, …>` 会替你抓漏项）→ `pnpm --filter model-infra-kit test`（`test/registry.test.ts`、`test/ai-bridge.test.ts`、`test/module-graph.test.ts` 会覆盖协议表一致性与目录无环）。可选 peer 记得同时加进 `packages/mik/package.json` 的 `peerDependencies` + `peerDependenciesMeta`（optional）。
 
 ### 稳定 — fetch 适配器
 

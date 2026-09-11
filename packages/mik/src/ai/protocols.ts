@@ -15,125 +15,6 @@ export interface SdkProtocol {
   factoryOptions(resolved: ResolvedProvider): Record<string, unknown>
 }
 
-function headersOf(resolved: ResolvedProvider): Record<string, string> | undefined {
-  return Object.keys(resolved.record.headers).length > 0 ? resolved.record.headers : undefined
-}
-
-function requireBaseUrl(resolved: ResolvedProvider): string {
-  const base = resolved.baseUrl?.replace(/\/+$/, "")
-  if (!base) {
-    throw new ModelInfraError(
-      `Provider "${resolved.record.id}" has no base URL. Set baseUrl or pick a preset that ships one.`,
-      { code: "INVALID_REQUEST", providerId: resolved.record.id },
-    )
-  }
-  return base
-}
-
-/**
- * Protocol → SDK factory. Every protocol is one row; there is deliberately no
- * `if (providerId === ...)` anywhere in this package.
- */
-export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol> = {
-  openai: {
-    npmPackage: PROTOCOL_PACKAGES.openai,
-    factoryExports: ["createOpenAI"],
-    factoryOptions: (resolved) => ({
-      apiKey: resolved.apiKey ?? undefined,
-      baseURL: resolved.baseUrl,
-      headers: headersOf(resolved),
-    }),
-  },
-  anthropic: {
-    npmPackage: PROTOCOL_PACKAGES.anthropic,
-    factoryExports: ["createAnthropic"],
-    factoryOptions: (resolved) => ({
-      apiKey: resolved.apiKey ?? undefined,
-      baseURL: resolved.baseUrl,
-      headers: headersOf(resolved),
-    }),
-  },
-  google: {
-    npmPackage: PROTOCOL_PACKAGES.google,
-    factoryExports: ["createGoogleGenerativeAI", "createGoogle"],
-    factoryOptions: (resolved) => ({
-      apiKey: resolved.apiKey ?? undefined,
-      baseURL: resolved.baseUrl,
-      headers: headersOf(resolved),
-    }),
-  },
-  deepseek: {
-    npmPackage: PROTOCOL_PACKAGES.deepseek,
-    factoryExports: ["createDeepSeek"],
-    factoryOptions: (resolved) => ({
-      apiKey: resolved.apiKey ?? undefined,
-      baseURL: resolved.baseUrl,
-      headers: headersOf(resolved),
-    }),
-  },
-  moonshotai: {
-    npmPackage: PROTOCOL_PACKAGES.moonshotai,
-    factoryExports: ["createMoonshotAI"],
-    factoryOptions: (resolved) => ({
-      apiKey: resolved.apiKey ?? undefined,
-      baseURL: resolved.baseUrl,
-      headers: headersOf(resolved),
-    }),
-  },
-  xai: {
-    npmPackage: PROTOCOL_PACKAGES.xai,
-    factoryExports: ["createXai"],
-    factoryOptions: (resolved) => ({
-      apiKey: resolved.apiKey ?? undefined,
-      baseURL: resolved.baseUrl,
-      headers: headersOf(resolved),
-    }),
-  },
-  "openai-compatible": {
-    npmPackage: PROTOCOL_PACKAGES["openai-compatible"],
-    factoryExports: ["createOpenAICompatible"],
-    factoryOptions: (resolved) => ({
-      name: resolved.record.id,
-      baseURL: requireBaseUrl(resolved),
-      apiKey: resolved.apiKey ?? undefined,
-      headers: headersOf(resolved),
-    }),
-  },
-}
-
-/**
- * Load the SDK factory for a protocol.
- *
- * The provider packages are optional peers, so they are imported at call time;
- * a missing package becomes an actionable error instead of a startup crash.
- */
-export async function loadProviderFactory(protocol: Protocol): Promise<ProviderFactory> {
-  const spec = SDK_PROTOCOLS[protocol]
-  if (!spec) {
-    throw new ModelInfraError(`Unsupported protocol "${String(protocol)}".`, { code: "PROVIDER" })
-  }
-
-  let module: Record<string, unknown>
-  try {
-    module = (await import(spec.npmPackage)) as Record<string, unknown>
-  } catch (error) {
-    throw new ModelInfraError(
-      `Protocol "${protocol}" needs the optional package "${spec.npmPackage}". Install it with \`npm i ${spec.npmPackage}\`.`,
-      { code: "PROVIDER", cause: error },
-    )
-  }
-
-  for (const name of spec.factoryExports) {
-    const factory = module[name]
-    if (typeof factory === "function") return factory as ProviderFactory
-  }
-
-  throw new ModelInfraError(
-    `Package "${spec.npmPackage}" does not export ${spec.factoryExports.map((name) => `"${name}"`).join(" or ")}.`,
-    { code: "PROVIDER" },
-  )
-}
-
 /** One model as reported by a provider's own list endpoint. */
 export interface DiscoveredModel {
   modelId: string
@@ -149,6 +30,21 @@ export interface ModelListProtocol {
   headers(resolved: ResolvedProvider): Record<string, string>
   parse(payload: unknown): DiscoveredModel[]
   defaultCapabilities: ModelCapabilities
+}
+
+function headersOf(resolved: ResolvedProvider): Record<string, string> | undefined {
+  return Object.keys(resolved.record.headers).length > 0 ? resolved.record.headers : undefined
+}
+
+function requireBaseUrl(resolved: ResolvedProvider): string {
+  const base = resolved.baseUrl?.replace(/\/+$/, "")
+  if (!base) {
+    throw new ModelInfraError(
+      `Provider "${resolved.record.id}" has no base URL. Set baseUrl or pick a preset that ships one.`,
+      { code: "INVALID_REQUEST", providerId: resolved.record.id },
+    )
+  }
+  return base
 }
 
 const TEXT_CAPABILITIES: ModelCapabilities = {
@@ -242,55 +138,201 @@ function parseGoogleList(payload: unknown): DiscoveredModel[] {
 const BEARER = (resolved: ResolvedProvider): Record<string, string> =>
   resolved.apiKey ? { authorization: `Bearer ${resolved.apiKey}` } : {}
 
-/** Protocol → model-list probe. Every protocol is one row, no provider branches. */
-export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol> = {
+/** One protocol's full recipe: its `@ai-sdk/*` factory plus its `/models` probe. */
+export interface ProtocolSpec {
+  sdk: SdkProtocol
+  list: ModelListProtocol
+}
+
+/**
+ * The single source table for built-in protocols (EVO-G11 / G10a).
+ *
+ * Every protocol is exactly one row; there is deliberately no
+ * `if (providerId === ...)` anywhere in this package. Adding a built-in
+ * protocol means adding one row here — `SDK_PROTOCOLS` and
+ * `MODEL_LIST_PROTOCOLS` below are **derived views** of this table and must
+ * never be edited independently. See `docs/interfaces.md` → 「新增内置协议配方」
+ * for the full four-step recipe.
+ */
+export const PROTOCOLS: Record<Protocol, ProtocolSpec> = {
   openai: {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
-    parse: parseOpenAiStyleList,
-    defaultCapabilities: TEXT_CAPABILITIES,
-  },
-  deepseek: {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
-    parse: parseOpenAiStyleList,
-    defaultCapabilities: TEXT_CAPABILITIES,
-  },
-  moonshotai: {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
-    parse: parseOpenAiStyleList,
-    defaultCapabilities: TEXT_CAPABILITIES,
-  },
-  xai: {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
-    parse: parseOpenAiStyleList,
-    defaultCapabilities: TEXT_CAPABILITIES,
-  },
-  "openai-compatible": {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
-    parse: parseOpenAiStyleList,
-    defaultCapabilities: TEXT_CAPABILITIES,
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES.openai,
+      factoryExports: ["createOpenAI"],
+      factoryOptions: (resolved) => ({
+        apiKey: resolved.apiKey ?? undefined,
+        baseURL: resolved.baseUrl,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
+      parse: parseOpenAiStyleList,
+      defaultCapabilities: TEXT_CAPABILITIES,
+    },
   },
   anthropic: {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({
-      accept: "application/json",
-      "anthropic-version": "2023-06-01",
-      ...(resolved.apiKey ? { "x-api-key": resolved.apiKey } : {}),
-    }),
-    parse: parseAnthropicList,
-    defaultCapabilities: MULTIMODAL_CAPABILITIES,
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES.anthropic,
+      factoryExports: ["createAnthropic"],
+      factoryOptions: (resolved) => ({
+        apiKey: resolved.apiKey ?? undefined,
+        baseURL: resolved.baseUrl,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({
+        accept: "application/json",
+        "anthropic-version": "2023-06-01",
+        ...(resolved.apiKey ? { "x-api-key": resolved.apiKey } : {}),
+      }),
+      parse: parseAnthropicList,
+      defaultCapabilities: MULTIMODAL_CAPABILITIES,
+    },
   },
   google: {
-    url: (resolved) => `${requireBaseUrl(resolved)}/models`,
-    headers: (resolved) => ({
-      accept: "application/json",
-      ...(resolved.apiKey ? { "x-goog-api-key": resolved.apiKey } : {}),
-    }),
-    parse: parseGoogleList,
-    defaultCapabilities: MULTIMODAL_CAPABILITIES,
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES.google,
+      factoryExports: ["createGoogleGenerativeAI", "createGoogle"],
+      factoryOptions: (resolved) => ({
+        apiKey: resolved.apiKey ?? undefined,
+        baseURL: resolved.baseUrl,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({
+        accept: "application/json",
+        ...(resolved.apiKey ? { "x-goog-api-key": resolved.apiKey } : {}),
+      }),
+      parse: parseGoogleList,
+      defaultCapabilities: MULTIMODAL_CAPABILITIES,
+    },
   },
+  deepseek: {
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES.deepseek,
+      factoryExports: ["createDeepSeek"],
+      factoryOptions: (resolved) => ({
+        apiKey: resolved.apiKey ?? undefined,
+        baseURL: resolved.baseUrl,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
+      parse: parseOpenAiStyleList,
+      defaultCapabilities: TEXT_CAPABILITIES,
+    },
+  },
+  moonshotai: {
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES.moonshotai,
+      factoryExports: ["createMoonshotAI"],
+      factoryOptions: (resolved) => ({
+        apiKey: resolved.apiKey ?? undefined,
+        baseURL: resolved.baseUrl,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
+      parse: parseOpenAiStyleList,
+      defaultCapabilities: TEXT_CAPABILITIES,
+    },
+  },
+  xai: {
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES.xai,
+      factoryExports: ["createXai"],
+      factoryOptions: (resolved) => ({
+        apiKey: resolved.apiKey ?? undefined,
+        baseURL: resolved.baseUrl,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
+      parse: parseOpenAiStyleList,
+      defaultCapabilities: TEXT_CAPABILITIES,
+    },
+  },
+  "openai-compatible": {
+    sdk: {
+      npmPackage: PROTOCOL_PACKAGES["openai-compatible"],
+      factoryExports: ["createOpenAICompatible"],
+      factoryOptions: (resolved) => ({
+        name: resolved.record.id,
+        baseURL: requireBaseUrl(resolved),
+        apiKey: resolved.apiKey ?? undefined,
+        headers: headersOf(resolved),
+      }),
+    },
+    list: {
+      url: (resolved) => `${requireBaseUrl(resolved)}/models`,
+      headers: (resolved) => ({ accept: "application/json", ...BEARER(resolved) }),
+      parse: parseOpenAiStyleList,
+      defaultCapabilities: TEXT_CAPABILITIES,
+    },
+  },
+}
+
+/** Project {@link PROTOCOLS} onto one of its two views, keeping the export type exact. */
+function viewOf<K extends keyof ProtocolSpec>(key: K): Record<Protocol, ProtocolSpec[K]> {
+  const rows = (Object.keys(PROTOCOLS) as Protocol[]).map(
+    (protocol) => [protocol, PROTOCOLS[protocol][key]] as [Protocol, ProtocolSpec[K]],
+  )
+  return Object.fromEntries(rows) as Record<Protocol, ProtocolSpec[K]>
+}
+
+/**
+ * Protocol → SDK factory. **Derived** from {@link PROTOCOLS} (EVO-G11 / G10a);
+ * the name and type are kept for the public surface, so never edit it directly.
+ */
+export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol> = viewOf("sdk")
+
+/**
+ * Protocol → model-list probe. **Derived** from {@link PROTOCOLS}
+ * (EVO-G11 / G10a); kept for the public surface, never edited directly.
+ */
+export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol> = viewOf("list")
+
+/**
+ * Load the SDK factory for a protocol.
+ *
+ * The provider packages are optional peers, so they are imported at call time;
+ * a missing package becomes an actionable error instead of a startup crash.
+ */
+export async function loadProviderFactory(protocol: Protocol): Promise<ProviderFactory> {
+  const spec = SDK_PROTOCOLS[protocol]
+  if (!spec) {
+    throw new ModelInfraError(`Unsupported protocol "${String(protocol)}".`, { code: "PROVIDER" })
+  }
+
+  let module: Record<string, unknown>
+  try {
+    module = (await import(spec.npmPackage)) as Record<string, unknown>
+  } catch (error) {
+    throw new ModelInfraError(
+      `Protocol "${protocol}" needs the optional package "${spec.npmPackage}". Install it with \`npm i ${spec.npmPackage}\`.`,
+      { code: "PROVIDER", cause: error },
+    )
+  }
+
+  for (const name of spec.factoryExports) {
+    const factory = module[name]
+    if (typeof factory === "function") return factory as ProviderFactory
+  }
+
+  throw new ModelInfraError(
+    `Package "${spec.npmPackage}" does not export ${spec.factoryExports.map((name) => `"${name}"`).join(" or ")}.`,
+    { code: "PROVIDER" },
+  )
 }

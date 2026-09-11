@@ -515,6 +515,35 @@ describe("init", () => {
     expect(questions[2]).toContain("Application id")
     expect(questions[3]).toContain("SQLite database path")
   })
+
+  it("warns again instead of silently defaulting when the retry is bogus too (EVO-G11/G15)", async () => {
+    const { dir, base } = sandbox()
+    const configPath = join(dir, "mik.config.json")
+    const stderr: string[] = []
+    promptMock.prompt.mockReset()
+    promptMock.prompt
+      .mockResolvedValueOnce("garbage") // invalid → wizard.langInvalid + retry
+      .mockResolvedValueOnce("still-garbage") // invalid again → hint once more, then default
+      .mockResolvedValueOnce("") // appId (default)
+      .mockResolvedValueOnce("") // db (default)
+      .mockResolvedValueOnce("") // provider (skip)
+
+    const result = await main(
+      ["init", "--file", configPath, ...base],
+      { io: { out: () => {}, err: (text) => stderr.push(text) }, cwd: dir, env: { ...process.env, LC_ALL: "zh_CN.UTF-8" }, interactive: true },
+    )
+    expect(result).toBe(0)
+    // Two prompts, two hints — the second bogus answer is no longer silent.
+    const hints = stderr.filter((line) => line.includes("请输入 1 或 2"))
+    expect(hints).toHaveLength(2)
+    const questions = promptMock.prompt.mock.calls.map((call) => String(call[0]))
+    expect(questions).toHaveLength(5)
+    // Both bogus answers leave the locale-derived default (zh) in place.
+    expect(questions[0]).toContain("Choose a language")
+    expect(questions[1]).toContain("Choose a language")
+    expect(questions[2]).toContain("应用 id")
+    expect(questions[3]).toContain("数据库")
+  })
 })
 
 describe("docs consistency (EVO-G02/G06)", () => {

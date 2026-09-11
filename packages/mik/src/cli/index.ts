@@ -11,10 +11,8 @@
  */
 import { realpathSync } from "node:fs"
 import { pathToFileURL } from "node:url"
-import { parseCliArgs, type ParsedCli } from "./args.js"
 import { messageOf, resolveIo, type RunOptions } from "./context.js"
-import { renderVersion } from "./help.js"
-import { EXIT_FAILURE, EXIT_OK, dispatch, helpFor, report } from "./dispatch.js"
+import { EXIT_FAILURE, EXIT_OK, dispatch, helpFor, prepareInvocation, report } from "./dispatch.js"
 import { isInteractive } from "./prompt.js"
 import { runRepl } from "./repl.js"
 import { redact } from "../util/redact.js"
@@ -22,22 +20,12 @@ import { redact } from "../util/redact.js"
 /** Run one CLI invocation. Returns the process exit code; never calls `process.exit`. */
 export async function main(argv: readonly string[], options: RunOptions = {}): Promise<number> {
   const io = resolveIo(options)
-  let parsed: ParsedCli
-  try {
-    parsed = parseCliArgs(argv)
-  } catch (error) {
-    return report(error, io)
-  }
+  // Shared preamble with runCommand (EVO-G11 / G19): parse → version → help.
+  const prepared = prepareInvocation(argv, io)
+  if (prepared.kind === "exit") return prepared.code
 
   try {
-    if (parsed.version) {
-      io.out(renderVersion())
-      return EXIT_OK
-    }
-    if (parsed.help) {
-      io.out(helpFor(parsed))
-      return EXIT_OK
-    }
+    const { parsed } = prepared
     if (!parsed.command) {
       // Bare `mik` with a terminal enters the guided REPL (slash commands with
       // bilingual descriptions). Without a TTY it falls back to root help.
