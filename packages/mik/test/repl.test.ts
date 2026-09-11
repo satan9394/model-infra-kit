@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { parseCliArgs } from "../src/cli/args.js"
 import { openContext, type CliContext, type CliIo } from "../src/cli/context.js"
 import { parseSlash, replHelp, resolveLangChoice, runRepl, handleLine, EXIT_USAGE } from "../src/cli/repl.js"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -156,5 +156,12 @@ describe("runRepl without a TTY", () => {
     const code = await runRepl(parseCliArgs([]), { io, interactive: false })
     expect(code).toBe(EXIT_USAGE)
     expect(err.join("\n")).toContain("需要一个终端")
+  })
+})
+
+describe("EVO-G03 cycle guard", () => {
+  it("repl.ts must not import from ./index.js", () => {
+    const source = readFileSync(new URL("../src/cli/repl.ts", import.meta.url), "utf8")
+    expect(source).not.toContain('from "./index.js"')
   })
 })
