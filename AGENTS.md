@@ -90,12 +90,18 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 - **发版后必须验已发布产物**（铁律 G36）：仓库内 e2e 的 DIST 检查点只验**仓库 dist**；`files` 白名单、子路径导出、peer 依赖解析只在真正装包后暴露。流程：全新目录 `npm i model-infra-kit@<版本>` → ① CLI `--version` 一致 ② 库面导出含 `ModelInfra` ③ `dist/server.mjs` 在包内 ④ **真实功能冒烟**（mock 供应商 → `init` → `generate` → 断言文本与 `usage`）。注意 npm 有**传播延迟**（实测约 2 分钟），需轮询 `npm view <pkg>@<ver> version` 再装。
 - **工具自身的退出码也要自检**：`check-envs.mjs` 的 `--json` 分支曾**从不 `process.exit`**（失败时退出码 0，接 CI 会**假绿**）。凡是被 CI/脚本消费的模式，必须有「失败即非零退出」的自检用例。
 - **公库与体验不一致就是缺口**：CLI 已宣称 zh/en 双语（G02/G08），但 `mik --help` 横幅与未知命令报错仍是英文——这类「承诺 vs 实际」要靠**从已发布产物实测**发现，不能只看单测。看到一处就顺手 grep 同类面（`args.ts`/`dispatch.ts`/`context.ts`/各命令输出）。
+- **契约文档会说谎，必须用产物核对**（G11 的 REJECT，最有价值的一次评审）：`docs/interfaces.md` 把新加的 `PROTOCOLS`/`ProtocolSpec` 写进「已由 `src/index.ts` 导出」的稳定块，**实际构建产物里根本没有这两个名字**（30 个导出中 `SDK_PROTOCOLS`/`MODEL_LIST_PROTOCOLS` 才是公开的）——宿主照文档 import 会失败。教训：改契约时**用 `dist/index.mjs` 的实际导出名核对**，别用「文中提到了」当证据；`grep PROTOCOLS` 会命中 `SDK_PROTOCOLS` 造成**子串假阳性**（我本人就因此误判过一次）。
+- **grep 模式宽度决定结论可信度**：同一轮里，我用过窄的 `0\.2\.\d` 得出「README 无硬编码版本、G16 已解决」，漏掉了更陈旧的 `0.1.7`（落后 5 个 patch）。窄模式 + 「0 命中」的组合最容易产出**错误的安心**。
+- **评审快照请用 commit sha 固定**（G42）：G11 评审期间工作区被并发提交，Evaluator 不得不自行做快照漂移核对。派单时给 sha，评审时先 `git rev-parse HEAD` 对照。
+- **恒真断言会反复出现**（G43）：G11 卡 A1 的 grep 断言在**改前改后皆为真**（旧表声明形态与预期不同），与 G09 的 `shell: true` 同类。**写卡时先把断言跑一遍，确认它现在会红**；不会红的断言等于没写。
 
-## 当前状态（R60）
+## 当前状态（R70）
 
-- **版本 v0.2.6**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 435 例**（`pnpm --filter model-infra-kit test`），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。
-- **已验收发布的切片**：G01–G10（`0.1.7` → `0.2.6`）。产品演进全貌、GAP_MAP、技术债 G15–G40、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
-- **进行中**：G11（架构整洁度：协议表合并 / 目录级环守卫 / `runCommand` 与 `main` 收敛 / 小项收口），卡见 `tasks/EVO-G11-architecture-tidy.md`。
-- **已排定下一个**：G37 子集——`mik --help` 横幅与未知命令报错**尚未本地化**（已从发布产物实测确认），属「双语承诺 vs 实际体验」不一致。
+- **版本 v0.2.7**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 447 例**（`pnpm --filter model-infra-kit test`，20 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。
+- **已验收发布的切片**：G01–G11（`0.1.7` → `0.2.7`）。产品演进全貌、GAP_MAP、技术债 G15–G44、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
+- **进行中**：G12（CLI 入门面本地化：`--help` 横幅 / 用法 / 未知命令报错），卡见 `tasks/EVO-G12-cli-help-i18n.md`。
+- **已排定下一个**：G37 其余部分——各子命令的输出文案（`usage` / `models` / `pricing` / `serve` / `provider` / `dashboard`）仍为英文。
+- **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
 - 每轮收尾铁律：机械门禁 → 独立 Evaluator 验收 → 提交（只 add 自己的文件）+ 升版 patch → `npm publish` → `gh release create` → **CI 三 OS 绿** → **G36 发布产物验证** → 更新 `docs/product-evolution.md`。
+
