@@ -2,7 +2,8 @@ import Link from "next/link"
 import { CostTrendChart } from "@/components/charts/cost-trend"
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
-import { Badge, Card, CardGrid, EmptyState, ErrorBanner, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
+import { Badge, Card, CardGrid, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
+import { UpstreamNotice } from "@/components/upstream-notice"
 import { formatCompact, formatInt, formatMs, formatPercent, formatUsd, tokenTotal } from "@/lib/format"
 import { rangeQueryString, readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadBuckets, loadShell, loadSummary, loadTrends } from "@/lib/server-data"
@@ -51,6 +52,10 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
         actions={<LiveRefresh topics={["usage.recorded", "catalog.updated", "pricing.updated"]} ticker />}
       />
 
+      {/* EVO-G09 A1: on first paint with a dead upstream the *first* block is this
+          neutral guide; the red banner is demoted to a reaction to "重试". */}
+      <UpstreamNotice message={upstreamErrors[0]} />
+
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
@@ -59,17 +64,6 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           {filters.provider || filters.model ? ` · 已套用筛选` : ""}
         </p>
       )}
-
-      {upstreamErrors.length > 0 ? (
-        <ErrorBanner
-          message={upstreamErrors[0] ?? "未知错误"}
-          hint={
-            <>
-              先启动上游：<code>mik serve</code>（默认 127.0.0.1:3211），再刷新本页。
-            </>
-          }
-        />
-      ) : null}
 
       <CardGrid cols={3}>
         <StatCard

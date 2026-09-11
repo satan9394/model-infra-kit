@@ -829,6 +829,18 @@ async function main() {
         const offline = plainText((await getHtml(`http://127.0.0.1:${dashPort}/`)).body)
         assert(!offline.includes(expected.cost), "the overview still shows the cost with an unreachable mik serve — the number is not live data")
         assert(/无法连接 mik serve|请求 mik serve 失败/.test(offline), "the overview does not explain that mik serve is unreachable")
+        // EVO-G09 A1 first-screen order: the neutral guide is the first block, and
+        // the error-styled banner is only a reaction to pressing 重试 — so it must
+        // not be painted at all on first paint. Anchored on `data-testid` rather
+        // than on copy, and asserting the banner's *absence* rather than a text
+        // position (the latter was trivially true while the banner is behind
+        // `retried && !pending`, i.e. never in the server-rendered HTML).
+        assert(offline.includes('data-testid="upstream-guide"'), "the offline overview does not open with the neutral upstream guide")
+        assert(offline.includes("先启动上游"), "the offline overview's guide lost its 先启动上游 copy")
+        assert(
+          !offline.includes('data-testid="upstream-error"'),
+          "the offline overview paints the error banner on first paint instead of waiting for 重试",
+        )
       })
 
       numbers["DASH"] = {

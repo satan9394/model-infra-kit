@@ -46,7 +46,7 @@
 
 - A1 **首屏顺序**：上游不可达时，首屏第一个可见区块是常规样式的「先启动上游」指引（`grep` 或组件断言：指引在错误横幅之前渲染/错误横幅不再作为首块）。e2e DASH 仍全绿。
 - A2 **README 前置**：嵌入式接入小节内出现「查看用量」与其三条命令；与「看板」节的说明不矛盾。
-- A3 **无 shell**：`dashboard.ts` 不再出现 `shell: true`（grep 断言）；`mik dashboard` 仍能拉起看板（真实冒烟：起服务 → 3210 监听 → 结束进程 → 端口释放）。
+- A3 **无 shell**：`dashboard.ts` 的 spawn 选项**不再出现 `shell` 键**（当前实现是 `shell: !useLocalNext && process.platform === "win32"`，故**不能**用 `grep "shell: true"` 断言——那在改动前就是 0 命中，属恒真断言）。正确断言：读源码断言 `/shell\s*:/` 零命中（若确需保留该选项，则必须是字面 `shell: false`）。同时 `mik dashboard` 仍能拉起看板（真实冒烟：起服务 → 3210 监听 → 结束进程 → 端口释放）。
 - A4 回归：看板既有页面在「上游可用」时渲染不变（e2e DASH + 现有 dashboard 测试）；`mik dashboard --help` 输出不变。
 - A5 全量：`tsc --noEmit` 0 错误、全量 vitest 全绿（基线 **405** 例）、`node scripts/e2e/run.mjs` exit 0、`node scripts/check-envs.mjs` 三环境 PASS。
 

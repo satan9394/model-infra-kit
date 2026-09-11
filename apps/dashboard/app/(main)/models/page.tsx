@@ -1,6 +1,7 @@
 import { LiveRefresh } from "@/components/live-refresh"
 import { ModelsClient } from "@/components/models-client"
-import { ErrorBanner, PageHeader } from "@/components/ui"
+import { PageHeader } from "@/components/ui"
+import { UpstreamNotice } from "@/components/upstream-notice"
 import { loadModelsWithPricing, loadShell } from "@/lib/server-data"
 
 export const dynamic = "force-dynamic"
@@ -20,7 +21,7 @@ export default async function ModelsPage() {
         description="能力位、上下文窗口、价格与来源，全部来自 mik 的目录同步结果"
         actions={<LiveRefresh topics={["catalog.updated", "pricing.updated"]} />}
       />
-      {errors.length > 0 ? <ErrorBanner message={errors[0] ?? "未知错误"} /> : null}
+      <UpstreamNotice message={errors[0]} />
       <ModelsClient models={catalog.ok ? catalog.data.models : shell.models} providers={shell.providers} />
     </>
   )

@@ -1,5 +1,6 @@
 import { ProvidersClient } from "@/components/providers-client"
-import { ErrorBanner, PageHeader } from "@/components/ui"
+import { PageHeader } from "@/components/ui"
+import { UpstreamNotice } from "@/components/upstream-notice"
 import { loadShell } from "@/lib/server-data"
 
 export const dynamic = "force-dynamic"
@@ -13,7 +14,7 @@ export default async function ProvidersPage() {
         title="供应商"
         description="连接状态、模型发现与启用开关。密钥只以引用形式存在于 mik 侧，看板看不到明文。"
       />
-      {shell.errors.length > 0 ? <ErrorBanner message={shell.errors[0] ?? "未知错误"} /> : null}
+      <UpstreamNotice message={shell.errors[0]} />
       <ProvidersClient providers={shell.providers} />
     </>
   )

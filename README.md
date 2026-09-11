@@ -113,6 +113,8 @@ Mock reply: the local provider answered without touching the network.
 
 字段速查见 [`packages/mik/README.md`](packages/mik/README.md)。
 
+**查看用量**：`mik usage summary` / `mik usage logs` / `mik usage export`（CLI，三条命令覆盖汇总 / 明细 / 导出），或自建 UI 直接读 `mik serve` 的 `/api/*`；看板不随包发布，见下文[「看板」](#看板)。
+
 ### ② fetch 适配器：已有 OpenAI SDK 代码零改动被计量
 
 适用：已经在用 `openai` SDK 的项目。**只改客户端构造的两行**，业务代码一行不动。
@@ -245,7 +247,7 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
   See the "Dashboard" section of the project README.
 ```
 
-`--dir <path>` 可指向任意一份看板副本（该目录需含 `package.json`）；自行部署时也走 `next start`，看板只读 `mik serve` 的 HTTP API。仓库内启动时先打印一行 `Starting dashboard from <dir> on http://127.0.0.1:3210`。
+`--dir <path>` 可指向任意一份看板副本（该目录需含 `package.json`）；自行部署时也走 `next start`，看板只读 `mik serve` 的 HTTP API。仓库内启动时先打印一行 `Starting dashboard from <dir> on http://127.0.0.1:3210`。**启动不依赖 shell 解析**：`mik dashboard` 两分支都用 `node` 直接 spawn（本机 next → `next start`；无本机 next → 解析 pnpm 自身的 JS 入口跑 `pnpm exec next start`），命令行不经过 `cmd.exe`/`sh`。
 
 `mik dashboard` 会托管它拉起的 Next.js 子进程：Ctrl+C（SIGINT/SIGTERM）或父进程正常退出时按**进程树**回收（Windows 走 `taskkill /T /F`，其它平台先 `SIGTERM`、200ms 后补 `SIGKILL`），不会残留占住 3210 的 `next`。注意 `SIGKILL`（`kill -9`、任务管理器强杀）无法拦截，父进程被杀时清理钩子不会执行；此时若 3210 被占，可换 `--port <n>` 起看板，或手动结束残留的 `next` 进程（Windows：`taskkill /pid <pid> /T /F`，pid 取自 `netstat -ano | findstr :3210`）。
 
