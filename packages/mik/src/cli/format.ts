@@ -57,8 +57,47 @@ export function formatDate(ts: number | undefined): string {
 
 export type Align = "left" | "right"
 
+/**
+ * Terminal columns a string occupies, for the East Asian Wide/Fullwidth ranges.
+ *
+ * Purely ASCII text is unaffected (`displayWidth("A") === "A".length`), so every
+ * English table keeps rendering byte-for-byte as before; the point is that a
+ * localized (EVO-G13) Chinese header such as `供应商` is padded as 6 columns
+ * instead of 3, which is what stops it from shifting the column it labels.
+ */
+function displayWidth(value: string): number {
+  let width = 0
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0
+    width += isWide(code) ? 2 : 1
+  }
+  return width
+}
+
+function isWide(code: number): boolean {
+  return (
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x2e80 && code <= 0x303e) ||
+    (code >= 0x3041 && code <= 0x33ff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0xa000 && code <= 0xa4cf) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe10 && code <= 0xfe19) ||
+    (code >= 0xfe30 && code <= 0xfe6f) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    (code >= 0x1f300 && code <= 0x1f64f) ||
+    (code >= 0x1f900 && code <= 0x1f9ff) ||
+    (code >= 0x20000 && code <= 0x3fffd)
+  )
+}
+
+/** Pad `value` to `width` display columns in the requested direction. */
 function cell(value: string, width: number, align: Align): string {
-  return align === "right" ? value.padStart(width) : value.padEnd(width)
+  const padding = " ".repeat(Math.max(0, width - displayWidth(value)))
+  return align === "right" ? padding + value : value + padding
 }
 
 /**
@@ -67,7 +106,7 @@ function cell(value: string, width: number, align: Align): string {
  */
 export function formatTable(headers: readonly string[], rows: readonly (readonly string[])[], align?: readonly Align[]): string {
   const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => (row[index] ?? "").length)),
+    Math.max(displayWidth(header), ...rows.map((row) => displayWidth(row[index] ?? ""))),
   )
   const render = (cells: readonly string[]): string =>
     headers
@@ -80,6 +119,6 @@ export function formatTable(headers: readonly string[], rows: readonly (readonly
 
 /** A two-column `label  value` block, used by `usage summary`. */
 export function formatKeyValues(entries: ReadonlyArray<readonly [string, string]>): string {
-  const width = Math.max(0, ...entries.map(([label]) => label.length))
-  return entries.map(([label, value]) => `${label.padEnd(width)}  ${value}`).join("\n")
+  const width = Math.max(0, ...entries.map(([label]) => displayWidth(label)))
+  return entries.map(([label, value]) => `${cell(label, width, "left")}  ${value}`).join("\n")
 }

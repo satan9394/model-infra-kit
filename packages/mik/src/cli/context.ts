@@ -70,6 +70,20 @@ export function invocationLang(options: RunOptions): Lang {
   return resolveCliLang(resolveEnv(options), undefined)
 }
 
+/**
+ * Language for a *command body*, once the hub (and therefore `cli.lang`) exists:
+ * `MIK_LANG` → stored `cli.lang` → OS locale → `en` — the same chain `init.ts`
+ * and `repl.ts` use, so a `/lang zh` REPL session cannot get English tables out
+ * of `/providers`. The env always comes from `options.env`, never the real
+ * `process.env`, so a test that injects `MIK_LANG` keeps control (EVO-G12).
+ *
+ * Flag/usage errors raised *before* the hub open still use `invocationLang`
+ * (there is no store yet to consult).
+ */
+export function contextLang(context: CliContext, options: RunOptions): Lang {
+  return resolveCliLang(resolveEnv(options), context.hub.readSetting("cli.lang") ?? undefined)
+}
+
 export function resolveCwd(options: RunOptions): string {
   return options.cwd ?? process.cwd()
 }
