@@ -12,6 +12,9 @@ and no third-party packages.
 variable `MIK_MODEL` (or the `provider:model` passed as the second argument).
 Every request carries `"user": "python-host"`, which the proxy stores as the
 usage event's `session_id`, so the run can be attributed afterwards.
+
+When the serve instance is protected, set `MIK_SERVER_TOKEN` and the example
+attaches a `Bearer` header — it stays token-agnostic (no token, no header).
 """
 
 from __future__ import annotations
@@ -32,6 +35,11 @@ def main(argv: list[str]) -> int:
         print("usage: host.py [base_url] [model]", file=sys.stderr)
         return 2
 
+    headers = {"content-type": "application/json"}
+    token = os.environ.get("MIK_SERVER_TOKEN", "")
+    if token:
+        headers["authorization"] = f"Bearer {token}"
+
     payload = {
         "model": model,
         # One user message only: the proxy maps `messages` onto the AI SDK,
@@ -42,7 +50,7 @@ def main(argv: list[str]) -> int:
     request = urllib.request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers=headers,
         method="POST",
     )
 

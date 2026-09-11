@@ -12,6 +12,9 @@ Set-Location $Root
 $env:MIK_DB = $Db
 $env:MIK_APP_ID = "envcheck"
 $env:K = "sk-envcheck"
+# G01: without a token the serve's write endpoints 401, so the battery gives
+# the serve a token and every write below carries it.
+$env:MIK_SERVER_TOKEN = "envcheck-token"
 $env:NO_PROXY = "127.0.0.1,localhost"
 
 function Fail([string]$Step, [string]$Message = "") {
@@ -49,7 +52,7 @@ try {
   Set-Content -Encoding utf8 "$env:TEMP\chat-$Name.json" '{"model":"local:mock-mini","messages":[{"role":"user","content":"hi"}]}'
   $p = ""
   for ($i = 0; $i -lt 5; $i++) {
-    $p = curl.exe -s -m 3 -X POST "http://127.0.0.1:$ServePort/v1/chat/completions" -H "content-type: application/json" --data-binary "@$env:TEMP\chat-$Name.json"
+    $p = curl.exe -s -m 3 -X POST "http://127.0.0.1:$ServePort/v1/chat/completions" -H "content-type: application/json" -H "authorization: Bearer envcheck-token" --data-binary "@$env:TEMP\chat-$Name.json"
     if ($p -match '"usage"') { break }
     Start-Sleep -Seconds 1
   }

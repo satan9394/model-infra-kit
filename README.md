@@ -173,6 +173,8 @@ node packages/mik/dist/cli.mjs init --app-id my-app --provider deepseek --yes
 # 2) 起服务（默认 127.0.0.1:3211）
 node packages/mik/dist/cli.mjs serve --port 3211
 #    装了包之后也可以直接： npx mik serve --port 3211
+#    安全默认：不配 token 时写端点（POST/PATCH/PUT/DELETE）一律 401，GET 读端点与 /api/health 保持公开；
+#    需要写端点（增删改供应商/定价等）就设 --token <值> 或环境变量 MIK_SERVER_TOKEN=<值>。
 #    浏览器要直连取数时加 CORS：--cors '*'（任意源）或 --cors https://你的主站
 
 # 3) 健康检查
@@ -370,7 +372,7 @@ NODE_OPTIONS=--no-warnings node quickstart.ts
 # C. 等 Node 把它转正，或换掉驱动（见下一条）
 ```
 
-`mik serve` 的 stdout 默认三行：`Listening on http://127.0.0.1:3211`、`OpenAI-compatible base URL: .../v1`、`Press Ctrl+C to stop.`（带 `--token` / `MIK_SERVER_TOKEN` 时多一行 `Bearer token required (value not shown).`；退出时再打一行 `Stopped.`）。子命令的输出都是人类可读的表格，没有隐藏日志。
+`mik serve` 的 stdout 默认三行：`Listening on http://127.0.0.1:3211`、`OpenAI-compatible base URL: .../v1`、`Press Ctrl+C to stop.`（带 `--token` / `MIK_SERVER_TOKEN` 时多一行 `Bearer token required (value not shown).`；**无 token 且终端为 TTY 时多一行「写端点已禁用：设置 --token 或 MIK_SERVER_TOKEN 启用。」**——无 token 时写端点一律 401，这是安全默认；退出时再打一行 `Stopped.`）。子命令的输出都是人类可读的表格，没有隐藏日志。
 
 ### 2. 如何换成 `better-sqlite3`？
 

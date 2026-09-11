@@ -185,6 +185,8 @@ export interface ModelInfraOptions extends ModelInfraConfig {
   maxRetries?: number
   pricingCatalog?: import("llm-pricing").PricingCatalog
   pricingFetch?: typeof globalThis.fetch
+  /** G01 追加：显式价格目录源；HTTP 面 sync 前用 SSRF guard 校验（经 `pricing.outboundUrls()`）。 */
+  pricingSources?: import("llm-pricing").PricingSource[]
   onUsage?: (event: UsageEvent) => void
 }
 ```
@@ -215,9 +217,11 @@ GET  /openapi.json
 POST /v1/chat/completions      GET /v1/models
 ```
 
+**G01 默认拒绝写（安全默认）**：未配置 token（`--token` / `MIK_SERVER_TOKEN`）时，写方法（POST/PATCH/PUT/DELETE，除 `/api/health` 外，含 `/v1/chat/completions`）一律 401，消息给出如何设置 token 的指引；GET 读端点与 `/api/health` 保持公开。配置了 token 时行为不变：除 `/api/health` 外全部端点要求 `Bearer`。另外：`readJsonBody` 只接受 `application/json`（含 `+json`、charset），否则 415；`provider test` / `models refresh` / `pricing sync` 出站前校验 URL（仅 http(s)，禁链路本地/云元数据地址如 169.254.0.0/16、fe80::/10、0.0.0.0、`[::]`，loopback 127.0.0.0/8、`::1` 放行），违规 400「INVALID_REQUEST」。
+
 ### `POST /api/usage/events`（F19）
 
-宿主不想改调用链、只想统一记账时用。**鉴权**与其它端点一致（设了 token 就要求 `Bearer`）。
+宿主不想改调用链、只想统一记账时用。**鉴权**与其它端点一致（设了 token 就要求 `Bearer`）。**G01 计量防伪造**：`appId` 只允许等于本服务 `hub.appId`（缺省取 `hub.appId`），否则 400。
 
 请求体：单条，或 `{ events: [...] }` 批量（单次上限 500 条）。
 
@@ -242,7 +246,7 @@ POST /v1/chat/completions      GET /v1/models
   errorCode?: string
   isStreaming?: boolean
   sessionId?: string
-  appId?: string               // 缺省用服务端 appId；显式给出则以给出值为准（服务端视为可信写入方）
+  appId?: string               // G01：只允许等于本服务 appId，缺省取服务端 appId；否则整单 400（防计量伪造）
   tags?: Record<string, string> // 值经 redactDeep 脱敏后入库
 }
 ```

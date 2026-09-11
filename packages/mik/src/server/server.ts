@@ -114,6 +114,11 @@ function isPublicRoute(segments: string[]): boolean {
   return segments.length === 2 && segments[0] === "api" && segments[1] === "health"
 }
 
+/** The methods that mutate state behind the `/api` and `/v1` surfaces. */
+function isWriteMethod(method: string): boolean {
+  return method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE"
+}
+
 /**
  * Start the HTTP surface of a hub: the OpenAI-compatible endpoints under `/v1`,
  * the metering REST API under `/api`, the event stream and the OpenAPI document.
@@ -170,14 +175,27 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
       }
 
       const segments = pathSegments(url)
-      if (token && !isPublicRoute(segments)) {
-        const presented = bearerToken(req)
-        if (!presented || !safeEqual(presented, token)) {
-          sendError(res, 401, "Missing or invalid credentials.", "AUTH", {
-            "www-authenticate": 'Bearer realm="model-infra-kit"',
-          })
-          return
+      if (token) {
+        if (!isPublicRoute(segments)) {
+          const presented = bearerToken(req)
+          if (!presented || !safeEqual(presented, token)) {
+            sendError(res, 401, "Missing or invalid credentials.", "AUTH", {
+              "www-authenticate": 'Bearer realm="model-infra-kit"',
+            })
+            return
+          }
         }
+      } else if (isWriteMethod(method) && !isPublicRoute(segments)) {
+        // Safe by default: without a token the write surface is disabled and
+        // the answer carries the way out. GET reads and /api/health stay open.
+        sendError(
+          res,
+          401,
+          "Write endpoints are disabled because no token is configured. Set --token or MIK_SERVER_TOKEN to enable them.",
+          "AUTH",
+          { "www-authenticate": 'Bearer realm="model-infra-kit"' },
+        )
+        return
       }
 
       const match = router.match(method, segments)

@@ -71,6 +71,8 @@ const argv = process.argv.slice(2)
 const injectFailure = argv.includes("--inject-failure")
 const breakDashboard = argv.includes("--break-dashboard")
 const APP_ID = "mik-e2e"
+/** G01: the e2e proxy server needs a token now — write endpoints 401 without one. */
+const SERVER_TOKEN = "e2e-write-token"
 const DEFAULT_PORT = 3211
 const DASHBOARD_PORT = 3210
 const DIST_PORT = 3212
@@ -245,7 +247,12 @@ function startDashboard(port, serverUrl) {
   assert(existsSync(DASHBOARD_NEXT), `next is not installed at ${DASHBOARD_NEXT} — run \`pnpm install\` first`)
   const child = spawn(process.execPath, [DASHBOARD_NEXT, "start", "-p", String(port)], {
     cwd: DASHBOARD_DIR,
-    env: cleanEnv({ MIK_SERVER_URL: serverUrl, PORT: String(port), NODE_ENV: "production" }),
+    env: cleanEnv({
+      MIK_SERVER_URL: serverUrl,
+      MIK_SERVER_TOKEN: SERVER_TOKEN,
+      PORT: String(port),
+      NODE_ENV: "production",
+    }),
     stdio: ["ignore", "pipe", "pipe"],
   })
   let output = ""
@@ -534,7 +541,7 @@ async function main() {
     if (!injectFailure) {
       hub = await ModelInfra.init({ appId: APP_ID, db: dbPath, syncCatalog: false, pricingFetch: unreachableFetch, cacheDir, onWarn: () => {} })
       cleanup.push(async () => hub.close())
-      server = await createServer({ hub, port: proxyPort, host: "127.0.0.1" })
+      server = await createServer({ hub, port: proxyPort, host: "127.0.0.1", token: SERVER_TOKEN })
       cleanup.push(async () => server.close())
       base = hub.baseUrl
       assert(base === `http://127.0.0.1:${proxyPort}/v1`, `hub.baseUrl is ${base}`)
@@ -543,7 +550,7 @@ async function main() {
     const chat = async (body) => {
       const response = await fetch(`${base}/chat/completions`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", authorization: `Bearer ${SERVER_TOKEN}` },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
       })
@@ -641,7 +648,9 @@ async function main() {
     await step("AC5", "examples/python-host: cross-language call metered", async () => {
       const version = spawnSync(PYTHON, ["--version"], { encoding: "utf8" })
       assert(version.status === 0, `python not usable (${PYTHON}); set MIK_E2E_PYTHON to a python 3 binary`)
-      const run = await spawnCapture(PYTHON, [PYTHON_EXAMPLE, base, "mock:mock-mini"], { env: cleanEnv({ MIK_CACHE_DIR: cacheDir }) })
+      const run = await spawnCapture(PYTHON, [PYTHON_EXAMPLE, base, "mock:mock-mini"], {
+        env: cleanEnv({ MIK_CACHE_DIR: cacheDir, MIK_SERVER_TOKEN: SERVER_TOKEN }),
+      })
       assert(run.code === 0, `the Python host exited ${run.code}\n${run.stdout}\n${run.stderr}`)
       assert(run.stdout.includes("usage:"), `the Python host printed no usage:\n${run.stdout}`)
 

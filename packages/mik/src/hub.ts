@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { generateText, stepCountIs, streamText, type LanguageModelUsage } from "ai"
-import type { PricingCatalog } from "llm-pricing"
+import type { PricingCatalog, PricingSource } from "llm-pricing"
 import { createAiBridge, type AiBridge } from "./ai/bridge.js"
 import { CredentialStore } from "./credential/store.js"
 import { isModelInfraError, ModelInfraError, toModelInfraError } from "./errors.js"
@@ -77,6 +77,8 @@ export interface ModelInfraOptions extends ModelInfraConfig {
   pricingCatalog?: PricingCatalog
   /** Transport used to load the pricing catalogue; inject a failing one to stay offline. */
   pricingFetch?: typeof globalThis.fetch
+  /** Explicit pricing catalogue sources; validated by the server's SSRF guard. */
+  pricingSources?: PricingSource[]
   /** Observer called after each usage event is stored. A throw here is contained. */
   onUsage?: (event: UsageEvent) => void
 }
@@ -348,6 +350,7 @@ export class ModelInfra {
       onWarn: warn,
       catalog: config.pricingCatalog,
       fetch: config.pricingFetch,
+      sources: config.pricingSources,
     })
     // Rule 6: the catalogue load is the only unbounded wait on this path, so it
     // gets the same bounded wait `close()` uses. A load that is still running

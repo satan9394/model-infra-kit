@@ -27,6 +27,9 @@ mkdir -p "$ROOT/.tmp"   # payload + CSV land here; must exist in a fresh checkou
 export MIK_DB="$DB"
 export MIK_APP_ID="envcheck"
 export K="sk-envcheck"
+# G01: without a token the serve's write endpoints 401, so the battery gives
+# the serve a token and every write below carries it.
+export MIK_SERVER_TOKEN="envcheck-token"
 export NO_PROXY="127.0.0.1,localhost"
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
 PY=$(command -v python3 || command -v python || true)
@@ -78,7 +81,7 @@ if command -v cygpath >/dev/null 2>&1; then PAY=$(cygpath -w "$PAY"); fi
 printf '{"model":"local:mock-mini","messages":[{"role":"user","content":"hi"}]}' >"$ROOT/.tmp/chat-$NAME.json"
 for _ in $(seq 1 5); do
   BODY=$(curl -s -m 3 -X POST "http://127.0.0.1:$SERVEPORT/v1/chat/completions" \
-    -H "content-type: application/json" --data-binary "@$PAY" 2>/dev/null || true)
+    -H "content-type: application/json" -H "authorization: Bearer envcheck-token" --data-binary "@$PAY" 2>/dev/null || true)
   if printf '%s' "$BODY" | grep -q '"usage"'; then break; fi
   sleep 1
 done
