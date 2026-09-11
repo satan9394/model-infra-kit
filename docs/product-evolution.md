@@ -44,10 +44,11 @@
 - **LATER**：G08、G09、G10、G11、G12、G13、G14（软预算/对账文档/可选同步）。
 - **NOT_NOW（拒绝清单）**：竞品 DON'T 清单（虚拟 key、限额硬执行、观测性、路由/failover、多租户、云同步、充值计费）+ 纯装饰（主题色等）。
 
-## PRODUCT_STATE（R12，G01+G02 已验收关闭）
+## PRODUCT_STATE（R13，G01+G02+G03 已验收关闭）
 
-- **当前成熟度**：v0.1.8，G01（安全默认）+ G02（REPL/向导体验 + i18n 契约）均经独立 Evaluator ACCEPT（当前 368 测试全绿，e2e 与三环境电池 PASS）。
-- **本轮最高价值下一步**：G04（cli↔repl 循环依赖收敛，第三 slice）——架构顶层地雷，未来 REPL 演进前置清理；其后 G02（dashboard 子进程托管）。
-- **技术债**：cli↔repl 环（G04，下一步）、dashboard 子进程孤儿（G02，排队）、单字典 i18n（G09）、as unknown as 6 处、契约漂移（G08/G13）、DB 恢复缺失（G11）。
+- **当前成熟度**：v0.1.9，G01（安全默认）+ G02（REPL/向导 + i18n 契约）+ G03（cli↔repl 环收敛）三项均经独立 Evaluator ACCEPT（363 测试全绿，e2e 与三环境电池 PASS）。
+- **本轮最高价值下一步**：G04（dashboard 子进程托管，第四 slice）——最后一个 P1；其后转 LATER 集群（G08 配置优先级表 / G11 DB 恢复 / G12 redact 增强 / G13 契约补全 / G14 价值项）。
+- **技术债**：dashboard 子进程孤儿（下一步 G04）、单字典 i18n（G09）、as unknown as 6 处、契约漂移（G08/G13）、DB 恢复缺失（G11）、runCommand/main 重复前置段、防环断言仅覆盖单写法、index.ts 末尾换行丢失（G17）。
 - **风险**：none 阻塞级；子代理在审计阶段曾跑死（已用「文件交付 + 前台/上限」协议解决）。
+
 

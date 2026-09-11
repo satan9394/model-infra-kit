@@ -4,64 +4,20 @@
  *
  * Design constraints from `tasks/T06-cli.md`: Node built-ins only (no CLI
  * framework), human-readable output, and never a secret on stdout.
+ *
+ * Dependency direction (EVO-G03): `index → repl → dispatch` and
+ * `index → dispatch` — repl.ts reaches the dispatch through dispatch.ts, so
+ * there is no index↔repl cycle.
  */
 import { realpathSync } from "node:fs"
 import { pathToFileURL } from "node:url"
 import { parseCliArgs, type ParsedCli } from "./args.js"
-import { messageOf, resolveIo, type CliIo, type RunOptions } from "./context.js"
-import { CliUsageError } from "./errors.js"
-import { renderActionHelp, renderCommandHelp, renderRootHelp, renderVersion } from "./help.js"
-import { runDashboard } from "./commands/dashboard.js"
-import { runInit } from "./commands/init.js"
-import { runModels } from "./commands/models.js"
-import { runPricing } from "./commands/pricing.js"
-import { runProvider } from "./commands/provider.js"
-import { runServe } from "./commands/serve.js"
-import { runUsage } from "./commands/usage.js"
+import { messageOf, resolveIo, type RunOptions } from "./context.js"
+import { renderVersion } from "./help.js"
+import { EXIT_FAILURE, EXIT_OK, dispatch, helpFor, report } from "./dispatch.js"
 import { isInteractive } from "./prompt.js"
 import { runRepl } from "./repl.js"
 import { redact } from "../util/redact.js"
-
-export const EXIT_OK = 0
-export const EXIT_FAILURE = 1
-export const EXIT_USAGE = 2
-
-export function helpFor(parsed: ParsedCli): string {
-  if (parsed.command && parsed.action) return renderActionHelp(parsed.command, parsed.action)
-  if (parsed.command) return renderCommandHelp(parsed.command)
-  return renderRootHelp()
-}
-
-function report(error: unknown, io: CliIo): number {
-  if (error instanceof CliUsageError) {
-    io.err(`error: ${redact(error.message)}`)
-    if (error.usage) io.err(`usage: ${error.usage}`)
-    return EXIT_USAGE
-  }
-  io.err(`error: ${redact(messageOf(error))}`)
-  return EXIT_FAILURE
-}
-
-async function dispatch(parsed: ParsedCli, options: RunOptions): Promise<number> {
-  switch (parsed.command?.name) {
-    case "init":
-      return runInit(parsed, options)
-    case "serve":
-      return runServe(parsed, options)
-    case "dashboard":
-      return runDashboard(parsed, options)
-    case "provider":
-      return runProvider(parsed, options)
-    case "models":
-      return runModels(parsed, options)
-    case "pricing":
-      return runPricing(parsed, options)
-    case "usage":
-      return runUsage(parsed, options)
-    default:
-      throw new CliUsageError(`Unknown command "${parsed.command?.name ?? ""}".`, "mik --help")
-  }
-}
 
 /** Run one CLI invocation. Returns the process exit code; never calls `process.exit`. */
 export async function main(argv: readonly string[], options: RunOptions = {}): Promise<number> {
@@ -130,3 +86,4 @@ export { assertPortFree, netstatShowsPort, portInUse, probePort } from "./ports.
 export { openContext, withContext, offlineFetch, DEFAULT_CONFIG_FILE } from "./context.js"
 export type { CliConfigFile, CliContext, CliIo, RunOptions } from "./context.js"
 export { CliRuntimeError, CliUsageError } from "./errors.js"
+export { EXIT_FAILURE, EXIT_OK, EXIT_USAGE, helpFor } from "./dispatch.js"

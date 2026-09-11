@@ -13,7 +13,7 @@ import type { ParsedCli } from "./args.js"
 import { messageOf, openContext, resolveEnv, resolveIo, type CliContext, type RunOptions } from "./context.js"
 import { formatMoney } from "./format.js"
 import { isLang, LANGS, LANG_LABELS, parseLangChoice, resolveLang, tr, trBoth, type Lang } from "./i18n.js"
-import { main } from "./index.js"
+import { runCommand } from "./dispatch.js"
 import { isInteractive, prompt } from "./prompt.js"
 import { redact } from "../util/redact.js"
 
@@ -22,7 +22,7 @@ export const EXIT_USAGE = 2
 export interface SlashCommand {
   name: string
   summaryKey: string
-  /** argv for `main()`; the REPL handles help/lang/chat/exit itself. */
+  /** argv for `runCommand()`; the REPL handles help/lang/chat/exit itself. */
   argv: (arg: string) => string[]
 }
 
@@ -127,7 +127,7 @@ export async function handleLine(
       io.err(tr(lang, "repl.unknownCmd", `/${name}`))
       return { exit: false, lang }
     }
-    await main(command.argv(slash.arg), { ...options, interactive: false })
+    await runCommand(command.argv(slash.arg), { ...options, interactive: false })
     return { exit: false, lang }
   }
 
