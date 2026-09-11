@@ -588,6 +588,18 @@ export class ModelInfra {
     return this.closePromise
   }
 
+  /** Read a small persisted setting (e.g. the CLI language). */
+  readSetting(key: string): string | null {
+    this.assertOpen("readSetting")
+    return this.store.settings.get(key)
+  }
+
+  /** Persist a small setting (e.g. the CLI language). */
+  writeSetting(key: string, value: string): void {
+    this.assertOpen("writeSetting")
+    this.store.settings.set(key, value)
+  }
+
   private async closeAfterSync(): Promise<void> {
     await settleWithin(this.catalogSync, CLOSE_SYNC_TIMEOUT_MS)
     // Set before the store goes away: from here on every warning is a race

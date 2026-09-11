@@ -337,6 +337,21 @@ get isEnabled(): boolean     // 与构造入参 `enabled` 同值；false 时 rec
 - 两个只读 getter 是宿主便利（源码注释即写明 "Additive convenience, not part of the contract"），用于日志/自检/看板展示。
 - **不要**用它们做权限或隔离判断：多 app 隔离由 `UsageService` 内部保证（见上文 `get()` 语义）。
 
+### 小设置持久化（v0.1.6 新增）— 稳定
+
+CLI 的首次运行向导与 REPL 需要把「界面语言」这类**小设置**落库，故 `ModelInfra` 公开两个薄封装（等价于直读 `settings` 表，但不暴露 Store）：
+
+```ts
+/** 稳定。读一个小设置（如 CLI 语言 `cli.lang`）；不存在返回 null。 */
+readSetting(key: string): string | null
+/** 稳定。写一个小设置；此接口只读不保证语义（键名由调用方约定）。 */
+writeSetting(key: string, value: string): void
+```
+
+- 仅限「小设置」：界面语言、UX 偏好等；**不要**用它们存密钥（密钥仍走 `api_key_ref`）或大对象。
+- 现有约定键：`cli.lang` = `"zh" | "en"`（`src/cli/i18n.ts` 的 `Lang`）。
+- CLI 侧读取顺序：`MIK_LANG` 环境变量 → `cli.lang` 设置 → `zh`。
+
 ---
 
 ## 指挥裁决（R01 评审后，2026-09-09）

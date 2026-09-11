@@ -287,6 +287,32 @@ The dashboard is not published with the npm package: model-infra-kit ships the l
 
 `mik` 的全局开关：`--db <path>`、`--app-id <id>`、`--config <path>`、`--cache-dir <path>`、`--offline`（完全不联网）、`-h`、`-v`。每个子命令都支持 `--help`。
 
+### 交互模式（斜杠命令，中英双语）
+
+在终端里直接运行 `mik`（不带子命令）进入 REPL：斜杠命令每个都带「中文 / English」说明，自由文本直接走默认模型对话，`/lang` 切换语言并持久化（`MIK_LANG` 环境变量优先）。
+
+```text
+$ mik
+mik 交互模式 —— 输入 /help 查看斜杠命令
+没有斜杠时直接输入文字 = 用默认模型对话
+mik> /help
+/help       显示所有斜杠命令 / Show all slash commands
+/lang       切换语言 zh / en / Switch language zh / en
+/providers  列出供应商与默认模型 / List providers and the default model
+/models     查看模型目录（--refresh 触发发现） / Show the model catalogue ...
+/pricing    查看价格表与手动价 / Show the pricing table and manual overrides
+/usage      查看用量汇总（--limit n 限制条数） / Show the usage summary ...
+/chat       用默认模型对话 / Chat with the default model
+/exit       退出 / Exit
+mik> 你好，介绍一下你自己
+```
+
+`/help`、`/providers`、`/models`、`/pricing`、`/usage` 直接复用对应子命令；`/chat <prompt>` 和自由文本走默认模型；`Ctrl+D` 或 `/exit` 退出。
+
+### 首次运行向导（语言 + 供应商 + 上手三步）
+
+`mik init` 在交互终端里先问语言（1: 中文 / 2: English），再问应用 id、数据库路径与首个供应商预设，随后按所选语言打印上手步骤（设密钥 → 测试连接 → 拉模型目录 → serve → dashboard → 交互模式）。语言选择会写入 `cli.lang` 设置并影响后续 REPL 措辞。
+
 ```text
 $ node packages/mik/dist/cli.mjs --help
 model-infra-kit (mik) 0.1.1
