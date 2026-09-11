@@ -102,13 +102,17 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 - **基线样本集必须闭合**（G12）：我用 4 条英文基线 + 9 条探针宣称「en 零回归」，但它们**全用未知选项 `--nope`**（由 `node:util` 先抛错、走透传分支）；而 `flagNotAllowed` 只在「**已知但属于别的命令**的选项」（如 `--port`）时触发——**第三种错误形状**，正是我漏掉的那一条。做法：**按错误形状分类枚举**（未知选项 / 未知命令 / 缺参数 / 放错位置的已知选项 / 缺选项值），每种至少一条基线。
 - **注入式 API 不得回落到真实环境**（G12）：`requireArg(parsed, i, name, lang = invocationLang({}))` 传**空对象**，于是忽略调用方注入的 `RunOptions.env`、去读真实 `process.env` —— 单测注入 `MIK_LANG=zh` 到不了它，产出**中英混排**。做法：凡有 `RunOptions`/`env` 注入的入口，默认值必须**透传那个注入对象**，而不是新建 `{}`。
 - **评审建议也要交叉验证**（G12）：第一位 Evaluator 建议把字典值改成 `--%s is not valid…`，第二位指出那会输出 `----port`、正确的是 `"%s is not valid for \"%s\"."`。**多个独立评审会互相纠错**——收到建议后先自己复现一遍再照做。
+- **升版后必须重跑全量测试**（R99，我自己的流程失误）：CLI 的 `--help` 横幅含版本号，冻结类快照测试会因版本号变化而变红。R99 我改完 `package.json` 只跑了 `build` 就提交，导致 **CI 三 OS 全红**（本地「绿」是因为跑测试时版本还是旧的）。**`npm version` / 改 `package.json` 之后，必须重跑全量测试再提交**。
+- **文件级 fixture 必须处理跨平台换行**（R99）：`.txt` 快照被 Git for Windows（`core.autocrlf=true`）检出为 **CRLF**，而 CLI 输出是 LF → **只有 `windows-latest` 全红、ubuntu/macos 全绿**。双保险：① 测试内比较前把 `\r\n` 归一化为 `\n`；② 仓库加 `.gitattributes` 固定 `*.txt text eol=lf`。**只做其一都不够**（归一化防未来，gitattributes 防当前 checkout）。
+- **新增测试的「首秀」在 CI**（R99）：G47 新建的冻结面测试**本地 5/5 绿**，却让 CI 连红两轮（先版本号、后换行符）。教训：**新测试的绿色不能只在本地取**——推 CI 后必须看结果；这也再次证明「本地全绿对平台相关改动毫无证明力」。
 
-## 当前状态（R83）
+## 当前状态（R99）
 
-- **版本 v0.2.8**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 451 例**（`pnpm --filter model-infra-kit test`，20 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。
-- **已验收发布的切片**：G01–G12（`0.1.7` → `0.2.8`）。产品演进全貌、GAP_MAP、技术债 G15–G49、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
-- **进行中 / 下一个**：G13（子命令输出本地化第一批：`provider` 7 处 + `usage` 5 处），卡见 `tasks/EVO-G13-subcommand-i18n.md`；改前基线已固化在 `.tmp/baseline-g13-*.txt`（注意 `.tmp/` 被 gitignore，进不了 CI——见技术债 G47）。
+- **版本 v0.2.9**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 466 例**（`pnpm --filter model-infra-kit test`，21 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。
+- **已验收发布的切片**：G01–G13（`0.1.7` → `0.2.9`）。产品演进全貌、GAP_MAP、技术债 G15–G50、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
+- **CLI 双语完成度**：入门面（`--help`/用法/未知命令，G12）+ `provider`/`usage` 输出（G13）已本地化；**剩余 18 处**（`models` 5 / `serve` 5 / `pricing` 4 / `context` 3 的 **`warning:` 前缀** / `dashboard` 1）→ 下一片 G14。库层 11 处错误文案（`registry`/`credential`/`ai`/`server`）**不在** G14 范围，需先定「CLI 是否统一包装库层错误」策略。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
-- 每轮收尾铁律：机械门禁 → 独立 Evaluator 验收 → 提交（只 add 自己的文件）+ 升版 patch → `npm publish` → `gh release create` → **CI 三 OS 绿** → **G36 发布产物验证** → 更新 `docs/product-evolution.md`。
+- **英文冻结面**：`packages/mik/test/cli-english-surface.test.ts` + `test/fixtures/*.txt`（5 类错误形状，受版本控制、CI 可见）。比较前会归一化**版本号与换行符**，只断言文案与退出码。
+- 每轮收尾铁律：机械门禁（**两种 locale**）→ 独立 Evaluator 验收 → 提交（只 add 自己的文件）+ 升版 patch → **重跑全量** → `npm publish` → `gh release create` → **CI 三 OS 绿** → **G36 发布产物验证** → 更新 `docs/product-evolution.md`。
 
