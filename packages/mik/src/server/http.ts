@@ -89,6 +89,18 @@ export async function readBody(req: IncomingMessage): Promise<string> {
 
 /** An empty body is an empty object; anything that is not a JSON object is a 400. */
 export async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  // Only true JSON media types: `application/json` and `*+json`, charset
+  // allowed. `text/plain` is the one Content-Type a browser can send on a
+  // POST without a CORS preflight, so accepting it would open a no-cors write
+  // channel for a malicious page — hence 415.
+  const mediaType = req.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() ?? ""
+  if (mediaType !== "application/json" && !mediaType.endsWith("+json")) {
+    throw new HttpError(
+      415,
+      `This endpoint only accepts application/json request bodies (received "${mediaType || "no content-type"}").`,
+      "UNSUPPORTED_MEDIA_TYPE",
+    )
+  }
   const raw = await readBody(req)
   if (!raw.trim()) return {}
   let parsed: unknown

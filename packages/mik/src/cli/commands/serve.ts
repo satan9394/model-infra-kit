@@ -128,6 +128,7 @@ export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<
     context.io.out(`Listening on ${handle.url}`)
     context.io.out(`OpenAI-compatible base URL: ${context.hub.baseUrl}`)
     if (token) context.io.out("Bearer token required (value not shown).")
+    else if (process.stdout.isTTY) context.io.out("写端点已禁用：设置 --token 或 MIK_SERVER_TOKEN 启用。")
     if (cors) context.io.out(typeof cors === "object" ? `CORS allowed: ${cors.origin}` : "CORS allowed for any origin.")
     context.io.out("Press Ctrl+C to stop.")
     await waitForShutdown(() => handle.close())

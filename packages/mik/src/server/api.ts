@@ -22,6 +22,51 @@ function stringRecord(value: unknown, field: string): Record<string, string> {
   return output
 }
 
+/**
+ * SSRF guard for the outbound endpoints (`provider test`, `models refresh`,
+ * `pricing sync`). Only `http`/`https` is allowed, and the host must not be a
+ * link-local or cloud-metadata address (169.254.0.0/16, fe80::/10, 0.0.0.0,
+ * `[::]`). Loopback stays allowed: local mocks and dev servers are legitimate.
+ */
+function assertSafeOutboundUrl(value: string | undefined, what: string): void {
+  if (value === undefined || value.trim() === "") return
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new HttpError(400, `"${what}" is not a valid URL.`, "INVALID_REQUEST")
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new HttpError(400, `"${what}" must use http(s), not "${url.protocol}".`, "INVALID_REQUEST")
+  }
+  if (isForbiddenAddress(url.hostname)) {
+    throw new HttpError(
+      400,
+      `"${what}" points at a link-local or cloud-metadata address and is refused.`,
+      "INVALID_REQUEST",
+    )
+  }
+}
+
+/** Literal address blocked by the SSRF guard. Hostnames resolve to allow-listed names. */
+function isForbiddenAddress(host: string): boolean {
+  const value = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host
+  const lower = value.toLowerCase()
+  if (lower === "0.0.0.0" || lower === "::" || lower === "::0") return true
+  // IPv4-mapped IPv6 (`::ffff:a.b.c.d`) is the same address as the quad.
+  if (lower.startsWith("::ffff:")) return isForbiddenAddress(lower.slice(7))
+  if (lower.includes(":")) {
+    // fe80::/10 → the first hextet is fe8x–febx. `::1` (loopback) is allowed.
+    return /^fe[89ab][0-9a-f]/.test(lower)
+  }
+  const parts = lower.split(".")
+  if (parts.length !== 4) return false
+  const octets = parts.map((part) => Number(part))
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false
+  // Cloud metadata / link-local: 169.254.0.0/16. Loopback 127.0.0.0/8 is allowed.
+  return octets[0] === 169 && octets[1] === 254
+}
+
 /** The mutable provider fields an HTTP body may set. Unknown keys are ignored. */
 function readProviderFields(body: Record<string, unknown>): Partial<ProviderConfig> {
   const fields: Partial<ProviderConfig> = {}
@@ -179,6 +224,13 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
   const modelActual = optionalText(body.modelActual, "modelActual") ?? modelRequested
   const ts = optionalNumber(body.ts, "ts") ?? Date.now()
 
+  // A report may only carry this server's own appId; anything else would let a
+  // client write rows into another app's bucket (usage forgery).
+  const appId = optionalText(body.appId, "appId") ?? hub.appId
+  if (appId !== hub.appId) {
+    throw new EventRejection(`"appId" must equal the server's appId ("${hub.appId}").`)
+  }
+
   const status = body.status === undefined || body.status === null ? "ok" : body.status
   if (status !== "ok" && status !== "error") {
     throw new EventRejection('"status" must be "ok" or "error".')
@@ -192,7 +244,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
 
   return {
     requestId,
-    appId: optionalText(body.appId, "appId") ?? hub.appId,
+    appId,
     ts,
     source: "report",
     providerId,
@@ -264,7 +316,11 @@ export function registerApiRoutes(router: Router): void {
 
     .add("POST", "/api/providers/:id/test", async (ctx) => {
       const id = ctx.params.id!
-      requireProvider(ctx, id)
+      const record = ctx.hub.providers.get(id)
+      if (!record) throw new HttpError(404, `Provider "${id}" is not configured.`, "PROVIDER_NOT_FOUND")
+      // A connection test makes the server carry the host's real API key to
+      // this URL, so only safe http(s) destinations are allowed.
+      assertSafeOutboundUrl(record.baseUrl, `provider "${id}" baseUrl`)
       sendJson(ctx.res, 200, { status: await ctx.hub.ai.test(id) })
     })
 
@@ -276,7 +332,11 @@ export function registerApiRoutes(router: Router): void {
 
     .add("POST", "/api/providers/:id/models/refresh", async (ctx) => {
       const id = ctx.params.id!
-      requireProvider(ctx, id)
+      const record = ctx.hub.providers.get(id)
+      if (!record) throw new HttpError(404, `Provider "${id}" is not configured.`, "PROVIDER_NOT_FOUND")
+      // Model discovery fetches the provider's own model list, so the base URL
+      // gets the same SSRF guard as the connection test.
+      assertSafeOutboundUrl(record.baseUrl, `provider "${id}" baseUrl`)
       // `ModelCatalog.refresh` is tapped in `events.ts`, so this also emits
       // `catalog.updated` on /api/events.
       sendJson(ctx.res, 200, { models: await ctx.hub.models.refresh(id) })
@@ -337,6 +397,11 @@ export function registerApiRoutes(router: Router): void {
     })
 
     .add("POST", "/api/pricing/sync", async (ctx) => {
+      // The sync re-downloads the catalogue, so every configured source URL is
+      // put through the SSRF guard before any outbound request happens.
+      for (const sourceUrl of ctx.hub.pricing.outboundUrls()) {
+        assertSafeOutboundUrl(sourceUrl, "pricing catalogue source")
+      }
       sendJson(ctx.res, 200, { state: await ctx.hub.pricing.refresh() })
     })
 
@@ -382,6 +447,12 @@ export function registerApiRoutes(router: Router): void {
 
     .add("POST", "/api/usage/events", async (ctx) => {
       const body = await readJsonBody(ctx.req)
+      // A single report is the body itself, so this check is what makes a
+      // forged `appId` fail the whole request (A3); batch items carrying their
+      // own `appId` are guarded per item in `buildReportedEvent`.
+      if (body.appId !== undefined && body.appId !== ctx.hub.appId) {
+        throw new HttpError(400, `"appId" must equal this server's appId ("${ctx.hub.appId}").`, "INVALID_REQUEST")
+      }
       // A single event and a batch are the same code path: the body *is* the
       // one-element report when it has no `events` key.
       const raw = body.events === undefined ? [body] : body.events

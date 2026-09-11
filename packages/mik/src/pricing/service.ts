@@ -1,10 +1,12 @@
 import {
   PricingCatalog,
   costFromRates,
+  modelsDevSource,
   pricingCandidates,
   type EstimateArgs,
   type ModelPrice,
   type PricingCatalogState,
+  type PricingSource,
   type Rates,
   type RequestFacts,
   type TokenCounts,
@@ -32,6 +34,12 @@ export interface PricingServiceDeps extends PricingDeps {
   catalog?: PricingCatalog
   /** Injected into the catalogue this service builds. */
   fetch?: typeof globalThis.fetch
+  /**
+   * Explicit catalogue sources. Defaults to llm-pricing's own default
+   * (`[modelsDevSource()]`), so an omitted value changes nothing. The HTTP
+   * surface validates these URLs before `refresh()` (SSRF guard).
+   */
+  sources?: PricingSource[]
 }
 
 export interface PricingState {
@@ -83,6 +91,8 @@ export class PricingService {
   private readonly store: Store
   private readonly onWarn: (m: string, e?: unknown) => void
   private readonly catalog: PricingCatalog
+  /** The URLs this catalogue will fetch; mirrors `sources` above. */
+  private readonly outbound: string[]
   /** Models already reported as unpriced, so a hot path does not spam. */
   private readonly warnedMissing = new Set<string>()
   private lastError: string | undefined
@@ -91,13 +101,22 @@ export class PricingService {
   constructor(deps: PricingServiceDeps) {
     this.store = deps.store
     this.onWarn = deps.onWarn ?? (() => {})
+    // An injected catalogue owns its source list, which cannot be read back, so
+    // `outboundUrls()` has nothing to report for it.
+    this.outbound = deps.catalog ? [] : (deps.sources ?? [modelsDevSource()]).map((source) => source.url)
     this.catalog =
       deps.catalog ??
       new PricingCatalog({
+        sources: deps.sources,
         cache: createFileCache(expandPath(deps.cacheDir ?? defaultCacheDir())),
         fetch: deps.fetch,
         onWarn: (message, error) => this.onWarn(message, error),
       })
+  }
+
+  /** The URLs this catalogue fetches, for the HTTP surface's SSRF guard. */
+  outboundUrls(): string[] {
+    return this.outbound
   }
 
   /** Never throws: a failure only degrades `state().status`. */

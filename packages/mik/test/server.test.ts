@@ -436,6 +436,171 @@ describe("auth", () => {
   })
 })
 
+/** EVO-G01 — safe defaults: no-token write denial, outbound SSRF guard, usage anti-forgery. */
+describe("G01 — secure defaults", () => {
+  it("A1 — without a token, write endpoints are 401 with guidance; reads and health stay public", async () => {
+    const open = await createServer({ hub, port: 0, heartbeatMs: 0 })
+    try {
+      const health = await fetch(`${open.url}/api/health`)
+      expect(health.status).toBe(200)
+
+      const read = await fetch(`${open.url}/api/providers`)
+      expect(read.status).toBe(200)
+
+      const write = await fetch(`${open.url}/api/providers`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      })
+      expect(write.status).toBe(401)
+      expect(write.headers.get("www-authenticate")).toContain("Bearer")
+      const payload = await body<ErrorBody>(write)
+      expect(payload.error.code).toBe("AUTH")
+      expect(payload.error.type).toBe("invalid_request_error")
+      expect(payload.error.message).toContain("--token")
+      expect(payload.error.message).toContain("MIK_SERVER_TOKEN")
+
+      // /v1/chat/completions is a write endpoint too.
+      const chat = await fetch(`${open.url}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      })
+      expect(chat.status).toBe(401)
+      expect(hub.usage.query().total).toBe(0)
+    } finally {
+      await open.close()
+    }
+  })
+
+  it("A2 — with a token, a correct bearer write succeeds and a wrong one is still 401", async () => {
+    const created = await post("/api/providers", {
+      id: "g01-auth",
+      baseUrl: `${root}/ok`,
+      apiKeyRef: "env:MIK_T07_SERVER_KEY",
+      enabled: false,
+    })
+    expect(created.status).toBe(201)
+
+    const wrong = await api(
+      "/api/providers",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "x" }) },
+      "wrong-token",
+    )
+    expect(wrong.status).toBe(401)
+    expect((await body<ErrorBody>(wrong)).error.code).toBe("AUTH")
+
+    await api("/api/providers/g01-auth", { method: "DELETE" })
+  })
+
+  it("A3 — usage reports may only carry the hub's own appId; an omitted one is the hub's", async () => {
+    const forged = await post("/api/usage/events", {
+      requestId: "g01-forged",
+      appId: "other-host-app",
+      providerId: "ok",
+      usage: { input: 1, output: 0 },
+    })
+    expect(forged.status).toBe(400)
+    expect((await body<ErrorBody>(forged)).error.code).toBe("INVALID_REQUEST")
+
+    const omitted = await post("/api/usage/events", {
+      requestId: "g01-omitted",
+      providerId: "ok",
+      usage: { input: 1, output: 0 },
+    })
+    expect(omitted.status).toBe(200)
+    expect(hub.usage.get("g01-omitted", { appId: "" })).toMatchObject({ appId: "t07-app", source: "report" })
+    expect(hub.usage.query().total).toBe(1)
+  })
+
+  it("A4 — refresh/test refuse link-local, cloud-metadata and non-http(s) baseUrls; loopback stays allowed", async () => {
+    await post("/api/providers", {
+      id: "g01-md",
+      baseUrl: "http://169.254.169.254/",
+      apiKeyRef: "env:MIK_T07_SERVER_KEY",
+      enabled: true,
+    })
+    const test = await api("/api/providers/g01-md/test", { method: "POST" })
+    expect(test.status).toBe(400)
+    const testPayload = await body<ErrorBody>(test)
+    expect(testPayload.error.code).toBe("INVALID_REQUEST")
+    expect(testPayload.error.message).not.toContain("sk-")
+    const refresh = await api("/api/providers/g01-md/models/refresh", { method: "POST" })
+    expect(refresh.status).toBe(400)
+
+    await post("/api/providers", {
+      id: "g01-file",
+      baseUrl: "file:///etc/passwd",
+      apiKeyRef: "env:MIK_T07_SERVER_KEY",
+      enabled: true,
+    })
+    expect((await api("/api/providers/g01-file/test", { method: "POST" })).status).toBe(400)
+    expect((await api("/api/providers/g01-file/models/refresh", { method: "POST" })).status).toBe(400)
+
+    // Allowed: the test mock (https, arbitrary hostname) and an explicit loopback.
+    expect((await api("/api/providers/ok/test", { method: "POST" })).status).toBe(200)
+    expect((await api("/api/providers/ok/models/refresh", { method: "POST" })).status).toBe(200)
+    await post("/api/providers", {
+      id: "g01-loop",
+      baseUrl: "http://127.0.0.1:3212/v1",
+      apiKeyRef: "env:MIK_T07_SERVER_KEY",
+      enabled: true,
+    })
+    const loop = await api("/api/providers/g01-loop/test", { method: "POST" })
+    expect(loop.status).not.toBe(400)
+    expect(loop.status).not.toBe(401)
+
+    // pricing/sync refuses a catalogue source pointing at cloud metadata.
+    const badHub = await makeHub({
+      pricingSources: [{ name: "metadata", url: "http://169.254.169.254/latest", parse: () => new Map() as Map<string, never> }],
+    })
+    const badServer = await createServer({ hub: badHub, port: 0, token: TOKEN, heartbeatMs: 0 })
+    try {
+      const sync = await fetch(`${badServer.url}/api/pricing/sync`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${TOKEN}` },
+      })
+      expect(sync.status).toBe(400)
+      expect((await body<ErrorBody>(sync)).error.code).toBe("INVALID_REQUEST")
+    } finally {
+      await badServer.close()
+      badHub.close()
+    }
+  })
+
+  it("A5 — readJsonBody only accepts application/json and *+json, anything else is 415", async () => {
+    const text = await api("/api/providers", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ id: "g01-text", baseUrl: "https://x.test" }),
+    })
+    expect(text.status).toBe(415)
+    expect((await body<ErrorBody>(text)).error.code).toBe("UNSUPPORTED_MEDIA_TYPE")
+
+    // No content-type at all is also not application/json.
+    const bare = await api("/api/providers", { method: "POST", body: "{}" })
+    expect(bare.status).toBe(415)
+
+    const json = await post("/api/providers", {
+      id: "g01-ct",
+      baseUrl: `${root}/ok`,
+      apiKeyRef: "env:MIK_T07_SERVER_KEY",
+      enabled: false,
+    })
+    expect(json.status).toBe(201)
+
+    const plus = await api("/api/providers", {
+      method: "POST",
+      headers: { "content-type": "application/merge-patch+json; charset=utf-8" },
+      body: JSON.stringify({ id: "g01-ct2", baseUrl: `${root}/ok`, apiKeyRef: "env:MIK_T07_SERVER_KEY", enabled: false }),
+    })
+    expect(plus.status).toBe(201)
+
+    await api("/api/providers/g01-ct", { method: "DELETE" })
+    await api("/api/providers/g01-ct2", { method: "DELETE" })
+  })
+})
+
 describe("POST /v1/chat/completions", () => {
   it("returns an OpenAI completion and records exactly one usage row", async () => {
     const response = await chat({ model: "ok:deepseek-chat", messages: messages() })
@@ -1011,8 +1176,10 @@ describe("F19 — POST /api/usage/events", () => {
     expect(JSON.stringify(event.tags)).not.toContain("sk-live")
   })
 
-  it("honours an explicit appId and the error fields", async () => {
-    await report({
+  it("rejects an appId that is not the hub's and keeps the error fields (G01 flip)", async () => {
+    // Before G01 an explicit foreign appId was honoured; now it is a 400
+    // (an event must land in this server's own metering bucket).
+    const forged = await report({
       requestId: "host-other",
       appId: "other-host-app",
       providerId: "ok",
@@ -1021,16 +1188,29 @@ describe("F19 — POST /api/usage/events", () => {
       errorCode: "PROVIDER",
       isStreaming: true,
     })
+    expect(forged.status).toBe(400)
+    expect((await body<ErrorBody>(forged)).error.code).toBe("INVALID_REQUEST")
+    expect(hub.usage.query().total).toBe(0)
 
-    expect(hub.usage.get("host-other", { appId: "" })).toMatchObject({
-      appId: "other-host-app",
+    // Without a (valid) appId the event lands under the hub's own app.
+    const own = await report({
+      requestId: "host-own",
+      providerId: "ok",
+      usage: { input: 1, output: 0 },
+      status: "error",
+      errorCode: "PROVIDER",
+      isStreaming: true,
+    })
+    expect(own.status).toBe(200)
+    expect(hub.usage.get("host-own", { appId: "" })).toMatchObject({
+      appId: "t07-app",
       source: "report",
       status: "error",
       errorCode: "PROVIDER",
       isStreaming: true,
     })
-    // Another app's report stays invisible to this app's HTTP surface (B1).
-    expect((await body<{ total: number }>(await api("/api/usage/logs"))).total).toBe(0)
+    // The hub's own app sees it through the HTTP surface.
+    expect((await body<{ total: number }>(await api("/api/usage/logs"))).total).toBe(1)
   })
 
   it("answers an empty body with one rejected item rather than an error", async () => {
