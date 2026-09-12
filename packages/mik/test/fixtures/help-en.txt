@@ -7,7 +7,7 @@ USAGE
 COMMANDS
   init        Write mik.config.json (app id, database path, first provider)
   serve       Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)
-  dashboard   Start the dashboard app (default 3210)
+  dashboard   Start the dashboard app (default 3210) — not in the npm package: run it from a repository clone or your own deployment
   provider    List, add, remove and test providers
   models      List the model catalogue, optionally refreshing it from the provider
   pricing     Inspect, sync and override model prices

@@ -4,10 +4,10 @@ import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
 import { superviseChild } from "../child-supervision.js"
-import { resolveCwd, resolveEnv, resolveIo, invocationLang, type RunOptions } from "../context.js"
+import { resolveCwd, resolveEnv, resolveIo, invocationLang, messageOf, type RunOptions } from "../context.js"
 import { CliRuntimeError } from "../errors.js"
 import { assertPortFree } from "../ports.js"
-import { tr } from "../i18n.js"
+import { tr, type Lang } from "../i18n.js"
 
 /** Where the dashboard app lives inside this monorepo. */
 export const DASHBOARD_RELATIVE_DIR = join("apps", "dashboard")
@@ -26,6 +26,19 @@ export const DASHBOARD_PACKAGING_HINT =
   "  In the monorepo: pnpm --filter @mik/dashboard dev   (or build + start)\n" +
   "  Or point the CLI at an existing copy: mik dashboard --dir <path>\n" +
   "  See the \"Dashboard\" section of the project README."
+
+/**
+ * The packaging hint in the invocation language (EVO-G69 / G68).
+ *
+ * `DASHBOARD_PACKAGING_HINT` stays the English source of truth: the `en` entry of
+ * `dashboard.hint.packaging` is byte-identical to it, and the fallback below keeps
+ * the English output byte-identical even if the key were ever missing. The paths,
+ * commands and placeholders inside the hint are data and stay verbatim.
+ */
+export function dashboardPackagingHint(lang: Lang = "en"): string {
+  const translated = tr(lang, "dashboard.hint.packaging")
+  return translated === "" ? DASHBOARD_PACKAGING_HINT : translated
+}
 
 /** Walk up from `start` looking for `<relative>`; returns the first hit. */
 export function walkUpFor(start: string, relative: string, depth = 8): string | null {
@@ -53,11 +66,28 @@ export function findDashboardDir(
   return walkUpFor(cwd, DASHBOARD_RELATIVE_DIR) ?? walkUpFor(moduleDir, DASHBOARD_RELATIVE_DIR)
 }
 
-/** The error thrown when no dashboard directory can be resolved. */
-export function missingDashboardError(): CliRuntimeError {
+/**
+ * The error thrown when no dashboard directory can be resolved.
+ *
+ * `lang` defaults to `en` so the signature stays source-compatible for embedders;
+ * every CLI call site passes the invocation language it already resolved.
+ */
+export function missingDashboardError(lang: Lang = "en"): CliRuntimeError {
   return new CliRuntimeError(
-    `Could not find the dashboard app (${DASHBOARD_DISPLAY_DIR}).\n${DASHBOARD_PACKAGING_HINT}`,
+    tr(lang, "dashboard.error.missingApp", DASHBOARD_DISPLAY_DIR, dashboardPackagingHint(lang)),
   )
+}
+
+/**
+ * The error thrown when the dashboard child process cannot be spawned.
+ *
+ * Split out of the `child.once("error")` handler because that handler can only
+ * run on a real spawn failure, which the launcher cannot produce on demand (it
+ * always spawns `process.execPath` with an absolute script path). Exported so the
+ * localized wording is testable; the handler itself is wired to it.
+ */
+export function dashboardSpawnError(error: unknown, lang: Lang = "en"): CliRuntimeError {
+  return new CliRuntimeError(tr(lang, "dashboard.error.spawnFailed", messageOf(error)))
 }
 
 /**
@@ -113,10 +143,10 @@ export async function runDashboard(parsed: ParsedCli, options: RunOptions): Prom
 
   const dir = flagString(parsed.values, "dir") ?? env.MIK_DASHBOARD_DIR ?? findDashboardDir(cwd)
   if (!dir) {
-    throw missingDashboardError()
+    throw missingDashboardError(lang)
   }
   if (!existsSync(join(dir, "package.json"))) {
-    throw new CliRuntimeError(`${dir} does not look like a package (no package.json).\n${DASHBOARD_PACKAGING_HINT}`)
+    throw new CliRuntimeError(tr(lang, "dashboard.error.notAPackage", dir, dashboardPackagingHint(lang)))
   }
 
   const nextBin = join(dir, "node_modules", "next", "dist", "bin", "next")
@@ -128,16 +158,18 @@ export async function runDashboard(parsed: ParsedCli, options: RunOptions): Prom
   if (useLocalNext) {
     args = [nextBin, "start", "-p", String(port)]
   } else {
-    const pnpmScript = findPnpmScript(process.env)
+    // `env` (not the real `process.env`) so an injected environment decides where
+    // pnpm is looked up, exactly like every other probe in this command (EVO-G12/G69).
+    const pnpmScript = findPnpmScript(env)
     if (!pnpmScript) {
       throw new CliRuntimeError(
-        `Could not start the dashboard: no local next install in ${dir} and no pnpm entry point on PATH.\n${DASHBOARD_PACKAGING_HINT}`,
+        tr(lang, "dashboard.error.noEntryPoint", dir, dashboardPackagingHint(lang)),
       )
     }
     args = [pnpmScript, "exec", "next", "start", "-p", String(port)]
   }
 
-  io.out(tr(invocationLang(options), "dashboard.starting", dir, String(port)))
+  io.out(tr(lang, "dashboard.starting", dir, String(port)))
   const child = spawn(command, args, {
     cwd: dir,
     stdio: "inherit",
@@ -152,7 +184,7 @@ export async function runDashboard(parsed: ParsedCli, options: RunOptions): Prom
   return new Promise<number>((resolve, reject) => {
     child.once("error", (error) => {
       dispose()
-      reject(new CliRuntimeError(`Could not start the dashboard: ${error.message}`))
+      reject(dashboardSpawnError(error, lang))
     })
     child.once("exit", (code) => {
       // The child is gone: stop supervising so the parent's `exit` hook does not
