@@ -187,6 +187,18 @@ function plainText(html) {
   return html.replace(/<!--.*?-->/g, "").replace(/\s+/g, " ")
 }
 
+/**
+ * The text of the element carrying `data-testid="<id>"`, or `null` when the
+ * page has no such element — either means the same thing to a caller: this
+ * cell is not there to assert on. Feed it the output of `plainText()`, which
+ * has already removed React's `<!-- -->` text separators and collapsed
+ * whitespace, so the cell's value arrives as one text node.
+ */
+function testIdText(html, testId) {
+  const match = html.match(new RegExp(`data-testid="${testId}"[^>]*>([^<]*)<`))
+  return match ? match[1].trim() : null
+}
+
 /** Wait until a page renders (the dashboard compiles/starts lazily). */
 async function waitForPage(origin, path = "/", timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs
@@ -767,6 +779,32 @@ async function main() {
       const { port: dashPort, note: dashNote } = await pickPort(DASHBOARD_PORT)
       const buildNote = await ensureDashboardBuild()
 
+      // Record one *spread* row (EVO-G90, R258 ⑥). Every other row this run
+      // writes is point-priced — `low === high === usd` — and a point renders
+      // the same string whether the money cell reads the recorded band or the
+      // deprecated `costUsd` point estimate. Without a spread the assertion
+      // below cannot tell the two apart: it would pass on a page that never
+      // renders a band at all. The numbers are the repo's own fixture shape
+      // (`low 0.01 < usd 0.012345 < high 0.02`, cf.
+      // `packages/mik/test/cost-certainty.test.ts`), written through the public
+      // metering API the dashboard reads back over HTTP.
+      const band = { usd: 0.012345, low: 0.01, high: 0.02 }
+      const bandRecorded = hub.usage.record({
+        requestId: "e2e-cost-band",
+        ts: Date.now(),
+        source: "e2e-band",
+        providerId: "mock",
+        modelRequested: "mock:wide-model",
+        modelActual: "wide-model",
+        pricingModel: "wide-model",
+        usage: { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+        cost: { usd: band.usd, low: band.low, high: band.high, basis: "flat", source: "modelsdev" },
+        status: "ok",
+        isStreaming: false,
+        sessionId: "e2e-cost-band",
+      })
+      assert(bandRecorded, "the spread row was not recorded — the dashboard check would have no band to render")
+
       // The expected strings come from the same helpers the pages use, applied
       // to the numbers this run actually wrote — not from literals.
       const summary = hub.usage.summary()
@@ -787,6 +825,14 @@ async function main() {
         outputRate: formatRate(priceP2.output),
       }
 
+      // The fixture above only means something if it really is a spread: with
+      // `low === high` the page prints one amount and "renders the band" is not
+      // a falsifiable claim. The spread is external to the page under test.
+      assert(
+        expected.cost.includes("~"),
+        `the run recorded no cost spread, so the band assertion would be vacuous: ${expected.cost}`,
+      )
+
       const withDashboard = async (serverUrl, body) => {
         const started = startDashboard(dashPort, serverUrl)
         try {
@@ -801,6 +847,23 @@ async function main() {
 
       await withDashboard(live, async () => {
         const home = plainText((await getHtml(`http://127.0.0.1:${dashPort}/`)).body)
+        // EVO-G90: the money cell asserts on *itself*. The check used to be
+        // `home.includes(expected.cost)`, which is satisfied by the same string
+        // anywhere on the page and — before the spread row above — could not
+        // distinguish the recorded band from the deprecated `costUsd` point
+        // estimate the page is supposed to have stopped reading. The anchor is
+        // the cell's own `data-testid`; the expected text is the band the same
+        // helper renders (R208: the input has to reach the branch under test).
+        const costCell = testIdText(home, "overview-cost-span")
+        assert(costCell !== null, 'the overview money cell has no `data-testid="overview-cost-span"` anchor — the DASH check cannot tell which cell it is reading')
+        assert(
+          costCell === expected.cost,
+          `the overview money cell prints "${costCell}", expected the recorded band "${expected.cost}"`,
+        )
+        assert(
+          !costCell.includes(formatUsd(summary.costUsd)),
+          `the overview money cell prints the deprecated point estimate ${formatUsd(summary.costUsd)} instead of the band`,
+        )
         assert(home.includes(expected.cost), `the overview does not show the total cost ${expected.cost}`)
         assert(new RegExp(`tabular-nums[^>]*>${expected.requests}<`).test(home), `the overview does not show the request count ${expected.requests}`)
         assert(home.includes(expected.tokens), `the overview does not show the token total ${expected.tokens}`)
@@ -836,6 +899,14 @@ async function main() {
       await withDashboard(DEAD_SERVER_URL, async () => {
         const offline = plainText((await getHtml(`http://127.0.0.1:${dashPort}/`)).body)
         assert(!offline.includes(expected.cost), "the overview still shows the cost with an unreachable mik serve — the number is not live data")
+        // The same anchor, in the state where there is no data at all: it reads
+        // the dashboard's `—`, so the assertion above is about a cell whose
+        // content tracks the upstream rather than about a string that was never
+        // rendered (EVO-G90).
+        assert(
+          testIdText(offline, "overview-cost-span") === "—",
+          `the offline overview's money cell reads "${testIdText(offline, "overview-cost-span")}", expected the dashboard's —`,
+        )
         assert(/无法连接 mik serve|请求 mik serve 失败/.test(offline), "the overview does not explain that mik serve is unreachable")
         // EVO-G09 A1 first-screen order: the neutral guide is the first block, and
         // the error-styled banner is only a reaction to pressing 重试 — so it must

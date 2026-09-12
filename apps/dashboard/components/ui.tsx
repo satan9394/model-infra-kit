@@ -80,11 +80,18 @@ export function StatCard({
   value,
   hint,
   tone = "neutral",
+  testId,
 }: {
   label: string
   value: ReactNode
   hint?: ReactNode
   tone?: Tone
+  /**
+   * `data-testid` for the value element. The rendered-HTML checks
+   * (`scripts/e2e/run.mjs`, DASH) anchor on it so an assertion about *this*
+   * cell cannot be satisfied by the same string elsewhere on the page.
+   */
+  testId?: string
 }) {
   const accent: Record<Tone, string> = {
     neutral: "text-slate-100",
@@ -97,7 +104,7 @@ export function StatCard({
   return (
     <div className="rounded-xl border border-slate-800 bg-[#0d1424] px-4 py-3">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className={`mt-1 font-mono text-xl tabular-nums ${accent[tone]}`}>{value}</div>
+      <div className={`mt-1 font-mono text-xl tabular-nums ${accent[tone]}`} data-testid={testId}>{value}</div>
       {hint ? <div className="mt-1 text-[11px] text-slate-500">{hint}</div> : null}
     </div>
   )
