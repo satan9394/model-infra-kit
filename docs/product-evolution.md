@@ -61,6 +61,26 @@
 - **下一步（路线图）**：**NEXT** = G58（子命令 `--help` 选项说明本地化，**卡与精确证据已备**）、G57（`dashboard` 在帮助/引导里被当可用但 npm 包不含）、G60+G61（输出噪声：`provider test` 重复文案、`node:sqlite` 实验警告）、G56 的补充项（`set-default` 命令 / CLI 无法设默认模型）。**LATER** = G63（用户可达文档入口，已按 R120 更正为须改**包内 README**）、G64（跨项目隔离提示）、G65（安装漏洞复测后定性）。
 - **技术债台账**（R127 合并）：G38–G44、G45/G46/G48/G49；G50（跨层文案三形态）、G51（`pricing.state.*` 对齐空格藏在字典值里）、G52（`lang` 默认值改必填）、G53（探针工具债）、**G66**（`serveBanner` 测试临时清空进程 SIGINT 监听，异常终止时不保证恢复）、**G67**（A1 工具是鲁棒性探测器，需补单源变体以支撑更强命题——R127 已补并实测）。
 
+## PRODUCT_STATE（R149，G01-G16 已验收关闭）
+
+- **当前成熟度**：v0.2.12，**P0 清零**、**G37 全部子批次收完**（G12 入门面 + G13 `provider`/`usage` + G14 其余命令与错误类 + G15 首次路径 + **G58 子命令 `--help` 选项说明**）；**493 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
+- **下一步**：**NEXT** = G69（`dashboard` 诚实性 + G68 的 6 个 i18n 死键）、G70（`provider test` 重复文案 + `node:sqlite` 警告）、G71（用户可达文档入口，须改**包内 README**）、G72（`battery.sh` 的 `fail()` 在 `set -u` 下掩盖失败原因）、G56 补充项（`set-default` / CLI 无法设默认模型）。**LATER** = G64（跨项目隔离提示）。**NOT_NOW** = 看板随包发布、换掉 `node:sqlite`。
+- **技术债台账**：G38–G44、G45/G46/G48/G49、G50（跨层文案三形态）、G51/G52/G53、G66/G67、**G68**（6 个 i18n 死键，R129 新发现）、**G72**（工具错误路径，R146 新发现）。
+- **四张卡已备**（`.tmp/staged-*.md`）：G69/G70/G71/G72——每张都已按最新证据**收窄范围或定位根因**（例：G69 的 G57 缺口已收窄为「`--help`/`init` 未提示」；G70 已定位 `bridge.ts:178` + `context.ts:175` 的双重追加；G72 已实测确认 `battery.ps1` **无**同类问题）。
+
+## G58 验收留痕（R146–R149）
+
+- **判定：独立 Evaluator ACCEPT**（0 阻断、**4 条建议登记**）。快照 `9ec2df6` 无漂移、6 项无越界。
+- **本卡是一次过度宣称的补救**：G14 宣称「CLI 双语已收口」，而 R113 审计实测发现子命令 `--help` 的选项说明仍是大片英文——根因是我接受了验收工具的 `OUT-OF-SCOPE` 标签而未独立判断（已入 `AGENTS.md` 铁律）。
+- **改动**：`FlagSpec` 增可选 `descriptionKey`；`help.ts` 的 `flagBlock(flags, lang)` 走既有 `text(lang, key, literal)`（**空则回落 `args.ts` 字面量 → 英文唯一真源不变**）；**38 个选项说明 + 18 条 details** 进字典；字典 **229 → 285**；新增 `test/cli-help-options-i18n.test.ts`（9 用例）。
+- **编排者独立验证（全部亲跑）**：tsc 0；**zh-CN 493 / en-US 493**（升版后按 R99 重跑）；e2e 绿；三环境 PASS；冻结面 5/5；字典 285=285；**A1** 逐行读过 `init --help` 全中文、8 命令扫描实际 0 残留；**A2 19 个 help 面（root + 7 命令 + 11 动作）en 差异 0**（PID 与版本归一化后）。
+- **两处「实现者/Evaluator 纠正了我」**（如实记录）：
+  1. **计数**：我按单行正则得「35 条 description」，实际是 **38 个 flag spec**（Evaluator 独立复核 `descriptionKey:` 计数 = 38，确认）——我的正则漏了多行 spec，与「grep 模式宽度决定结论可信度」同族。
+  2. **我的 A2 对照集不闭合**：我 R147 只覆盖 8 个命令，**漏了 root `--help`** 与 10 个动作级面；Evaluator 指出后我已补齐为 **19 个面**（差异 0）。**这是本会话第二次由独立方发现我的验证范围有洞**。
+- **Evaluator 的 4 条建议（登记，不阻断）**：① A2 对照集补 root + 11 动作（**已由编排者补齐并留证**）；② `EXAMPLE_LINE` 是**行级豁免**——行内任意位置含 `mik ` 即整行免检，`Use mik provider add to register a provider.` 这类英文散文会被整行放过（当前实例 0，**面向未来的窄缝**）；③ `HELP_CASES` 硬编码 19 条，新增命令/动作不会自动进入 A1 扫描（建议由 `COMMANDS` 派生 + 闭合断言；顺带覆盖 `cmd.*.summary` 的加键正向检查）；④ 「+56 = 38 flags + 18 details」与 `help.details.init.2` 无字典项在算术上差 1（**记账问题**，键对等与无孤儿键双向断言均绿）。
+- **Evaluator 纠正了编排者的一处判断**：我曾提示「孤儿键是反向检查、抓不到『有人用但没键』」，Evaluator 指出**同一用例开头就有正向断言**（`expect(key).toBeTruthy()`，遍历全局+命令+动作 flags）→ 该风险**已被覆盖**，我的提示**一半不成立**。它同时找到了我没想到的真实残余（`cmd.*.summary` 无键回落 + `HELP_CASES` 硬编码）。
+- **交付**：提交 `a259edc`；npm `0.2.12` + Release v0.2.12；**CI 三 OS 一次通过**；**G36 产物实测**：zh 的 `provider add --help` 说明全中文（`供应商预设 id（如 openai…）`、`凭据引用：env:VAR、file:path 或 keychain:service`），en 原样不变。
+
 ## G15 验收留痕（R127）
 
 - **判定：独立 Evaluator ACCEPT**，附 **2 条证据层必改**（不阻代码），**编排者已全部采纳并落实**：
