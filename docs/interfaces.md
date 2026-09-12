@@ -128,6 +128,13 @@ export class UsageService {
   constructor(deps: UsageServiceDeps)
   record(event: Omit<UsageEvent, "appId"> & { appId?: string }): boolean
   summary(query?: UsageQuery): UsageSummary
+  /**
+   * G74 追加（展示用）：区间内**没有解析到价格**的请求/token 占比与按模型明细。
+   * 只读 `usage_events`（rollup 表不存 `pricing_source`，故 ratio 的分子分母都只
+   * 覆盖明细行）；不参与任何成本合计，不改变 `summary()` 的任何数字。
+   * `Provider` 回传的账单真值（`pricing_source="provider"`）**已定价**，不计入。
+   */
+  unpricedCoverage(query?: UsageQuery): UnpricedCoverage
   trends(query?: UsageQuery, bucket?: "day" | "hour"): UsageTrendPoint[]
   byProvider(query?: UsageQuery): UsageBucket[]
   byModel(query?: UsageQuery): UsageBucket[]

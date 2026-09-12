@@ -38,7 +38,7 @@ export NO_PROXY="127.0.0.1,localhost"
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
 PY=$(command -v python3 || command -v python || true)
 
-fail() { echo "STEP $1 fail"; echo "FAIL[$NAME] $1"; echo "$2" 2>/dev/null || true; exit 1; }
+fail() { echo "STEP $1 fail"; echo "FAIL[$NAME] $1"; echo "${2:-}" 2>/dev/null || true; exit 1; }
 pass() { echo "STEP $1 ok"; }
 
 echo "== [$NAME] bin: direct =="
@@ -94,7 +94,14 @@ for _ in $(seq 1 5); do
   sleep 1
 done
 printf '%s' "$BODY" | grep -q '"usage"' && pass "chat" || fail "chat" "$BODY"
-node packages/mik/dist/cli.mjs usage summary | grep -q "Requests" && pass "summary" || fail "summary"
+# Capture first, grep second: `cli | grep -q` lets grep close the pipe as soon as
+# it matches, and every later write from the CLI then dies with EPIPE (the
+# summary grew a block with G74, which made that race deterministic under WSL).
+# The assertion is unchanged; only the producer's stdout is no longer a pipe that
+# the consumer can close early.
+SUMMARY="$ROOT/.tmp/summary-$NAME.out"
+node packages/mik/dist/cli.mjs usage summary >"$SUMMARY" 2>&1
+grep -q "Requests" "$SUMMARY" && pass "summary" || fail "summary" "no Requests line"
 CSV="$ROOT/.tmp/usage-$NAME.csv"
 if command -v cygpath >/dev/null 2>&1; then CSV=$(cygpath -w "$CSV"); fi
 node packages/mik/dist/cli.mjs usage export --format csv --out "$CSV" >/dev/null 2>&1 || { echo "STEP csv fail"; echo "FAIL[$NAME] csv export"; exit 1; }

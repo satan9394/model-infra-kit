@@ -1,6 +1,7 @@
 import type { Store } from "../store/database.js"
 import type {
   BudgetConfig,
+  UnpricedCoverage,
   UsageBucket,
   UsageEvent,
   UsagePage,
@@ -265,6 +266,19 @@ export class UsageService {
 
   summary(query?: UsageQuery): UsageSummary {
     return this.store.usage.summary(this.scoped(query))
+  }
+
+  /**
+   * How much of the range carries no resolved price (EVO-G74), for the
+   * `usage summary` to-do block. Display-only: it feeds no cost total and
+   * changes no existing figure.
+   *
+   * Detail rows only — `usage_daily_rollups` has no `pricing_source` — so both
+   * sides of its ratios are measured over the rows whose provenance still
+   * exists. See `UnpricedCoverage` for the exact accounting.
+   */
+  unpricedCoverage(query?: UsageQuery): UnpricedCoverage {
+    return this.store.usage.unpricedCoverage(this.scoped(query))
   }
 
   trends(query?: UsageQuery, bucket?: "day" | "hour"): UsageTrendPoint[] {
