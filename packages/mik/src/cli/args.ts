@@ -91,7 +91,8 @@ const FLAG_TOKEN: FlagSpec = {
   name: "token",
   type: "string",
   placeholder: "<token>",
-  description: "Require Authorization: Bearer <token> on the HTTP API",
+  description:
+    "Require Authorization: Bearer <token> on write endpoints; without it (and without MIK_SERVER_TOKEN) only read endpoints are open and every write returns 401",
 }
 const FLAG_CORS: FlagSpec = {
   name: "cors",
@@ -116,7 +117,8 @@ const FLAG_PROVIDER_PRESET: FlagSpec = {
   name: "preset",
   type: "string",
   placeholder: "<presetId>",
-  description: "Provider preset, e.g. deepseek (fills protocol, base URL and env var)",
+  description:
+    "Provider preset id (e.g. openai, anthropic, deepseek, openrouter; fills protocol, base URL and env var)",
 }
 const FLAG_BASE_URL: FlagSpec = {
   name: "base-url",
@@ -143,7 +145,7 @@ const FLAG_INIT_PROVIDER: FlagSpec = {
   name: "provider",
   type: "string",
   placeholder: "<presetId>",
-  description: "First provider preset to register",
+  description: "First provider preset to register (omit to register no provider)",
 }
 const FLAG_INIT_FILE: FlagSpec = {
   name: "file",
@@ -257,6 +259,8 @@ export const COMMANDS: readonly CommandSpec[] = [
     flags: [FLAG_INIT_PROVIDER, FLAG_INIT_FILE, FLAG_FORCE, FLAG_YES],
     details: [
       "Prompts when stdin is a terminal; otherwise it uses the flags and defaults.",
+      "Without --provider no provider is registered at all; add one later with",
+      "'mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR>'.",
       "The first provider is registered in the database; the config only records",
       "the intent so a later run cannot resurrect a removed provider.",
     ],
@@ -270,6 +274,8 @@ export const COMMANDS: readonly CommandSpec[] = [
       "Refuses to start when the port is already in use.",
       "Prefer the MIK_SERVER_TOKEN environment variable over --token: command-line",
       "arguments are visible to other processes. The token is never printed.",
+      "Without --token (and without MIK_SERVER_TOKEN) the default policy stands:",
+      "GET endpoints stay open and every write endpoint answers 401.",
       "--cors enables browser access: '*' for any origin, or a specific origin",
       "(https://app.example). Off by default, so browser code must go through a",
       "same-origin proxy unless --cors is given.",

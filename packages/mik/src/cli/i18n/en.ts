@@ -37,7 +37,7 @@ export const en: Record<string, string> = {
   "init.providerRegisterFailed": "warning: could not register provider \"%s\": %s",
   "init.stepSetEnvKey": "  1. set %s (or use --api-key-ref file:~/.model-infra-kit/secrets/%s-api-key)",
   "init.stepAddProvider": "  1. %s: mik provider add %s --api-key-ref env:VAR",
-  "init.stepAddDeepseek": "  1. %s: mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY",
+  "init.stepAddFirstProvider": "  1. %s: mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR> (presets: %s)",
   "wizard.appId": "Application id [%s]: ",
   "wizard.db": "SQLite database path [%s]: ",
   "wizard.provider": "First provider preset (blank to skip) [%s]: ",
@@ -46,7 +46,11 @@ export const en: Record<string, string> = {
   "wizard.stepSetProvider": "set the provider credential, then continue",
   "wizard.stepTest": "test the connection: mik provider test <id>",
   "wizard.stepModels": "fetch the catalogue: mik models --provider <id> --refresh",
-  "wizard.stepServe": "start the service: mik serve (OpenAI-compatible on 127.0.0.1:3211)",
+  "wizard.stepServe": "2. start the service (the token turns write endpoints on): mik serve --token <token> (OpenAI-compatible on 127.0.0.1:3211)",
+  "wizard.stepFirstCall": "3. make the first call (run \"mik models --refresh\" first, then read model ids for \"<provider>:<model>\" from GET /v1/models):",
+  "wizard.stepFirstCallCmd":
+    "     curl -s http://127.0.0.1:3211/v1/chat/completions -H \"Authorization: Bearer <token>\" " +
+    "-H \"Content-Type: application/json\" -d '{\"model\":\"<provider>:<model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}'",
   "wizard.stepDashboard": "open the dashboard: mik dashboard (3210)",
   "wizard.stepRepl": "or just run mik to enter interactive mode (/help)",
   // Framework-level CLI surface (EVO-G12): the `--help` frame and the usage
@@ -118,6 +122,7 @@ export const en: Record<string, string> = {
   "provider.add.noPreset": "no preset",
   "provider.add.hintCommand": "hint: mik provider add %s --preset <presetId> --api-key-ref %s",
   "provider.add.hintWriteSecret": "      (write the secret into that file, then re-run; plaintext keys are never accepted as a reference)",
+  "provider.add.missingPackage": "  hint: this protocol needs %s, which cannot be resolved here. Install it and write endpoints work: npm i %s",
   "provider.error.badKeyRef":
     "--api-key-ref must be a credential reference, not a key. Plaintext secrets are never stored.\n" +
     "  Use env:VAR, file:path or keychain:service, e.g. --api-key-ref env:DEEPSEEK_API_KEY\n" +
@@ -209,6 +214,7 @@ export const en: Record<string, string> = {
   "serve.baseUrl": "OpenAI-compatible base URL: %s",
   "serve.tokenRequired": "Bearer token required (value not shown).",
   "serve.writeDisabled": "Write endpoints disabled: set --token or MIK_SERVER_TOKEN to enable them.",
+  "serve.warn.missingPackage": "warning: the provider package %s is missing — write endpoints will return 502. Install it with: npm i %s",
   "serve.corsOrigin": "CORS allowed: %s",
   "serve.corsAny": "CORS allowed for any origin.",
   "serve.pressCtrlC": "Press Ctrl+C to stop.",

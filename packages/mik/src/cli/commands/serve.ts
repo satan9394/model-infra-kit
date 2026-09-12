@@ -6,6 +6,7 @@ import { contextLang, invocationLang, messageOf, resolveEnv, withContext, type R
 import { CliRuntimeError } from "../errors.js"
 import { assertPortFree } from "../ports.js"
 import { tr, type Lang } from "../i18n.js"
+import { missingPackagesForProtocols } from "../packages.js"
 import type { CorsOptions } from "../../server/http.js"
 
 export interface ServerHandle {
@@ -125,8 +126,18 @@ export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<
     const handle = await module.createServer({ hub: context.hub, port, host, token, cors })
     context.io.out(tr(lang, "serve.listening", handle.url))
     context.io.out(tr(lang, "serve.baseUrl", context.hub.baseUrl))
+    // EVO-G15 (G54): a configured provider whose `@ai-sdk/*` peer is missing
+    // makes every write request 502. Warn on the banner — never block startup
+    // (hard rule 6), so the read endpoints and the dashboard keep working.
+    for (const missingPackage of missingPackagesForProtocols(
+      context.hub.providers.list().map((record) => record.protocol),
+    )) {
+      context.io.out(tr(lang, "serve.warn.missingPackage", missingPackage, missingPackage))
+    }
+    // EVO-G15 (G55): the default policy rejects writes, and the banner must say
+    // so in every run — a piped/CI run is exactly where the 401 used to surprise.
     if (token) context.io.out(tr(lang, "serve.tokenRequired"))
-    else if (process.stdout.isTTY) context.io.out(tr(lang, "serve.writeDisabled"))
+    else context.io.out(tr(lang, "serve.writeDisabled"))
     if (cors) {
       context.io.out(typeof cors === "object" ? tr(lang, "serve.corsOrigin", cors.origin) : tr(lang, "serve.corsAny"))
     }

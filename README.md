@@ -54,15 +54,25 @@ pnpm --filter model-infra-kit build # 产出 packages/mik/dist/{index,server,cli
 
 适用：自研 CLI Agent、后端服务、量化项目——你自己写调用代码。
 
+**第 1 步 —— 装主包：**
+
 ```bash
 npm i model-infra-kit
 ```
 
-> **还要装你实际用的 provider 包。** `@ai-sdk/*` 是可选 peer 依赖，只装主包时第一次调用会报
-> `The provider package @ai-sdk/openai-compatible is not installed. Run: npm i @ai-sdk/openai-compatible`。
-> 常见对应关系：`openai-compatible`（DeepSeek / Qwen / GLM / Kimi / 中转网关）→ `@ai-sdk/openai-compatible`；
-> `openai` → `@ai-sdk/openai`；`anthropic` → `@ai-sdk/anthropic`；`google` → `@ai-sdk/google`；
-> `deepseek` → `@ai-sdk/deepseek`；`moonshotai` → `@ai-sdk/moonshotai`；`xai` → `@ai-sdk/xai`。
+**第 2 步 —— 装你实际用的 provider 包（必须，不是可选）：** `@ai-sdk/*` 是可选 peer 依赖，只装主包时第一次调用会报
+`The provider package @ai-sdk/openai-compatible is not installed. Run: npm i @ai-sdk/openai-compatible`。
+`mik provider add` 成功后也会**主动提示**这一行安装命令（包已装则静默）。按协议对应关系装一个：
+
+```bash
+npm i @ai-sdk/openai-compatible   # openai-compatible：DeepSeek / Qwen / GLM / Kimi / 中转网关
+npm i @ai-sdk/openai              # openai
+npm i @ai-sdk/anthropic           # anthropic
+npm i @ai-sdk/google              # google
+npm i @ai-sdk/deepseek            # deepseek
+npm i @ai-sdk/moonshotai          # moonshotai
+npm i @ai-sdk/xai                 # xai
+```
 
 ```ts
 // quickstart.ts —— 用 `node quickstart.ts` 直接跑（Node ≥ 22.18 内置类型剥离）
@@ -320,7 +330,7 @@ mik> 你好，介绍一下你自己
 
 ### 首次运行向导（语言 + 供应商 + 上手三步）
 
-`mik init` 在交互终端里先问语言（1: 中文 / 2: English），再问应用 id、数据库路径与首个供应商预设，随后按所选语言打印上手步骤（设密钥 → 测试连接 → 拉模型目录 → serve → dashboard → 交互模式）。语言选择会写入 `cli.lang` 设置并影响后续 REPL 措辞；**未选择过语言时不再硬编码中文，而是按 `MIK_LANG → cli.lang → OS locale → en` 解析**（中文系统给中文，其余给英文，随时可用 `/lang` 覆盖）。
+`mik init` 在交互终端里先问语言（1: 中文 / 2: English），再问应用 id、数据库路径与首个供应商预设，随后按所选语言打印**编号的上手三步：① 设密钥/注册供应商 → ② 起服务（带 token） → ③ 发出第一次调用**（末尾附一条可复制的 `curl …/v1/chat/completions` 样例，并说明模型 id 要先 `mik models --refresh` 再从 `GET /v1/models` 读），之后才是可选的测试连接 / 模型目录 / 看板 / 交互模式。语言选择会写入 `cli.lang` 设置并影响后续 REPL 措辞；**未选择过语言时不再硬编码中文，而是按 `MIK_LANG → cli.lang → OS locale → en` 解析**（中文系统给中文，其余给英文，随时可用 `/lang` 覆盖）。不带 `--provider` 时**不注册任何供应商**（`init --help` 已写明），之后用 `mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR>` 补一条。
 
 ```text
 $ node packages/mik/dist/cli.mjs --help
@@ -349,11 +359,14 @@ GLOBAL OPTIONS
   -v, --version           Show version
 
 EXAMPLES
-  mik init --app-id my-app --provider deepseek
-  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY
-  mik provider test deepseek
-  mik models --provider deepseek --refresh
-  mik pricing set deepseek-chat --input 0.27 --output 1.10
+  mik init --app-id my-app --provider <presetId>
+  mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR>
+  mik provider test <id>
+  mik serve --token $MIK_SERVER_TOKEN
+  curl -s http://127.0.0.1:3211/v1/models   # after "mik models --refresh": ids for "<provider>:<model>"
+  curl -s http://127.0.0.1:3211/v1/chat/completions -H "Authorization: Bearer $MIK_SERVER_TOKEN" -H "Content-Type: application/json" -d '{"model":"<provider>:<model>","messages":[{"role":"user","content":"hi"}]}'
+  mik models --provider <id> --refresh
+  mik pricing set <modelId> --input 0.27 --output 1.10
   mik usage summary --from 2026-09-01
   mik usage export --format csv --out usage.csv
 

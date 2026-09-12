@@ -120,16 +120,21 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     context.io.out("")
     context.io.out(tr(lang, "wizard.done"))
     const step = (key: string) => context.io.out(`  ${tr(lang, key)}`)
+    // EVO-G15 (G59/G62): a genuinely numbered three-step path that ends on a real
+    // call. Step 1 is always numbered; the extras below stay unnumbered so "1/2/3"
+    // reads as the path and everything else reads as optional.
     if (preset?.envKey) {
       context.io.out(tr(lang, "init.stepSetEnvKey", preset.envKey, preset.id))
     } else if (presetId) {
       context.io.out(tr(lang, "init.stepAddProvider", tr(lang, "wizard.stepSetProvider"), presetId))
     } else {
-      context.io.out(tr(lang, "init.stepAddDeepseek", tr(lang, "wizard.stepSetProvider")))
+      context.io.out(tr(lang, "init.stepAddFirstProvider", tr(lang, "wizard.stepSetProvider"), presetList()))
     }
+    step("wizard.stepServe")
+    step("wizard.stepFirstCall")
+    context.io.out(tr(lang, "wizard.stepFirstCallCmd"))
     step("wizard.stepTest")
     step("wizard.stepModels")
-    step("wizard.stepServe")
     step("wizard.stepDashboard")
     step("wizard.stepRepl")
     return 0

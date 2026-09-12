@@ -6,13 +6,27 @@
 npm i model-infra-kit
 ```
 
+**第 2 步（必须，不是可选）—— 装你实际用的 provider 包：** `@ai-sdk/*` provider 是可选 peer 依赖，只装主包时第一次调用会失败。按协议装一个，例如：
+
+```bash
+npm i @ai-sdk/openai-compatible   # openai-compatible：DeepSeek / Qwen / GLM / Kimi / 中转网关
+npm i @ai-sdk/openai              # openai
+npm i @ai-sdk/anthropic           # anthropic
+npm i @ai-sdk/google              # google
+npm i @ai-sdk/deepseek            # deepseek
+npm i @ai-sdk/moonshotai          # moonshotai
+npm i @ai-sdk/xai                 # xai
+```
+
+`mik provider add` 成功后若该协议的包还缺，CLI 会**主动打印**对应的 `npm i …` 一行（包已装则静默）；`mik serve` 启动横幅也会对已配置供应商缺失的包给一行 `502` 预警，但**不阻塞启动**。
+
 | 入口 | 导出 | 用途 |
 |---|---|---|
 | `model-infra-kit` | `ModelInfra`、`Store`、`CredentialStore`、`ProviderRegistry`、`PricingService`、`UsageService`、`createAiBridge`、错误类型与全部类型 | 主路径 |
 | `model-infra-kit/server` | `createServer`、`DEFAULT_HOST`、`DEFAULT_PORT` | 自建 HTTP 服务（`mik serve` 用的就是它） |
 | `model-infra-kit/cli` | `main(argv)`、`parseCliArgs`、格式化工具 | 把 CLI 嵌进自己的进程 |
 
-> 需要 Node ≥ 22.13（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`）。`@ai-sdk/*` provider 是可选 peer 依赖：用哪个协议就装哪个包（`@ai-sdk/openai`、`@ai-sdk/deepseek` …），缺失时 `loadProviderFactory()` 会给出「装哪个包」的可读错误。
+> 需要 Node ≥ 22.13（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`）。缺失的 provider 包会在 `mik provider add` 之后与 `mik serve` 启动横幅上被提前指出；库面 `loadProviderFactory()` 仍给出「装哪个包」的可读错误。
 >
 > **本包不含看板。** `files` 只有 `dist` 与 `LICENSE`（库 + CLI + HTTP 服务）；Next.js 看板在仓库的 `apps/dashboard`，`mik dashboard` 只在 monorepo 内可用，装包环境会报错并给出指引。详见[项目 README 的「看板」一节](../../README.md#看板)。
 
