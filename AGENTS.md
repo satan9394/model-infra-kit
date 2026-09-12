@@ -118,6 +118,11 @@ pnpm --filter model-infra-kit build       # tsdown 打包
   → **源码树里的 README / 帮助 / 契约文档，与发布包里的可能是不同文件、不同解析基准**。凡涉及「用户可见」的判断（文档入口、链接是否可用、帮助文案），**必须从装包目录或 npm 页面取证据**，不能从仓库根取。这与 G11「用 `dist/index.mjs` 的实际导出名核对契约」是同一条原则。
   → 附带事实：**仓库根 README（含快速开始/升级说明/边界声明）不进 npm 包**，npm 访客只看到包级 README。
 
+- **本机 `bash` 是 WSL 的，不是 Git Bash**（R156，实测踩到）：`Get-Command bash` → `C:\WINDOWS\system32\bash.exe`。由此三条硬事实，跑 `.sh` 时务必遵守：
+  1. **Windows 路径要写 `/mnt/c/...`**（不是 Git Bash 的 `/c/...`）；
+  2. **8.3 短名不可用**（`/mnt/c/Users/SATANC~1/...` → `No such file or directory`），必须用长路径 `C:\Users\Satanchen\...`；
+  3. **不要用 `bash -c '... $1 ... $NAME ...'`**——PowerShell 会**先展开**这些 `$`，得到 `FAIL[Satanchen]` 这类荒谬输出。**必须写成脚本文件再 `bash <file>`**（或 `bash -s` 走 stdin）。
+
 ## 当前状态（R113）
 
 - **版本 v0.2.10**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。

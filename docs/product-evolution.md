@@ -47,7 +47,7 @@
 - **技术债队列**：G15 非法语言二次重选提示、G16 README 版本动态化、G17 index.ts 换行（已在 G04 顺带修）、G18 防环断言升级为目录级 import 图检测、G19 runCommand/main 抽公共前置段、G20 G04 残余（真实 SIGINT 端到端 / 非 win32 分支 / 孙进程链——建议在 ubuntu+macos CI runner 补强）、G21 流程债（子代理失败率与既定对策）。
 - **NOT_NOW（拒绝清单，维持）**：虚拟 key/key 池、RPM/TPM 硬限额、观测性深度（trace/eval/playground）、智能路由与自动 failover、多租户/团队、云同步/多实例聚合、兑换码与面向终端的充值计费、任何纯装饰功能（主题色等）。
 
-## PRODUCT_STATE（R109，G01-G14 已验收关闭）
+## PRODUCT_STATE（历史快照 R109，已被下方的 R163 取代）
 
 - **当前成熟度**：v0.2.10，P0+P1 清零，P2 十项完成（…、G12 入门面、G13 `provider`/`usage`、G14 CLI 层收尾）；**472 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用（含产物双语实测）**。
 - **CLI 双语已收口**：入门面（G12）+ `provider`/`usage`（G13）+ `models`/`serve`/`pricing`/`dashboard`/错误类/`warning:` 前缀（G14）。字典 162 → **225 键**。
@@ -55,18 +55,36 @@
 - **技术债**：已清 G20/G23/G29/G30、G10a/G18/G19/G16/G15、G37（G12+G13+G14 三批收完）、G47；待清 G38–G44、G45/G46/G48/G49，**新增**：G50（跨层文案三形态：库层透传/第三方正文/我们 Error 被拼入）、G51（`pricing.state.*` 的**对齐空格藏在字典值里**且无测试锁定，被剥离会静默回归）、G52（`ports.ts`/`args.ts`/`context.ts` 三处 `lang` 默认值建议改必填）、G53（探针两处工具债：标记集含 Node/V8 英文诊断、`<SCRATCH>` 未归一化 `run-*` 目录）。
 - **风险**：无阻塞级；R99 两条流程铁律继续执行（升版后重跑全量、fixture 换行归一化 + `.gitattributes`）。
 
-## PRODUCT_STATE（R127，G01-G15 已验收关闭）
+## PRODUCT_STATE（历史快照 R127，已被下方的 R163 取代）
 
 - **当前成熟度**：v0.2.11，**P0 清零**（G15 修掉了「照官方文档走不到第一次成功调用」这一 P0），P1 剩 3 项、P2 若干；**484 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
 - **下一步（路线图）**：**NEXT** = G58（子命令 `--help` 选项说明本地化，**卡与精确证据已备**）、G57（`dashboard` 在帮助/引导里被当可用但 npm 包不含）、G60+G61（输出噪声：`provider test` 重复文案、`node:sqlite` 实验警告）、G56 的补充项（`set-default` 命令 / CLI 无法设默认模型）。**LATER** = G63（用户可达文档入口，已按 R120 更正为须改**包内 README**）、G64（跨项目隔离提示）、G65（安装漏洞复测后定性）。
 - **技术债台账**（R127 合并）：G38–G44、G45/G46/G48/G49；G50（跨层文案三形态）、G51（`pricing.state.*` 对齐空格藏在字典值里）、G52（`lang` 默认值改必填）、G53（探针工具债）、**G66**（`serveBanner` 测试临时清空进程 SIGINT 监听，异常终止时不保证恢复）、**G67**（A1 工具是鲁棒性探测器，需补单源变体以支撑更强命题——R127 已补并实测）。
 
-## PRODUCT_STATE（R149，G01-G16 已验收关闭）
+## PRODUCT_STATE（R163，现行——G01-G69 已验收关闭）
 
-- **当前成熟度**：v0.2.12，**P0 清零**、**G37 全部子批次收完**（G12 入门面 + G13 `provider`/`usage` + G14 其余命令与错误类 + G15 首次路径 + **G58 子命令 `--help` 选项说明**）；**493 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
-- **下一步**：**NEXT** = G69（`dashboard` 诚实性 + G68 的 6 个 i18n 死键）、G70（`provider test` 重复文案 + `node:sqlite` 警告）、G71（用户可达文档入口，须改**包内 README**）、G72（`battery.sh` 的 `fail()` 在 `set -u` 下掩盖失败原因）、G56 补充项（`set-default` / CLI 无法设默认模型）。**LATER** = G64（跨项目隔离提示）。**NOT_NOW** = 看板随包发布、换掉 `node:sqlite`。
-- **技术债台账**：G38–G44、G45/G46/G48/G49、G50（跨层文案三形态）、G51/G52/G53、G66/G67、**G68**（6 个 i18n 死键，R129 新发现）、**G72**（工具错误路径，R146 新发现）。
-- **四张卡已备**（`.tmp/staged-*.md`）：G69/G70/G71/G72——每张都已按最新证据**收窄范围或定位根因**（例：G69 的 G57 缺口已收窄为「`--help`/`init` 未提示」；G70 已定位 `bridge.ts:178` + `context.ts:175` 的双重追加；G72 已实测确认 `battery.ps1` **无**同类问题）。
+> **本节是唯一现行状态**。上方两节是历史快照（R109/R127），保留仅为追溯；**排期与缺口以本节为准**。
+> **结构教训（R164，编排者自身）**：此前每轮收尾都是**插入**新 `PRODUCT_STATE` 而非**替换**，累积出三份互相冲突的「当前状态」。**此后每轮必须替换本节，不得再插入。**
+
+- **当前成熟度**：v0.2.13，**P0 清零**；**510 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
+- **定位获外部背书（R155 竞品刷新）**：「可嵌入宿主进程、零外部服务的模型层（含计量+计价+用量出口）」这一格**目前是空的**——证据：vercel/ai 把成本计算标 **`wontfix`**（17 👍，该仓 cost 标题下最高）；LiteLLM 的成本能力全绑在有状态 proxy；Langfuse 的绑在摄取后端+UI。**本产品不是既有类别的劣化版**。
+- **下一步（R155 路线图裁决）**：**NOW = G73**（**P1**：供应商回传成本——竞品调研认定它触及核心承诺「对账可闭合」；编排者**不采纳其 P0 评级**但**保留其论证**）。**NEXT** = G70（输出噪声）、G74（未定价覆盖率）、G75（归属标签，须改契约）、G71（文档入口）、G72（工具错误路径）。**LATER** = G64（跨项目隔离提示）。**NOT_NOW = R1–R6**（竞品六条建议的拒绝，各附理由与证据，见 `.tmp/competitor-synthesis-R155.md` §3）。
+- **技术债**：G38–G44、G45/G46/G48/G49、G50（跨层文案三形态）、G51/G52/G53、G66/G67、**G72**；**门禁增强两项 [P3]**（R163，Evaluator 提出）：① 死键门禁改**派生比对**（由 `COMMANDS` 生成期望键集并双向断言，消除「删/改名命令 → 其 summary/details 隐形死键」——Evaluator 指出 `DYNAMIC_PATTERNS` 豁免**是承重的**）；② 字典键改读**导出对象的 `Object.keys()`** 而非正则扫文本（消除「字典格式漂移」逃逸）。
+- **工具环境问题（待用户处理）**：**`web_search` 当前 401 不可用**（编排者 R155 独立复核确认）；错误提示指向 Settings → Plugins → Plugin configuration → Web search 或设 `DEEPSEEK_SEARCH_BASE_URL`。**只有用户应改该端点，编排者未擅动。**
+- **卡片队列**：`tasks/EVO-G70-output-noise.md`、`tasks/EVO-G71-doc-entrypoints.md`、`tasks/EVO-G72-tool-error-path.md`、`tasks/EVO-G73-provider-reported-cost.md` 已转正；**G74 卡已起草**（`.tmp/staged-G74-card.md`，待转正）。
+
+## G69 验收留痕（R161–R163）
+
+- **判定：独立 Evaluator ACCEPT**（0 阻断、4 条建议）。快照 `37e9bae` 无漂移。
+- **改动**：`dashboard.ts` 5 处 `tr()` 接线 + `missingDashboardError(lang)`；`args.ts` 的 `dashboard` summary 加限定语 + details 新增行；字典净变 0；**新增两个守卫测试**（`i18n-dead-keys.test.ts`、`dashboard-honesty.test.ts`）。
+- **编排者的独立验证**：死键 **6 → 0**（自有检测器）；**G57** 限定语与 README 口径一致；**G68 真·装包场景**（`pnpm pack` 装进无 `apps/` 目录）全中文且**数据保持原文**；**`notAPackage` 分支**全中文；**G36** 从已发布包复验 G57/G68。
+- **三处偏差的裁决（均经代码核实）**：
+  1. **D1**：`wizard.nextStepsTitle`（零引用）**两侧删除** → 接受（接线会在 en 的 `init` 输出新增一行，违反「en 逐字不变」）。Evaluator 认同并指出：删与不删**任何输出都不变**。
+  2. **D2（超卡片范围）**：`findPnpmScript(process.env)` → `findPnpmScript(env)` → **接受**。三重证据：① 改前 `const env = resolveEnv(options)` **算了却不用**（L106 算 / L131 用 `process.env`）→ G12 类缺陷；② 它使 `noEntryPoint` 在注入式测试中**不可达**，不改则卡片自身的「改前必红」无法满足；③ Evaluator **补做了编排者没做的一步**——全量搜 `RunOptions.env` 构造点，**无任何调用点构造它** → 真实运行 `env === process.env` **逐字等价**。
+  3. **D3（覆盖声明）**：`spawnFailed` 事件不可构造、`--dir` 真实启动未端到端覆盖 → 接受为**如实声明**。编排者的 CLI 测试也**未能复现 `noEntryPoint`**（本机 PATH 有 pnpm）——**这个「验不成」反成 D2 的第三重证据**。
+- **Evaluator 的两处纠错**：① 我的「G69 的 7 个文件」按文件数是 **8 个**（我把 `i18n/{zh,en}.ts` 记成一行）；② 我等提示「孤儿键检查抓不到『有人用但没键』」**一半不成立**（同用例开头有正向断言），而它**找到了我没想到的真实残余**（`cmd.*.summary` 无键回落 + `DYNAMIC_PATTERNS` 豁免过宽）。
+- **编排者的提交前检查（R99 教训的应用）**：fixture **无 BOM**、**LF 结尾**、em dash 行与 CLI 输出**逐字符一致** → 随后 **CI 三 OS 全绿**确认（Evaluator 曾把「英文 fixture 首次引入非 ASCII」标为 [P2] 风险）。
+- **交付**：提交 `86a2488`（9 文件，显式点名 2 个未跟踪测试文件，提交信息写明 D1 删键与 D2 随卡修复）；npm `0.2.13` + Release；**CI 三 OS 一次通过**。
 
 ## G58 验收留痕（R146–R149）
 
