@@ -35,12 +35,29 @@ probe2  failed  4 ms  -     Environment variable NO_SUCH_VAR_X is not set for th
 3. **摘要行**：保留一句，**正文仍可来自库层**（按 G50 边界不翻译），但**不再重复三遍**。
 4. **不改库层文案、不改退出码**（失败仍 exit 1）。
 
-### G61（**优先「解释」，不是「隐藏」**）
-**硬约束**：**不得**用「全局吞掉警告」的方式静默它。可选做法按优先级：
-1. **首选**：在**首次运行**（或 `init` 完成时）用一句本地化说明解释这是 `node:sqlite` 的既有提示、不影响正确性——**保留**警告本身（诚实）；
-2. 次选：若确实要抑制，**必须只针对这一条**（按消息内容过滤，而非 `removeAllListeners('warning')` 全禁），且**在 README/`--help` 中写明已抑制及原因**；
-3. 无论哪种，**不得**影响其它 Node 警告（尤其是今后可能出现的安全警告）。
-**建议**：本卡先做「解释」（方案 1），把「抑制」留作将来有用户抱怨时再议——**理由**：该警告是 Node 对 `node:sqlite` 实验状态的诚实提示，隐藏它会让用户失去一条真实信息。
+### G61（**定向抑制优先；解释是退路；全禁禁止**）
+
+**硬约束**：**不得**用「全局吞掉警告」的方式静默它（例如 `removeAllListeners('warning')` 之后就完事）——那会连**今后的安全警告**一起吞掉。
+
+**R154 探针结论（编排者实测于 Node v24.14.0，直接可用）**：
+
+| 测试 | 结果 |
+|---|---|
+| 不加标志 | `ExperimentalWarning: SQLite is an experimental feature…` 照常打印 |
+| `node --disable-warning=ExperimentalWarning` | **该警告消失**，程序正常 |
+| 同一标志下再构造 `DeprecationWarning` | **仍然打印** → **该标志是定向的，不是全禁** |
+
+**推荐做法（按优先级）**：
+
+1. **启动器层传标志**（最干净、零业务代码）：`node --disable-warning=ExperimentalWarning dist/cli.mjs`。
+   ⚠️ **跨平台不对称，务必注意**：shebang 写法（`#!/usr/bin/env -S node --disable-warning=…`）**只在 Unix 生效**；**Windows 上 npm 生成的 `.cmd` shim 不解析 shebang**。→ 若采用此法，**必须在报告里明确声明平台差异**；否则请用第 2 条兜底。
+2. **进程内定向过滤（跨平台）**：停放原有 `warning` 监听 → 装过滤监听，**只丢弃**「`name === "ExperimentalWarning"` 且消息匹配 `/SQLite/`」这一条，**其余原样转发给被停放的监听**。仓库已有同类先例（`cli-help-options-i18n.test.ts` 的 `serveBanner` 停放 SIGINT 监听），可直接借鉴其 `try/finally` 恢复写法。
+3. **退路：解释**——在首次运行/`init` 完成时说一句本地化说明，**保留**警告本身（诚实：它是 Node 对 `node:sqlite` 实验状态的提示）。
+
+**必须自证「定向」而非「全禁」**（无论选哪条）：
+- 断言该 `ExperimentalWarning` **不再出现**（若选第 3 条则断言**说明存在且警告仍在**）；
+- **且**构造另一条警告（如 `process.emitWarning("probe","DeprecationWarning")`），断言它**仍然出现**。
+- **后半条是本节的核心**——它把「定向」从一个形容词变成**可判定条件**。
 
 ## 重复的确切来源（R144 定位，非猜测）
 
