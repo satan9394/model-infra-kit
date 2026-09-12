@@ -685,12 +685,12 @@ byTag(query?: UsageQuery): UsageBucket[]   // 见上文 T04 块；key 形如 "fe
 
 ```
 mik usage summary [--from <date>] [--to <date>] [--app <appId>] [--tag <key[=value]>] [--by-tag]
-mik usage export  --format csv [...]        # 表头追加第 15 列 tags
+mik usage export  --format csv [...]        # 表头 = 固定 15 列 + EVO-G81 追加 7 列（共 22 列）
 ```
 
 - `--tag <键>` / `--tag <键>=<值>`：只统计带该标签的调用（在 `usage summary|trends|logs|export` 全部可用，属 `QUERY_FLAGS`）。只按**第一个** `=` 切分，标签值本身可含 `=`。
 - `--by-tag`：**opt-in**，在 `usage summary` 末尾追加「按标签归属的成本」表（最多 10 行，单元格 48 码点后加 `…`；**只裁剪展示，CSV 与 API 保留全文**）+ 一行说明（多标签行会计入每个标签；未打标签的调用不在表内；机器写入的键已排除；展示值均已脱敏）。**不加这个 flag 时输出与改前逐字一致**。
-- `usage export` 的 CSV 表头：**既有 14 列的名字与顺序一字不变**，`tags` **追加在最后**（第 15 列，值为按字典序稳定的 `键=值` 空格连接；值内含逗号/引号时按 RFC 4180 加引号）。机器写入的键（G73 的两个真实键与 `_mik_` 前缀）**不出现**在该列——它们仍可从 `UsageEvent.tags` / HTTP 响应读到。宿主脚本按列名或前 14 个索引读取均不受影响。
+- `usage export` 的 CSV 表头（**G75 当时的状态，历史记录**）：既有 14 列的名字与顺序一字不变，`tags` 追加为**第 15 列**（值为按字典序稳定的 `键=值` 空格连接；值内含逗号/引号时按 RFC 4180 加引号）。机器写入的键（G73 的两个真实键与 `_mik_` 前缀）**不出现**在该列——它们仍可从 `UsageEvent.tags` / HTTP 响应读到。**EVO-G81 之后 `tags` 不再是末列**，列表现状见下文「EVO-G81」节。
 
 
 ## EVO-G64 —— 共用数据库的可见性（`usage summary` 末尾的两条提示）
@@ -723,5 +723,46 @@ mik usage export  --format csv [...]        # 表头追加第 15 列 tags
 - **`usage export` 的 CSV 表头一字未变**（本卡不加列，仍 15 列）。
 - **已知边界（诚实声明）**：两个项目都用默认 `app_id`（`default`）时，从库内**无法区分**它们，A **永不触发**；该场景只由 B 覆盖——B 陈述的是路径与可能性，**不是**「有 3 个应用」这类具体主张。改 `app_id` 缺省值是破坏性变更，不在本卡范围。
 - **本卡未改动** `mik serve` 的 HTTP 面与看板：那两面仍没有这两条提示。它们各自的 app 作用域**本卡未取证**，故此处不作断言。
+
+
+## EVO-G81 —— 导出物可对账、可追溯、不可注入
+
+来源：对已发布产物 0.2.23 的独立再审计（audit-R232 的 F4 / F5 / F6）。三条缺陷都只在**产物**上可见，故本节的每条结论都在 `usage export` 的真实字节上验证（`test/export-reconcilable.test.ts`）。
+
+### 金额列：精度与真相源
+
+- **真相源仍是整数微美元**（硬性规则 2）：每行的 `cost_microusd` 是 `Math.round(cost_usd * 1e6)`，与 SQL 的 `CAST(ROUND(cost_usd * 1000000) AS INTEGER)` 同语义；`cost_usd` 是它的 **6 位小数**渲染（`(micro / 1e6).toFixed(6)`）。
+- **对账精度声明**：CSV 的对账精度是 **微美元（1e-6）**。逐行 `cost_microusd` 求和 == `usage summary` 所用的同一批整数之和（同一个查询范围、同一批行）；把逐行 `cost_usd` 求和后按 `usage summary` 的显示精度（4 位）取整，得到的就是它打印的那个成本值（未定价存在时是它打印的**下界** `at least …`，见 EVO-G78）。
+- **改了什么**：逐行曾是 4 位小数（`toFixed(4)`），于是 340 + 180 + 0 + 0 + 134 = **654 µ$（0.000654）** 的行和被打成 `0.0003+0.0002+0+0+0.0001 = 0.0006`，而 `usage summary` 打印 `0.0007` —— 对账必然失败（F4）。**禁止** `SUM(CAST(cost AS REAL))` 一类浮点求和仍是硬性规则。
+
+### CSV 列（`USAGE_CSV_COLUMNS`，共 22 列）
+
+前 15 列**名字与顺序逐字不变**。源码里的两个冻结常量（`USAGE_CSV_FROZEN_COLUMNS` / `USAGE_CSV_FROZEN_HEADER`，`src/cli/csv.ts`）只供测试与源码内断言使用：**它们与 `USAGE_CSV_LEGACY_COLUMNS` 一样不在 `mik/cli` 的公开导出里**（用 `dist/cli.d.mts` 核过；公开的是 `USAGE_CSV_COLUMNS` 与 `USAGE_CSV_HEADER`）。
+
+| # | 列名 | 类型 | 语义 |
+| --- | --- | --- | --- |
+| 1–15 | `ts, app_id, provider, model, status, input, output, cache_read, cache_write, reasoning, cost_usd, pricing_source, pricing_basis, latency_ms, tags` | 同 G75 | 见上文 G75 节；**`cost_usd` 自 G81 起是 6 位小数的微美元渲染** |
+
+EVO-G81 **追加**（顺序固定）：
+
+| # | 列名 | 类型 | 语义 |
+| --- | --- | --- | --- |
+| 16 | `request_id` | string（非空） | 该次调用的身份。与 `usage_events.request_id`、`UsageEvent.requestId`、`GET /api/usage/logs/:id`（`src/server/api.ts:454`）**同一个值**；`POST /api/usage/events` 按它幂等（同 id 重复只计数、不重写）。用于把一行 CSV 定位回一条记录/按幂等键回灌。 |
+| 17 | `session_id` | string（可空 → 空串） | 宿主传入的会话标识（`ModelRequest.sessionId` / 事件的 `sessionId`）。可空，缺失写空字段（不写 `null`）。 |
+| 18 | `first_token_ms` | integer（可空） | 首 token 延迟（毫秒）。**与 `latency_ms` 同规则**：没有测量时写空，**不写 0**（0 是「测到 0 ms」）。 |
+| 19 | `is_streaming` | `true` / `false` | 该次调用是否走流式（`UsageEvent.isStreaming`）。 |
+| 20 | `error_code` | string（可空） | 失败原因码；仅在 `status=error` 时有值。 |
+| 21 | `pricing_model` | string（可空） | 实际用于定价的模型 id（`CostInfo.pricingModel`）。落库时缺省取 `model_actual`（`usage-repository.ts:231`），故通常是模型名。 |
+| 22 | `cost_microusd` | **integer** | 该行金额的**整数微美元**（真相源）。与同行 `cost_usd` 满足 `cost_microusd == round(cost_usd * 1e6)`；逐行求和即对账合计。 |
+
+- 追加是**唯一**兼容的加列方式：按索引或按表头读取的宿主脚本不受影响；`usage summary` / `logs` / `trends` 的行与顺序本卡未改。
+- **用户如何把一行 CSV 与一条 log 对上**：`request_id` 是两侧共用的身份——HTTP 面用 `GET /api/usage/logs/:id` 直接取该条；`usage logs` 的表按 `TS/app/provider/model/status` 展示，可与 `request_id` 一起用于人眼核对（`usage logs` 的表**本卡未加列**，故 CLI 文本面本身不打印 id）。
+
+### 行结构不变量（不可注入）
+
+- **单条记录恰好一行**：任何单元格都不得含能结束一行的字符（CR / LF / U+2028 / U+2029）。G82 已在 `tags` 单元格做过（`tagsToText` → `redactTagsForDisplay` → `sanitizeTagForDisplay`）；**EVO-G81 把它提升为整行的性质**：`csvField()` 对每个文本单元格套用同一个 `sanitizeTagForDisplay()`（`\n`/`\r`/`\t` → 两字符转义，其余 C0/C1 → `?`），因此宿主/上游可控的 `model`、`session_id`、`error_code` 等列同样不会把记录拆成多个物理行。**这是「一个不变式、一处实现」，不是第二份策略。**
+- 逗号与双引号仍按 RFC 4180 加引号；加引号后**不会**再出现换行（换行已在渲染前被转义），故「加引号 = 跨行」这一读法在本产物上不成立。
+- 空库导出 = 一行表头，无数据行（`--out` 文件内容恰为 `表头 + "\n"`）。
+
 
 

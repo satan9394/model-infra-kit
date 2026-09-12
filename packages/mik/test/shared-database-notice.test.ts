@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { USAGE_CSV_HEADER } from "../src/cli/csv.js"
+import { USAGE_CSV_FROZEN_HEADER, USAGE_CSV_HEADER } from "../src/cli/csv.js"
 import { main } from "../src/cli/index.js"
 import { Store } from "../src/store/database.js"
 import { UsageService } from "../src/usage/service.js"
@@ -249,6 +249,12 @@ const PRE_CHANGE_CSV_COLUMNS = [
   "tags",
 ]
 
+/**
+ * The 0.2.26 `usage export` header (22 columns): the published 15 above plus the
+ * seven columns EVO-G81 appends. A literal, for the same reason as above.
+ */
+const G81_CSV_HEADER = `${PRE_CHANGE_CSV_HEADER},request_id,session_id,first_token_ms,is_streaming,error_code,pricing_model,cost_microusd`
+
 describe("EVO-G64 — the shared-database notice in `usage summary`", () => {
   it("A1 — one file, three apps: names the file, the count and every id", async () => {
     const { dir, db, base } = sandbox()
@@ -450,14 +456,17 @@ describe("EVO-G64 — the shared-database notice in `usage summary`", () => {
     const result = await run(["usage", "export", "--format", "csv", ...base, "--app", "cli-app"], dir)
     expect(result.code).toBe(0)
     const header = normalize(result.stdout).split("\n")[0]
-    expect(header).toBe(PRE_CHANGE_CSV_HEADER)
+    // EVO-G81 appended seven traceability columns; the G75 fifteen-name prefix
+    // is the frozen part and is still checked name by name.
+    expect(header).toBe(G81_CSV_HEADER)
     // The frozen prefix, one name at a time: a rename or reorder fails by name.
     expect(header?.split(",").slice(0, 14)).toEqual(PRE_CHANGE_CSV_COLUMNS.slice(0, 14))
-    expect(header?.split(",")).toEqual(PRE_CHANGE_CSV_COLUMNS)
-    expect(header?.split(",")).toHaveLength(15)
-    // GUARD: the exported constant still matches the literal above, so a change
+    expect(header?.split(",").slice(0, 15)).toEqual(PRE_CHANGE_CSV_COLUMNS)
+    expect(header?.split(",")).toHaveLength(22)
+    // GUARD: the exported constants still match the literals above, so a change
     // to either side is caught (the two sides are independent).
-    expect(USAGE_CSV_HEADER).toBe(PRE_CHANGE_CSV_HEADER)
+    expect(USAGE_CSV_FROZEN_HEADER).toBe(PRE_CHANGE_CSV_HEADER)
+    expect(USAGE_CSV_HEADER).toBe(G81_CSV_HEADER)
     // And no notice leaks into a data format — neither signal.
     expect(result.stdout).not.toContain("holds usage from")
     expect(result.stdout).not.toContain("no --db was given")

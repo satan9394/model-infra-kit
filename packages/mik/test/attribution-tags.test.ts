@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { createTestServer } from "@ai-sdk/test-server"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { USAGE_CSV_COLUMNS, USAGE_CSV_HEADER, USAGE_CSV_LEGACY_COLUMNS } from "../src/cli/csv.js"
+import { USAGE_CSV_COLUMNS, USAGE_CSV_FROZEN_COLUMNS, USAGE_CSV_HEADER, USAGE_CSV_LEGACY_COLUMNS } from "../src/cli/csv.js"
 import { buildUsageQuery } from "../src/cli/commands/usage.js"
 import { main } from "../src/cli/index.js"
 import { ModelInfra, type ModelInfraOptions } from "../src/hub.js"
@@ -366,8 +366,19 @@ describe("EVO-G75 A1 — a tagged call can be queried back and shows up in the C
     expect(code).toBe(0)
     const lines = normalize(stdout).trimEnd().split("\n")
     expect(lines[0]).toBe(USAGE_CSV_HEADER)
-    expect(lines[0]?.endsWith(",tags")).toBe(true)
-    expect(lines[1]?.endsWith(",feature=quant-backtest")).toBe(true)
+    // EVO-G75 asserted the two *tail* literals `lines[0].endsWith(",tags")` and
+    // `lines[1].endsWith(",feature=quant-backtest")`. EVO-G81 appends seven
+    // traceability columns **after** `tags`, so the tag cell is no longer the
+    // tail; both old literals are superseded and are declared in the card
+    // report rather than silently dropped. The G75 property they meant to lock —
+    // "`tags` is column 15 and this row carries the rendered pairs in it" — is
+    // re-asserted positionally here.
+    const header = lines[0]!.split(",")
+    expect(header.slice(0, 15)).toEqual(USAGE_CSV_FROZEN_COLUMNS)
+    expect(header.indexOf("tags")).toBe(14)
+    expect(lines[0]!.endsWith(",tags")).toBe(false) // superseded by EVO-G81
+    expect(lines[1]!.split(",")[14]).toBe("feature=quant-backtest")
+    expect(lines[1]!.endsWith(",feature=quant-backtest")).toBe(false) // superseded
   })
 })
 

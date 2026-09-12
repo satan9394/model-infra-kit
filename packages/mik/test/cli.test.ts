@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
 import { openContext, offlineFetch } from "../src/cli/context.js"
-import { USAGE_CSV_COLUMNS, USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
+import { USAGE_CSV_COLUMNS, USAGE_CSV_FROZEN_COLUMNS, USAGE_CSV_FROZEN_HEADER, USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
 import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
 import { isDirectInvocation, main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
@@ -201,13 +201,21 @@ describe("usageCsv", () => {
   }
 
   it("keeps the header fixed and column order stable", () => {
-    // EVO-G75 appended `tags` as the 15th column. Appending is the only change a
-    // host script can absorb: the fourteen existing names keep their exact
-    // positions, and the frozen prefix is asserted as a literal.
+    // EVO-G75 appended `tags` (15th). EVO-G81 appended seven traceability
+    // columns after it. Appending is the only change a host script can absorb:
+    // the fifteen pre-change names keep their exact positions, and **both**
+    // frozen prefixes are asserted as literals rather than against
+    // `USAGE_CSV_HEADER` (which would compare the constant with itself).
     expect(USAGE_CSV_HEADER).toBe(
+      "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms,tags,request_id,session_id,first_token_ms,is_streaming,error_code,pricing_model,cost_microusd",
+    )
+    // EVO-G81: the frozen 15-name prefix, byte-for-byte, as a literal.
+    expect(USAGE_CSV_FROZEN_HEADER).toBe(
       "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms,tags",
     )
-    expect(USAGE_CSV_HEADER.split(",")).toHaveLength(15)
+    expect(USAGE_CSV_FROZEN_COLUMNS).toHaveLength(15)
+    expect(USAGE_CSV_HEADER.startsWith(USAGE_CSV_FROZEN_HEADER)).toBe(true)
+    expect(USAGE_CSV_HEADER.split(",")).toHaveLength(22)
     expect(USAGE_CSV_HEADER.split(",").slice(0, 14)).toEqual([
       "ts",
       "app_id",
@@ -233,8 +241,13 @@ describe("usageCsv", () => {
     expect(lines).toHaveLength(3)
     // EVO-G75: the pre-change fields keep their exact positions; only the
     // appended `tags` field is empty here (the fixture carries no tags).
+    // EVO-G81 changes two things in this row and nothing else:
+    //  - `cost_usd` is the exact 6-decimal micro-USD rendering (0.012345), not
+    //    the old 4-decimal 0.0123 that made the row sum disagree with the total;
+    //  - the seven appended columns: request_id `r-1`, then session/TTFT/error/
+    //    pricing_model empty, `is_streaming` false, and the integer micros 12345.
     expect(lines[1]).toBe(
-      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.0123,modelsdev,flat,850,",
+      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.012345,modelsdev,flat,850,,r-1,,,false,,,12345",
     )
     expect(lines[2]?.startsWith("2026-09-01T10:00:01.000Z")).toBe(true)
   })
@@ -977,9 +990,12 @@ describe("usage", () => {
     expect(lines[0]).toBe(USAGE_CSV_HEADER)
     expect(lines).toHaveLength(3)
     expect(lines[1]).toBe(
-      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.0123,modelsdev,flat,850,",
+      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.012345,modelsdev,flat,850,,r-1,,,false,,deepseek-chat,12345",
     )
-    expect(lines[2]).toContain(",openai,gpt-4o,error,2000,500,0,0,0,1.5000,missing,flat,1200,")
+    // EVO-G81: exact micro-USD money, and the seven appended traceability
+    // columns. The second row is an error with no tag; `pricing_model` defaults
+    // to `model_actual` on insert (`usage-repository.ts:231`).
+    expect(lines[2]).toContain(",openai,gpt-4o,error,2000,500,0,0,0,1.500000,missing,flat,1200,,r-2,,,false,RATE_LIMIT,gpt-4o,1500000")
   })
 
   it("writes the CSV to --out", async () => {

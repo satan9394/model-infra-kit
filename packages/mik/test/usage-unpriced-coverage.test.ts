@@ -115,6 +115,13 @@ const PRE_CHANGE_CSV_HEADER =
 const G75_CSV_HEADER = `${PRE_CHANGE_CSV_HEADER},tags`
 
 /**
+ * EVO-G81 appended seven traceability columns after `tags`. Same rule again: the
+ * expectation is the G75 header literal plus exactly those seven names, never
+ * `USAGE_CSV_HEADER` compared with itself.
+ */
+const G81_CSV_HEADER = `${G75_CSV_HEADER},request_id,session_id,first_token_ms,is_streaming,error_code,pricing_model,cost_microusd`
+
+/**
  * The pre-change `usage summary` on an empty database, byte-for-byte
  * (`.tmp/g74-baseline/summary-empty-en.txt`). Any new segment that fired on a
  * healthy/empty install would break this.
@@ -384,8 +391,11 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
   it("A4 — the CSV header is the pre-change header with only `tags` appended", async () => {
     // Both sides are literals: the frozen prefix is the pre-change header, and
     // the whole header is that prefix plus exactly one appended column.
-    expect(USAGE_CSV_HEADER).toBe(G75_CSV_HEADER)
+    // EVO-G81 appends its seven columns after `tags`; the G75 segment below is
+    // still asserted on its own so a reorder *inside* the frozen prefix fails.
+    expect(USAGE_CSV_HEADER).toBe(G81_CSV_HEADER)
     expect(USAGE_CSV_HEADER.startsWith(PRE_CHANGE_CSV_HEADER)).toBe(true)
+    expect(USAGE_CSV_HEADER.startsWith(G75_CSV_HEADER)).toBe(true)
 
     const { dir, db, base } = sandbox()
     await seed(db, MIXED)
@@ -393,15 +403,15 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     const zhRun = await run(["usage", "export", "--format", "csv", ...base, ...APP], dir, { MIK_LANG: "zh" })
     expect(en.code).toBe(0)
     expect(zhRun.code).toBe(0)
-    expect(en.stdout.split("\n")[0]).toBe(G75_CSV_HEADER)
-    expect(zhRun.stdout.split("\n")[0]).toBe(G75_CSV_HEADER)
+    expect(en.stdout.split("\n")[0]).toBe(G81_CSV_HEADER)
+    expect(zhRun.stdout.split("\n")[0]).toBe(G81_CSV_HEADER)
     expect(zhRun.stdout).toBe(en.stdout)
     expect(en.stdout.trimEnd().split("\n")).toHaveLength(MIXED.length + 1)
 
     const target = join(dir, "out", "usage.csv")
     const wrote = await run(["usage", "export", "--format", "csv", "--out", target, ...base, ...APP], dir)
     expect(wrote.code).toBe(0)
-    expect(readFileSync(target, "utf8").split("\n")[0]).toBe(G75_CSV_HEADER)
+    expect(readFileSync(target, "utf8").split("\n")[0]).toBe(G81_CSV_HEADER)
   })
 
   it("EVO-G77 — a rolled-up range says so instead of staying silent", async () => {
