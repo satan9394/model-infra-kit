@@ -322,9 +322,11 @@ describe("EVO-G78 / G79 / G80 — cost certainty and the two time windows", () =
 
     const exported = await run(["usage", "export", ...base], dir)
     expect(exported.code).toBe(0)
-    expect(exported.stdout).toContain(",0.0000,missing,unknown,100,")
+    // EVO-G81 widened the money cell to the exact micro-USD rendering
+    // (`0.0000` → `0.000000`, `0.0100` → `0.010000`); the token pair is unchanged.
+    expect(exported.stdout).toContain(",0.000000,missing,unknown,100,")
     // Not harmed: NULL basis with a real price source still reads `flat`.
-    expect(exported.stdout).toContain(",0.0100,modelsdev,flat,100,")
+    expect(exported.stdout).toContain(",0.010000,modelsdev,flat,100,")
 
     // And the legacy unpriced row is a floor, not a point (the marking reads
     // `pricing_source`, which the nulling left untouched).
@@ -343,10 +345,15 @@ describe("EVO-G78 / G79 / G80 — cost certainty and the two time windows", () =
     // The unpriced row: `pricing_source=missing` **and** `pricing_basis=unknown`.
     // It used to say `flat`, i.e. the token that means "a real rate was applied"
     // — which is what made "free" and "unpriced" indistinguishable in the numbers.
-    expect(exported.stdout).toContain(",0.0000,missing,unknown,100,")
-    expect(exported.stdout).toContain(",0.0100,modelsdev,flat,100,")
+    //
+    // EVO-G81 widened the money cell to the exact micro-USD rendering
+    // (`0.0000` → `0.000000`, `0.0100` → `0.010000`): four decimals per row was
+    // the defect that made the exported rows sum to less than `usage summary`.
+    // The token pair and every other column are unchanged.
+    expect(exported.stdout).toContain(",0.000000,missing,unknown,100,")
+    expect(exported.stdout).toContain(",0.010000,modelsdev,flat,100,")
     expect(exported.stdout.split("\n")[0]).toBe(
-      "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms,tags",
+      "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms,tags,request_id,session_id,first_token_ms,is_streaming,error_code,pricing_model,cost_microusd",
     )
 
     const logs = await run(["usage", "logs", ...base], dir)
