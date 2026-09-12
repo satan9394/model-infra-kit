@@ -285,6 +285,21 @@ export class UsageService {
     return this.store.usage.trends(this.scoped(query), bucket)
   }
 
+  /**
+   * Every app id with usage rows in this database, ascending (EVO-G64).
+   *
+   * The **one** read on this class that is not scoped to `this.appId`, on
+   * purpose: `scoped()` exists so one app cannot read another's rows, and the
+   * question this answers is precisely "who else writes into this file". It
+   * returns ids only — no counts, no cost, no events — so it discloses nothing
+   * that `usage summary --app <other>` would not, and it grants no access,
+   * quota or isolation. A caller that prints it must keep it advisory (see the
+   * `usage summary` notice), never a gate.
+   */
+  appsInDatabase(): string[] {
+    return this.store.usage.apps()
+  }
+
   byProvider(query?: UsageQuery): UsageBucket[] {
     return this.store.usage.byProvider(this.scoped(query))
   }

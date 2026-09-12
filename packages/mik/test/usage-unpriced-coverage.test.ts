@@ -290,7 +290,7 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).not.toContain("Unpriced")
   })
 
-  it("A5 — both dictionaries define the new keys (286 → 294 → 299 → 300 → 306) with equal key sets", async () => {
+  it("A5 — both dictionaries define the new keys (286 → 294 → 299 → 300 → 306 → 311) with equal key sets", async () => {
     const NEW_KEYS = [
       "usage.summary.unpriced.title",
       "usage.summary.unpriced.requests",
@@ -308,6 +308,9 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       "usage.summary.tags.header.requests",
       "usage.summary.tags.header.cost",
       "usage.summary.tags.note",
+      // EVO-G64 — the two shared-database notices.
+      "usage.summary.sharedDb",
+      "usage.summary.implicitDb",
     ]
     for (const key of NEW_KEYS) {
       expect(Object.prototype.hasOwnProperty.call(zh, key), `zh missing ${key}`).toBe(true)
@@ -317,12 +320,13 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     }
     // EVO-G70/G60 added five `provider.test.failure.*` keys on both sides, so the
     // baseline moved 294 → 299; EVO-G77 added the rollup caveat → 300; EVO-G75
-    // added six attribution-tag keys and two help descriptions → 309. Parity
-    // (the line below) is the real invariant.
-    expect(Object.keys(zh)).toHaveLength(309)
-    expect(Object.keys(en)).toHaveLength(309)
+    // added six attribution-tag keys and two help descriptions → 309; EVO-G64
+    // added the two shared-database notices → 311. Parity (the line below) is
+    // the real invariant.
+    expect(Object.keys(zh)).toHaveLength(311)
+    expect(Object.keys(en)).toHaveLength(311)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(309)
+    expect(i18nKeys()).toHaveLength(311)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })
