@@ -10,6 +10,10 @@
  */
 export { ModelInfra, type ModelCatalog, type ModelInfraOptions, type ResolvedModelRef } from "./hub.js"
 export { createMikFetch, readOpenAiUsage, type FetchTarget, type ForwardedCall, type MikFetchOptions } from "./fetch.js"
+// EVO-G73: `ForwardedCall.providerCost` / `readOpenAiUsage().cost` are public, so
+// the type they are written in has to be nameable by a host. Type-only export:
+// the runtime export set is unchanged.
+export type { ProviderCostReading } from "./pricing/reported-cost.js"
 
 export { ModelInfraError, isModelInfraError, toModelInfraError, type ModelInfraErrorCode } from "./errors.js"
 

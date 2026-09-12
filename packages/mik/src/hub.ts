@@ -6,6 +6,14 @@ import { CredentialStore } from "./credential/store.js"
 import { isModelInfraError, ModelInfraError, toModelInfraError } from "./errors.js"
 import { createMikFetch, type ForwardedCall } from "./fetch.js"
 import { PricingService } from "./pricing/service.js"
+import {
+  combineReportedCosts,
+  providerCostInfo,
+  providerCostTags,
+  reportedCostFromProviderMetadata,
+  reportedCostFromUsage,
+  type ProviderCostReading,
+} from "./pricing/reported-cost.js"
 import { ProviderRegistry, splitModelRef } from "./registry/registry.js"
 import { Store } from "./store/database.js"
 import type {
@@ -116,6 +124,52 @@ const ZERO_USAGE = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cache
 
 const MISSING_COST = (): CostInfo => ({ usd: 0, low: 0, high: 0, basis: "flat", source: "missing" })
 
+/** "The endpoint reported no amount" — the path every pre-G73 provider takes. */
+const ABSENT_COST: ProviderCostReading = { kind: "absent" }
+
+/**
+ * The amount one provider call said it billed (EVO-G73).
+ *
+ * The carrier is the SDK's `usage.raw` — "raw usage information from the
+ * provider" — which is where an OpenAI-compatible `usage.cost` survives; the
+ * measured probe (`.tmp/probe-g73.mjs`) shows `providerMetadata` empty and
+ * `result.usage.raw` unset for that protocol, while `steps[i].usage.raw` and the
+ * streaming `finish-step` part both carry it. Provider metadata is still checked
+ * as the second carrier, for providers that populate it.
+ *
+ * Exactly one reading per call: preferring `usage.raw` over metadata keeps a
+ * provider that reports through both from being counted twice.
+ */
+function reportedCostOf(usage: { raw?: unknown } | undefined, providerMetadata: unknown): ProviderCostReading {
+  const fromUsage = reportedCostFromUsage(usage?.raw)
+  return fromUsage.kind === "absent" ? reportedCostFromProviderMetadata(providerMetadata) : fromUsage
+}
+
+/**
+ * Price one call: a provider-reported billed amount when the endpoint gave one,
+ * the catalogue estimate otherwise.
+ *
+ * Adoption is atomic (`combineReportedCosts`): with several steps, every step
+ * must have reported a readable amount, or the catalogue prices the whole row.
+ * A partial sum would silently under-bill the steps that reported nothing.
+ */
+function costFor(
+  pricing: PricingService,
+  input: { model: string; at: number; usage: Partial<TokenUsage>; reported: readonly ProviderCostReading[] },
+): { cost: CostInfo; reported: ProviderCostReading } {
+  const catalogue = pricing.estimate({ model: input.model, at: input.at, usage: input.usage })
+  const reported = combineReportedCosts(input.reported)
+  if (reported.kind !== "accepted") return { cost: catalogue, reported }
+  return {
+    cost: providerCostInfo({
+      micros: reported.micros,
+      pricingModel: catalogue.pricingModel,
+      providerId: catalogue.providerId,
+    }),
+    reported,
+  }
+}
+
 /**
  * `docs/SPEC.md` §4: the public `TokenUsage` is a total (missing counts are 0),
  * while llm-pricing must be able to tell "the provider did not report this" from
@@ -207,6 +261,12 @@ function budgetDepsFor(
   errorCode?: string
   isStreaming: boolean
   request?: ModelRequest
+  /**
+   * Machine-written tags stored alongside the host's own (EVO-G73): the raw
+   * provider-reported amount and whether it was used. Empty when the endpoint
+   * reported nothing, which is what keeps the pre-G73 `tags` byte-identical.
+   */
+  diagnosticTags?: Record<string, string>
 }
 
 /**
@@ -543,7 +603,15 @@ export class ModelInfra {
       const actual = result.steps.at(-1)?.response?.modelId ?? result.response?.modelId ?? resolved.modelId
       const latencyMs = Date.now() - startedAt
       const firstTokenMs = result.steps.at(-1)?.performance?.timeToFirstOutputMs
-      const cost = this.pricing.estimate({ model: actual, at: startedAt, usage: pricing })
+      // One reading per step: a provider that reports an amount reports it per
+      // call, and `usage` above is the sum over those same steps.
+      const reported = result.steps.map((step) => reportedCostOf(step.usage, step.providerMetadata))
+      const { cost, reported: billed } = costFor(this.pricingService, {
+        model: actual,
+        at: startedAt,
+        usage: pricing,
+        reported: reported.length > 0 ? reported : [reportedCostFromProviderMetadata(result.providerMetadata)],
+      })
 
       const response: ModelResponse = {
         text: result.text,
@@ -571,6 +639,7 @@ export class ModelInfra {
         status: "ok",
         isStreaming: false,
         request,
+        diagnosticTags: providerCostTags(billed),
       })
       return response
     } catch (error) {
@@ -682,6 +751,14 @@ export class ModelInfra {
     let steps = 0
     let firstTokenMs: number | undefined
     let stepUsage: TokenUsage | undefined
+    /**
+     * The provider-reported amounts, one entry per completed step (EVO-G73).
+     * The streaming carrier is measured: `finish-step`'s `usage.raw` holds the
+     * OpenAI-compatible `usage` object (with `cost`) while the cumulative
+     * `finish` part drops `raw` entirely — so only `finish-step` is read here, or
+     * a multi-step stream would count the same amount twice.
+     */
+    const reported: ProviderCostReading[] = []
     let failure: ModelInfraError | undefined
     /**
      * A consumer that stops iterating (`break` after `error`, or after the very
@@ -744,6 +821,7 @@ export class ModelInfra {
           case "finish-step": {
             const normalized = normalizeUsage(part.usage)
             stepUsage = normalized.usage
+            reported.push(reportedCostOf(part.usage, part.providerMetadata))
             finishReason = String(part.finishReason)
             steps += 1
             yield { type: "step_finish", finishReason, usage: normalized.usage }
@@ -789,8 +867,16 @@ export class ModelInfra {
 
       const latencyMs = Date.now() - startedAt
       // A failed call is not priced: claiming a rate card for a partial stream
-      // would put a price source on a row that was never billed end to end.
-      const cost = failure ? MISSING_COST() : this.pricing.estimate({ model: actual, at: startedAt, usage: normalized.pricing })
+      // would put a price source on a row that was never billed end to end. A
+      // provider-reported amount on a failed stream is ignored for the same
+      // reason — the call did not complete, so nothing was billed for it.
+      let cost: CostInfo = MISSING_COST()
+      let billed: ProviderCostReading = { kind: "absent" }
+      if (!failure) {
+        const priced = costFor(this.pricingService, { model: actual, at: startedAt, usage: normalized.pricing, reported })
+        cost = priced.cost
+        billed = priced.reported
+      }
       const response: ModelResponse = {
         text: chunks.join(""),
         toolCalls,
@@ -839,6 +925,7 @@ export class ModelInfra {
         status: "ok",
         isStreaming: true,
         request,
+        diagnosticTags: providerCostTags(billed),
       })
       yield { type: "finish", response }
     } catch (error) {
@@ -932,8 +1019,17 @@ export class ModelInfra {
 
   /** Meter one call that came in through the `fetch` adapter. */
   private recordForwarded(call: ForwardedCall): void {
-    const cost =
-      call.status === "ok" ? this.pricing.estimate({ model: call.modelActual, at: call.at, usage: call.usage }) : MISSING_COST()
+    // A failed call is never priced from a reported amount, for the same reason
+    // it is never priced from a rate card: it was not billed end to end.
+    const billed: ProviderCostReading = call.status === "ok" ? (call.providerCost ?? ABSENT_COST) : ABSENT_COST
+    // The adapter already parsed the endpoint's own `usage.cost`, so a reported
+    // amount is adopted here exactly as it is on the AI SDK paths.
+    const { cost } = costFor(this.pricingService, {
+      model: call.modelActual,
+      at: call.at,
+      usage: call.usage,
+      reported: billed.kind === "absent" ? [] : [billed],
+    })
     this.record({
       requestId: call.requestId,
       at: call.at,
@@ -947,10 +1043,18 @@ export class ModelInfra {
       status: call.status,
       errorCode: call.errorCode,
       isStreaming: call.isStreaming,
+      diagnosticTags: providerCostTags(billed),
     })
   }
 
   private record(input: UsageRecordInput): void {
+    const diagnostic = input.diagnosticTags
+    // The host's own tags are untouched when nothing was reported: the same
+    // object (undefined included) reaches the store as before this feature.
+    const tags =
+      diagnostic && Object.keys(diagnostic).length > 0
+        ? { ...input.request?.tags, ...diagnostic }
+        : input.request?.tags
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,
       ts: input.at,
@@ -967,7 +1071,7 @@ export class ModelInfra {
       errorCode: input.errorCode,
       isStreaming: input.isStreaming,
       sessionId: input.request?.sessionId,
-      tags: input.request?.tags,
+      tags,
     }
     // Metering must never turn a successful call into a failure.
     safely(() => this.usage.record(event), this.warn)

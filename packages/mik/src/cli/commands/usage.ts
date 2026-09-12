@@ -206,6 +206,9 @@ function logRows(events: readonly UsageEvent[]): string[][] {
     formatTokens(event.usage.input),
     formatTokens(event.usage.output),
     formatMoney(event.cost.usd),
+    // Which claim this row's money is (EVO-G73): `provider` means the endpoint
+    // reported the amount it billed, anything else is a computed estimate.
+    event.cost.source,
     formatDuration(event.latencyMs),
   ])
 }
@@ -242,10 +245,11 @@ async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> 
           tr(lang, "usage.logs.header.input"),
           tr(lang, "usage.logs.header.output"),
           tr(lang, "usage.logs.header.cost"),
+          tr(lang, "usage.logs.header.source"),
           tr(lang, "usage.logs.header.latency"),
         ],
         logRows(page.events),
-        ["left", "left", "left", "left", "left", "right", "right", "right", "right"],
+        ["left", "left", "left", "left", "left", "right", "right", "right", "left", "right"],
       ),
     )
     context.io.out("")

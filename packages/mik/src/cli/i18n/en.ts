@@ -174,6 +174,7 @@ export const en: Record<string, string> = {
   "usage.logs.header.input": "INPUT",
   "usage.logs.header.output": "OUTPUT",
   "usage.logs.header.cost": "COST USD",
+  "usage.logs.header.source": "SOURCE",
   "usage.logs.header.latency": "LATENCY",
   "usage.logs.showing": "Showing %s of %s event(s) (offset %s).",
   "usage.export.wrote": "Wrote %s row(s) to %s",
