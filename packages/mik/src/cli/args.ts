@@ -280,6 +280,12 @@ const FLAG_OFFSET: FlagSpec = {
   description: "Rows to skip",
   descriptionKey: "help.flag.offset",
 }
+const FLAG_WITH_ID: FlagSpec = {
+  name: "with-id",
+  type: "boolean",
+  description: "Append the request id column, so a row can be lined up with `usage export`",
+  descriptionKey: "help.flag.withId",
+}
 const FLAG_FORMAT: FlagSpec = {
   name: "format",
   type: "string",
@@ -483,8 +489,9 @@ export const COMMANDS: readonly CommandSpec[] = [
       {
         name: "logs",
         summary: "Recent requests",
-        usage: "mik usage logs [--limit 20] [--offset <n>] [--provider <id>] [--model <id>] [--status ok|error]",
-        flags: [FLAG_LIMIT, FLAG_OFFSET, ...QUERY_FLAGS],
+        usage:
+          "mik usage logs [--limit 20] [--offset <n>] [--with-id] [--provider <id>] [--model <id>] [--status ok|error]",
+        flags: [FLAG_LIMIT, FLAG_OFFSET, FLAG_WITH_ID, ...QUERY_FLAGS],
       },
       {
         name: "export",

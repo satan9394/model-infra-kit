@@ -581,21 +581,38 @@ async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number
   })
 }
 
-function logRows(events: readonly UsageEvent[]): string[][] {
-  return events.map((event) => [
-    formatTimestamp(event.ts),
-    event.appId,
-    event.providerId,
-    event.modelActual,
-    event.status,
-    formatTokens(event.usage.input),
-    formatTokens(event.usage.output),
-    formatMoney(event.cost.usd),
-    // Which claim this row's money is (EVO-G73): `provider` means the endpoint
-    // reported the amount it billed, anything else is a computed estimate.
-    event.cost.source,
-    formatDuration(event.latencyMs),
-  ])
+/**
+ * One row per event.
+ *
+ * `--with-id` (EVO-G86) appends `request_id` **last**, never inserts: every
+ * pre-existing cell keeps its index, so a script slicing the old ten columns is
+ * unaffected. The id is the same value the CSV carries in its `request_id`
+ * column and the HTTP surface serves at `GET /api/usage/logs/:id`, which is what
+ * makes one exported row findable again **without running `mik serve`**.
+ *
+ * The millisecond composite key cannot do this job: two calls can share
+ * `TS/app/provider/model/status` (see the A2 test), and a table that printed no
+ * other identity would show them as one indistinguishable record.
+ */
+function logRows(events: readonly UsageEvent[], withId: boolean): string[][] {
+  return events.map((event) => {
+    const row = [
+      formatTimestamp(event.ts),
+      event.appId,
+      event.providerId,
+      event.modelActual,
+      event.status,
+      formatTokens(event.usage.input),
+      formatTokens(event.usage.output),
+      formatMoney(event.cost.usd),
+      // Which claim this row's money is (EVO-G73): `provider` means the endpoint
+      // reported the amount it billed, anything else is a computed estimate.
+      event.cost.source,
+      formatDuration(event.latencyMs),
+    ]
+    if (withId) row.push(event.requestId ?? "")
+    return row
+  })
 }
 
 async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> {
@@ -603,6 +620,12 @@ async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> 
   const query = buildUsageQuery(parsed, flagLang)
   const limit = flagNumber(parsed.values, "limit", parsed.action?.usage, flagLang) ?? 20
   const offset = flagNumber(parsed.values, "offset", parsed.action?.usage, flagLang) ?? 0
+  /**
+   * EVO-G86: opt-in, so the default table stays byte-for-byte what it was. The
+   * flag is what makes a terminal-only user able to match an exported row to a
+   * log record without running `mik serve` for `GET /api/usage/logs/:id`.
+   */
+  const withId = flagBool(parsed.values, "withId")
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
     throw new CliUsageError(tr(flagLang, "usage.error.badLimit", limit))
   }
@@ -619,24 +642,26 @@ async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> 
       context.io.out(tr(lang, "usage.empty"))
       return 0
     }
-    context.io.out(
-      formatTable(
-        [
-          tr(lang, "usage.logs.header.ts"),
-          tr(lang, "usage.logs.header.app"),
-          tr(lang, "usage.logs.header.provider"),
-          tr(lang, "usage.logs.header.model"),
-          tr(lang, "usage.logs.header.status"),
-          tr(lang, "usage.logs.header.input"),
-          tr(lang, "usage.logs.header.output"),
-          tr(lang, "usage.logs.header.cost"),
-          tr(lang, "usage.logs.header.source"),
-          tr(lang, "usage.logs.header.latency"),
-        ],
-        logRows(page.events),
-        ["left", "left", "left", "left", "left", "right", "right", "right", "left", "right"],
-      ),
-    )
+    const headers = [
+      tr(lang, "usage.logs.header.ts"),
+      tr(lang, "usage.logs.header.app"),
+      tr(lang, "usage.logs.header.provider"),
+      tr(lang, "usage.logs.header.model"),
+      tr(lang, "usage.logs.header.status"),
+      tr(lang, "usage.logs.header.input"),
+      tr(lang, "usage.logs.header.output"),
+      tr(lang, "usage.logs.header.cost"),
+      tr(lang, "usage.logs.header.source"),
+      tr(lang, "usage.logs.header.latency"),
+    ]
+    const align: Array<"left" | "right"> = ["left", "left", "left", "left", "left", "right", "right", "right", "left", "right"]
+    if (withId) {
+      // Appended, like the CSV appends `request_id` — so the default table is
+      // byte-for-byte what it was and only an opt-in caller sees a new column.
+      headers.push(tr(lang, "usage.logs.header.requestId"))
+      align.push("left")
+    }
+    context.io.out(formatTable(headers, logRows(page.events, withId), align))
     context.io.out("")
     context.io.out(tr(lang, "usage.logs.showing", formatTokens(page.events.length), formatTokens(page.total), offset))
     /**

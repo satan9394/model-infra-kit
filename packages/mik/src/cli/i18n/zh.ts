@@ -213,6 +213,8 @@ export const zh: Record<string, string> = {
   "usage.logs.header.cost": "成本 USD",
   "usage.logs.header.source": "价格来源",
   "usage.logs.header.latency": "延迟",
+  // EVO-G86：仅在 `--with-id` 下打印。标签对应 CSV 的 `request_id` 列。
+  "usage.logs.header.requestId": "请求 ID",
   "usage.logs.showing": "显示 %s / %s 条事件（offset %s）。",
   // EVO-G78（F12）：SOURCE 列是记录里的机器 token，不本地化；但必须给一句读法。
   "usage.logs.sourceLegend": "说明：价格来源是记录里的原始枚举（未本地化）——missing 表示该请求未定价、按 0 入账（不等于免费），modelsdev 表示价格取自 models.dev 上游目录，manual 表示手动价；CSV 的 pricing_basis=unknown 表示没有可用的计价依据，flat 表示套用了单一费率。",
@@ -344,6 +346,7 @@ export const zh: Record<string, string> = {
   "help.flag.status": "按请求状态过滤",
   "help.flag.tag": "只显示带该归属标签的调用（宿主自定义，如 feature=quant-backtest）",
   "help.flag.byTag": "汇总按归属标签拆分（而不是只给一个合计）",
+  "help.flag.withId": "在表尾追加请求 id 列，便于与 `usage export` 的一行对齐",
   // `help.details.init.2` is deliberately absent: that line is the verbatim
   // `mik provider add …` example, i.e. data, and falls back to the literal.
   "help.details.init.0": "stdin 是终端时会交互提问；否则直接使用选项与默认值。",

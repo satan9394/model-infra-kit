@@ -223,6 +223,9 @@ export const en: Record<string, string> = {
   "usage.logs.header.cost": "COST USD",
   "usage.logs.header.source": "SOURCE",
   "usage.logs.header.latency": "LATENCY",
+  // EVO-G86: only printed under `--with-id`. The label is the CSV column's name
+  // (`request_id`), so the two surfaces are matched by the same word.
+  "usage.logs.header.requestId": "REQUEST ID",
   "usage.logs.showing": "Showing %s of %s event(s) (offset %s).",
   // EVO-G78 (F12): SOURCE stays the recorded token; this is how to read it.
   "usage.logs.sourceLegend":
@@ -368,6 +371,7 @@ export const en: Record<string, string> = {
   "help.flag.status": "Filter by request status",
   "help.flag.tag": "Only calls carrying this attribution tag (the host's own tag, e.g. feature=quant-backtest)",
   "help.flag.byTag": "Break the summary down by attribution tag instead of one total",
+  "help.flag.withId": "Append the request id column, so a row can be lined up with `usage export`",
   // `help.details.init.2` is absent on purpose: it is the verbatim command
   // example, which is data and must not be "translated".
   "help.details.init.0": "Prompts when stdin is a terminal; otherwise it uses the flags and defaults.",

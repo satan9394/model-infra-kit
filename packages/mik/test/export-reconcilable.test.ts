@@ -39,6 +39,26 @@ import type { UsageEvent } from "../src/types.js"
 
 const tempDirs: string[] = []
 
+/**
+ * The G81 header as a **hand-typed literal** — 22 names, in the shipped order.
+ *
+ * EVO-G86: the `--out` and empty-database cases used to compare the product's
+ * header with `USAGE_CSV_HEADER`, i.e. the same constant on both sides. That is
+ * a tautology — rename a column and both sides move together — so those lines
+ * had **zero** detection power for header drift (R231). Measured: with
+ * `src/cli/csv.ts`'s `session_id` temporarily renamed to `sesion_id`, both cases
+ * still passed. The property they are supposed to check ("the bytes written to
+ * disk are the header the product prints") only has content if the expectation
+ * comes from **outside** the object under test.
+ *
+ * Hand-typed rather than derived, deliberately: this is the same freeze the
+ * `USAGE_CSV_FROZEN_HEADER` assertion performs for the first 15 names, extended
+ * to all 22. It is duplicated (not imported) in
+ * `usage-unpriced-coverage.test.ts` and `shared-database-notice.test.ts`.
+ */
+const G81_CSV_HEADER_LITERAL =
+  "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms,tags,request_id,session_id,first_token_ms,is_streaming,error_code,pricing_model,cost_microusd"
+
 function tempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "mik-g81-"))
   tempDirs.push(dir)
@@ -398,7 +418,7 @@ describe("EVO-G81 A2 — a CSV row can be located again", () => {
     expect(wrote.code).toBe(0)
     const content = normalize(readFileSync(target, "utf8"))
     const lines = content.replace(/\n$/, "").split("\n")
-    expect(lines[0]).toBe(USAGE_CSV_HEADER)
+    expect(lines[0]).toBe(G81_CSV_HEADER_LITERAL)
     expect(lines).toHaveLength(2)
     expect(parseCsvLine(lines[1]!)[USAGE_CSV_COLUMNS.indexOf("request_id")]).toBe("file-1")
   })
@@ -599,6 +619,9 @@ describe("EVO-G81 — the frozen contract", () => {
       "cost_microusd",
     ])
     expect(USAGE_CSV_COLUMNS).toHaveLength(22)
+    // The one place the product's header meets the external literal, so the
+    // three `--out`/empty-db cases above compare against a frozen string (R231).
+    expect(USAGE_CSV_HEADER).toBe(G81_CSV_HEADER_LITERAL)
   })
 
   it("exports an empty database as a header and nothing else", async () => {
@@ -611,12 +634,12 @@ describe("EVO-G81 — the frozen contract", () => {
     expect(exported.code).toBe(0)
     const lines = csvLines(exported.stdout)
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toBe(USAGE_CSV_HEADER)
+    expect(lines[0]).toBe(G81_CSV_HEADER_LITERAL)
 
     const target = join(dir, "out", "empty.csv")
     const wrote = await run(["usage", "export", "--out", target, ...cliBase(dir, db)], dir)
     expect(wrote.code).toBe(0)
-    expect(normalize(readFileSync(target, "utf8"))).toBe(`${USAGE_CSV_HEADER}\n`)
+    expect(normalize(readFileSync(target, "utf8"))).toBe(`${G81_CSV_HEADER_LITERAL}\n`)
   })
 
   it("prices the cost columns from the integer micro-USD, never a float sum", async () => {
