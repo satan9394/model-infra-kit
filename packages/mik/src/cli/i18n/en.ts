@@ -32,6 +32,9 @@ export const en: Record<string, string> = {
   "init.wrote": "Wrote %s",
   "init.appIdLine": "  appId  %s",
   "init.dbLine": "  db     %s",
+  // EVO-G88: the one persisted field init never named. Printed only when a value is
+  // in effect, so a kept value and a fresh flag value are equally visible.
+  "init.cacheDirLine": "  cache  %s",
   "init.providerRegistered": "Registered provider \"%s\" (%s, %s).",
   "init.noBaseUrl": "no base URL",
   "init.providerRegisterFailed": "warning: could not register provider \"%s\": %s",
@@ -162,6 +165,11 @@ export const en: Record<string, string> = {
     "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.",
   "usage.note.defaultDaysScope":
     "Note: with no --from/--to/--days this command covers only the last %s days; usage summary and usage logs cover the whole history by default.",
+  // EVO-G88: the one-sided case — `--to` alone. Same shape as the line above, so
+  // the two windows are described in one voice, and the number printed is the
+  // same default `applyDays` used.
+  "usage.note.impliedFromScope":
+    "Note: with no --from this command fills the lower bound in itself, %s days before --to; usage summary and usage logs cover the whole history by default.",
   "usage.summary.requests": "Requests",
   "usage.summary.successes": "Successes",
   "usage.summary.failures": "Failures",

@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { PROVIDER_PRESETS, getPreset } from "../../registry/index.js"
 import type { ProviderConfig } from "../../types.js"
@@ -47,6 +47,32 @@ export function buildConfig(
   return config
 }
 
+/**
+ * The `cacheDir` already recorded in the config file this run is about to rewrite.
+ *
+ * EVO-G88: EVO-G84 made `init --cache-dir` write the field, but a later run
+ * **without** the flag rebuilt the file from scratch and dropped it — the install
+ * silently went back to `~/.model-infra-kit/cache`, i.e. the card's own bug class
+ * ("silently undoing a configuration the user made") left in place one command
+ * later. The flag still wins; this is only the last resort before "unset".
+ *
+ * A missing file, unreadable JSON or a non-string value is simply "no stored
+ * value": `init` must never fail because of the file it is replacing. The type
+ * check matches `context.openContext`, so the value preserved here is exactly a
+ * value a later command would have honoured.
+ */
+function storedCacheDir(filePath: string): string | undefined {
+  if (!existsSync(filePath)) return undefined
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as unknown
+    if (typeof parsed !== "object" || parsed === null) return undefined
+    const value = (parsed as Record<string, unknown>).cacheDir
+    return typeof value === "string" && value.trim() !== "" ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const io = resolveIo(options)
   const cwd = resolveCwd(options)
@@ -73,8 +99,10 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     let db = flagString(parsed.values, "db") ?? env.MIK_DB ?? defaultDbPath()
     let presetId = flagString(parsed.values, "provider")
     // Same precedence `openContext` uses (flag → env → file), so what init persists
-    // is exactly what a later command would have resolved anyway.
-    const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR
+    // is exactly what a later command would have resolved anyway. The file is the
+    // file this run is rewriting (`--file`), not the one `openContext` reads
+    // (`--config`): the value at risk is the one being replaced.
+    const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR ?? storedCacheDir(filePath)
 
     if (interactive) {
       // First-run guide: language first (like a typical CLI onboarding), then
@@ -110,6 +138,10 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     io.out(tr(lang, "init.wrote", filePath))
     io.out(tr(lang, "init.appIdLine", appId))
     io.out(tr(lang, "init.dbLine", db))
+    // EVO-G88: `cacheDir` was the one field init persisted but never named, which is
+    // why losing it on a re-run was invisible. Printed only when a value is in
+    // effect (flag, env or the file it kept): with none, there is nothing to claim.
+    if (cacheDir) io.out(tr(lang, "init.cacheDirLine", cacheDir))
 
     context.hub.writeSetting("cli.lang", lang)
 

@@ -20,9 +20,49 @@ test("formatUsd renders the costs the e2e writes", () => {
   assert.equal(formatUsd(0.0243), "$0.0243")
   assert.equal(formatUsd(0.0018), "$0.0018")
   assert.equal(formatUsd(0), "$0")
-  assert.equal(formatUsd(0.00001), "<$0.0001")
   assert.equal(formatUsd(undefined), "—")
   assert.equal(formatUsd(Number.NaN), "—")
+})
+
+test("EVO-G88: formatUsd follows the CLI's usage-money precision rule", () => {
+  // The amount EVO-G85 made the CLI print as `0.000654`: the dashboard shows the
+  // same micro-USD digits (its own `$` prefix and trailing-zero trim aside).
+  assert.equal(formatUsd(0.000654), "$0.000654")
+  // 340 µ$ — a per-row amount the CLI prints `0.000340`; the four-decimal
+  // rendering of the old code (`$0.0003`) must not come back.
+  assert.equal(formatUsd(0.00034), "$0.00034")
+  assert.notEqual(formatUsd(0.00034), "$0.0003")
+  // Whole-1e-4 amounts keep the four decimals they always had: this is what the
+  // pre-change renderer produced for these two inputs, byte for byte.
+  assert.equal(formatUsd(0.0081), "$0.0081")
+  assert.equal(formatUsd(0.0175), "$0.0175")
+  // The clamp is half a micro (R257): 30 µ$ is a real amount, not "<0.0001".
+  assert.equal(formatUsd(0.00003), "$0.00003")
+  assert.equal(formatUsd(0.000001), "$0.000001")
+  // A negative that rounds to zero micro-USD is zero, never "-$0".
+  assert.equal(formatUsd(-0.0000001), "$0")
+  // An explicit `digits` still wins (chart axes ask for 2, the log panel for 6).
+  assert.equal(formatUsd(0.000654, 2), "$0.00")
+  assert.equal(formatUsd(0.000654, 6), "$0.000654")
+  assert.equal(formatUsd(1.5, 2), "$1.50")
+})
+
+test("EVO-G88b: the overview cost-range hint goes through formatUsd, not toFixed(4)", () => {
+  // The hint is composed exactly as `components/views/overview.tsx` composes it.
+  // Before EVO-G88b that line was a bare `$${v.toFixed(4)}`, which printed a 340 µ$
+  // range as `$0.0003` and a 30 µ$ range as `$0.0000` — the same value the CLI and
+  // the dashboard's own `formatUsd` render at micro precision (`$0.00034` / `$0.00003`).
+  const rangeHint = (low: number, high: number) => `区间 ${formatUsd(low)} ~ ${formatUsd(high)}`
+
+  assert.equal(rangeHint(0.00034, 0.00068), "区间 $0.00034 ~ $0.00068")
+  assert.notEqual(rangeHint(0.00034, 0.00068), "区间 $0.0003 ~ $0.0007")
+  // 30 µ$ used to be the silent `$0.0000` of the four-decimal rendering.
+  assert.equal(rangeHint(0.00003, 0.00006), "区间 $0.00003 ~ $0.00006")
+  assert.notEqual(rangeHint(0.00003, 0.00006), "区间 $0.0000 ~ $0.0001")
+  // A whole-1e-4 range reads exactly as it did before the change.
+  assert.equal(rangeHint(0.0081, 0.0081), "区间 $0.0081 ~ $0.0081")
+  // No `toFixed(4)` residue: every bound carries the micro-digits when it has them.
+  assert.equal(rangeHint(0.00034, 0.00034), "区间 $0.00034 ~ $0.00034")
 })
 
 test("formatInt keeps thousands separators", () => {

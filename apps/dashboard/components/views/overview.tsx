@@ -71,7 +71,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           value={formatUsd(summaryData?.costUsd)}
           hint={
             summaryData
-              ? `区间 $${summaryData.costLowUsd.toFixed(4)} ~ $${summaryData.costHighUsd.toFixed(4)}`
+              ? `区间 ${formatUsd(summaryData.costLowUsd)} ~ ${formatUsd(summaryData.costHighUsd)}`
               : "等待数据"
           }
         />
