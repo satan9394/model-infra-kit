@@ -39,9 +39,20 @@ export function isSuppressedWarning(warning: unknown): boolean {
 
 /**
  * Park the current `warning` listeners, put the filter in their place, and return
- * the restore function those listeners will be called from. Callers keep the
- * returned function and always run it in a `finally` (same shape as
- * `serveBanner`'s SIGINT parking in the i18n tests).
+ * the restore function those listeners will be called from.
+ *
+ * The returned restorer is **not** part of the production path and no caller runs
+ * it in a `finally`. The only production caller — the CLI entry point
+ * (`cli/index.ts` → `ensureWarningFilter`) — installs the filter **once per
+ * process** behind a module-level flag and deliberately discards the return value:
+ * the suppression is meant to stay for the rest of the process, so there is
+ * nothing to restore on the way out. The flag is what makes repeated `main()`
+ * calls (tests, embedders) a no-op instead of parking this filter's own listener.
+ *
+ * The restorer exists for tests, which do need to put the process back the way
+ * they found it (`test/output-noise.test.ts`). This is *not* the balanced
+ * `serveBanner` SIGINT parking shape used in the i18n tests — that one really is
+ * installed and undone around a single call.
  *
  * When nothing was parked — possible in an embedded process that removed its own
  * listeners — the filter prints the warning itself instead of forwarding it, so
