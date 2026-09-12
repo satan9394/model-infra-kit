@@ -143,6 +143,15 @@ export const en: Record<string, string> = {
   "provider.test.header.latency": "LATENCY",
   "provider.test.header.models": "MODELS",
   "provider.test.header.message": "MESSAGE",
+  // EVO-G70 (G60): the short failure labels for the `provider test` table. The
+  // English rendering deliberately keeps the library's own sentence, so these
+  // values are documented here only for zh/en key parity (`providerTestMessage`
+  // returns the untouched message when the language is `en`).
+  "provider.test.failure.credential": "Credential missing: environment variable %s is not set.",
+  "provider.test.failure.auth": "Authentication rejected: the provider refused this credential.",
+  "provider.test.failure.connection": "Connection failed: could not reach the provider endpoint.",
+  "provider.test.failure.model": "Model not found: the provider does not know this model id.",
+  "provider.test.failure.missingPackage": "Missing dependency: %s is not installed. Run npm i %s.",
   "usage.range": "Range %s → %s · app=%s%s",
   "usage.summary.requests": "Requests",
   "usage.summary.successes": "Successes",
