@@ -94,14 +94,12 @@ for _ in $(seq 1 5); do
   sleep 1
 done
 printf '%s' "$BODY" | grep -q '"usage"' && pass "chat" || fail "chat" "$BODY"
-# Capture first, grep second: `cli | grep -q` lets grep close the pipe as soon as
-# it matches, and every later write from the CLI then dies with EPIPE (the
-# summary grew a block with G74, which made that race deterministic under WSL).
-# The assertion is unchanged; only the producer's stdout is no longer a pipe that
-# the consumer can close early.
-SUMMARY="$ROOT/.tmp/summary-$NAME.out"
-node packages/mik/dist/cli.mjs usage summary >"$SUMMARY" 2>&1
-grep -q "Requests" "$SUMMARY" && pass "summary" || fail "summary" "no Requests line"
+# EVO-G76 restored the original `cli | grep -q` shape: G74 had replaced it with
+# "capture, then grep" because the longer summary made grep close the pipe early
+# and the CLI died with EPIPE — which hid the defect behind the workaround.
+# Since the CLI now tolerates a closed reader, the plain pipeline is back and
+# this step detects the regression again under `set -o pipefail`.
+node packages/mik/dist/cli.mjs usage summary | grep -q "Requests" && pass "summary" || fail "summary" "no Requests line"
 CSV="$ROOT/.tmp/usage-$NAME.csv"
 if command -v cygpath >/dev/null 2>&1; then CSV=$(cygpath -w "$CSV"); fi
 node packages/mik/dist/cli.mjs usage export --format csv --out "$CSV" >/dev/null 2>&1 || { echo "STEP csv fail"; echo "FAIL[$NAME] csv export"; exit 1; }

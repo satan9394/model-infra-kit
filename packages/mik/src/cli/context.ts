@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
 import type { ProviderConfig } from "../types.js"
 import { defaultDbPath } from "../util/paths.js"
+import { writeGuarded } from "../util/pipe.js"
 import { redact } from "../util/redact.js"
 import { flagBool, flagString, type ParsedCli } from "./args.js"
 import { CliUsageError } from "./errors.js"
@@ -48,11 +49,25 @@ export interface CliContext {
   close: () => Promise<void>
 }
 
+/**
+ * The default terminal IO — the single chokepoint every command's output passes
+ * through (`resolveIo`). Both writers go through `writeGuarded`, so a downstream
+ * reader that closed early (`| head -1`, `| grep -q`) is handled in one place
+ * instead of in each command (EVO-G76).
+ */
 const stdoutIo: CliIo = {
-  out: (text) => process.stdout.write(text.endsWith("\n") ? text : `${text}\n`),
-  err: (text) => process.stderr.write(text.endsWith("\n") ? text : `${text}\n`),
+  out: (text) => writeGuarded(process.stdout, text.endsWith("\n") ? text : `${text}\n`),
+  err: (text) => writeGuarded(process.stderr, text.endsWith("\n") ? text : `${text}\n`),
 }
 
+/**
+ * The IO one invocation writes through.
+ *
+ * A caller that injects `io` (tests, embedders) keeps full control: only the
+ * missing side falls back to the guarded terminal writer. The `out` field of the
+ * default writer is read at write time, so the bin entry can install the guard
+ * (`src/util/pipe.ts`) after this object was built without losing protection.
+ */
 export function resolveIo(options: RunOptions): CliIo {
   return { out: options.io?.out ?? stdoutIo.out, err: options.io?.err ?? stdoutIo.err }
 }

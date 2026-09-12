@@ -16,29 +16,42 @@ import { EXIT_FAILURE, EXIT_OK, dispatch, helpFor, prepareInvocation, report } f
 import { resolveCliLang, tr } from "./i18n.js"
 import { isInteractive } from "./prompt.js"
 import { runRepl } from "./repl.js"
+import { installStreamGuard, stdoutPipeBroken, writeGuarded } from "../util/pipe.js"
 import { redact } from "../util/redact.js"
 
 /** Run one CLI invocation. Returns the process exit code; never calls `process.exit`. */
 export async function main(argv: readonly string[], options: RunOptions = {}): Promise<number> {
+  // EVO-G76: tolerate a downstream reader that closes early (`mik ... | head -1`).
+  // `process.stdout.write` reports a closed pipe asynchronously, so without this
+  // listener node turns a *successful* command into an uncaught `EPIPE` and exit
+  // code 1. Installing here — the bin entry — keeps the tolerance out of the
+  // library surface: a host that only embeds `mik/cli` keeps its own streams.
+  const guard = installStreamGuard()
+  /** A closed reader means the command did not fail — see the `catch` below. */
+  const exitCode = (code: number): number => (guard.stdoutBroken ? EXIT_OK : code)
   const io = resolveIo(options)
   // Help and usage errors are rendered before the hub exists, so the language
   // comes from the environment alone (same chain as the REPL/init guards).
   const lang = invocationLang(options)
   // Shared preamble with runCommand (EVO-G11 / G19): parse → version → help.
   const prepared = prepareInvocation(argv, io, lang)
-  if (prepared.kind === "exit") return prepared.code
+  if (prepared.kind === "exit") return exitCode(prepared.code)
 
   try {
     const { parsed } = prepared
     if (!parsed.command) {
       // Bare `mik` with a terminal enters the guided REPL (slash commands with
       // bilingual descriptions). Without a TTY it falls back to root help.
-      if (isInteractive(options)) return await runRepl(parsed, options)
+      if (isInteractive(options)) return exitCode(await runRepl(parsed, options))
       io.out(helpFor(parsed, lang))
-      return EXIT_OK
+      return exitCode(EXIT_OK)
     }
-    return await dispatch(parsed, options)
+    return exitCode(await dispatch(parsed, options))
   } catch (error) {
+    // A write that failed *because nobody is reading* is not a command failure:
+    // `report` would still print "EPIPE: broken pipe", a false alarm for
+    // `mik usage logs | head -20`. Anything else keeps its existing wording.
+    if (stdoutPipeBroken()) return EXIT_OK
     return report(error, io, lang)
   }
 }
@@ -67,7 +80,12 @@ if (isDirectInvocation()) {
       // Last-resort handler for an unexpected rejection: there is no injected
       // `RunOptions` here, so the language comes from the real process env.
       const prefix = tr(resolveCliLang(process.env, undefined), "cli.errorPrefix")
-      process.stderr.write(`${prefix} ${redact(messageOf(error))}\n`)
+      if (stdoutPipeBroken()) {
+        // The failure is "nobody is reading" — the command itself may be fine.
+        process.exitCode = EXIT_OK
+        return
+      }
+      writeGuarded(process.stderr, `${prefix} ${redact(messageOf(error))}\n`)
       process.exitCode = EXIT_FAILURE
     },
   )
