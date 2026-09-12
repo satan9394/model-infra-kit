@@ -253,6 +253,9 @@ GET  /api/usage/summary|trends|by-provider|by-model|logs|logs/:id
          `costLowerBoundOnly` / `unpricedRequests` / `unmeasuredRequests`，
          由 `costBound()` 推出。既有字段与数字一个都没变；加了它们之后，
          `costLowUsd === costHighUsd` 才不再被机器读者当成"精确值"。）
+       （G89：`summary.costUsd` 已标注 `@deprecated`——它是点估计，
+         有未定价/已折叠请求时两侧都不是界。替代写法与迁移样例见文末
+         **EVO-G89** 节；字段**继续填充**，本 HTTP 面的字段与数值一个都没改。）
 GET  /api/events               （SSE：usage.recorded / catalog.updated / pricing.updated）
 POST /api/usage/events         （F19 新增：宿主自己调模型，把用量上报进来）
 GET  /openapi.json
@@ -827,7 +830,7 @@ mik usage logs [--limit 20] [--offset <n>] [--with-id] [...QUERY_FLAGS]
 
 - **看板最后一处裸 `toFixed(4)` 已收口（EVO-G88b）**：`apps/dashboard/components/views/overview.tsx:74` 的**成本区间提示**（`区间 $… ~ $…`，两个端点就是 `costLowUsd` / `costHighUsd`，`lib/types.ts:99-100` 声明为 `number`）改前是**裸的四位小数**（`区间 $${costLowUsd.toFixed(4)} ~ …`）——**没走 `formatUsd`**。于是同一笔 340 µ$ 在这里印 `$0.0003`（CLI 印 `0.000340`），且**没有半微钳位**：30 µ$ 印 `$0.0000`。**改后两个端点各走一次 `formatUsd`（默认位数 = 看板规则）**，与看板其余金额（`overview` 的总花费、`trends`、分桶表、日志表与详情面板）同一函数、同一规则。
   - **改前 → 改后（真实输出，`.tmp/g88b/surface-probe.mjs`）**：340 µ$：`区间 $0.0003 ~ $0.0003` → `区间 $0.00034 ~ $0.00034`；30 µ$：`区间 $0.0000 ~ $0.0000` → `区间 $0.00003 ~ $0.00003`；17 500 µ$：`区间 $0.0088 ~ $0.0350` → `区间 $0.00875 ~ $0.035`。
-  - **为何不加 `digits`（保持默认位数）**：加了 `digits` 会让**每一边**都用同一个固定位数；默认规则是**每边各自**「无余数 → 4 位，有余数 → 6 位」，这正是看板其余金额用的那条规则。两端点是同一区间的两个端点，取哪个口径都自洽；选默认口径是为了与**总花费同卡同屏**的 `formatUsd(summaryData?.costUsd)` 一致。
+  - **为何不加 `digits`（保持默认位数）**：加了 `digits` 会让**每一边**都用同一个固定位数；默认规则是**每边各自**「无余数 → 4 位，有余数 → 6 位」，这正是看板其余金额用的那条规则。两端点是同一区间的两个端点，取哪个口径都自洽；选默认口径是为了与**总花费同卡同屏**的金额一致（G89 之后那一格是 `formatUsdSpan(costLowUsd, costHighUsd)`，位数规则同一条；当时的写法是 `formatUsd(summaryData?.costUsd)`）。
   - **此处是更正后的表述**：EVO-G88 节的记录里「`overview.tsx` 没有 `toFixed(4)`」**不属实**——该行改前即在、改后仍在（只是不再是 `toFixed`）。当时这处漏改由独立评审 EVO-G88 指出。
 
 - **R257 类变化必须显式列出**：这次同时改了**钳位阈值**——30 µ$ 与 1 µ$ 从「看不出来的零」（`0.0000` / `<$0.0001`）变成**非零可读值**。位数放宽与「由零变非零」是两件事，看板侧同样成立。
@@ -865,6 +868,61 @@ mik usage logs [--limit 20] [--offset <n>] [--with-id] [...QUERY_FLAGS]
 
 - **`--days N` 现有测试**（本卡补齐，此前无覆盖）：`1`（单日窗口，3 天前的用量**不在**窗口内）；`3650`（文档上界，接受）；`3651`/`0`/`1.5`/`999999999`（拒绝，exit 2，`--days must be an integer between 1 and 3650, got <值>.`）；`abc`（更早的解析层：`--days expects a number, got "abc".`）；`--days -3` 需写成 `--days=-3` 才到得了范围检查（`--days -3` 被选项解析器先吃掉，报 `argument is ambiguous`，两者都 exit 2）。
 - **未改**：表头、行序、合计、金额渲染、`DEFAULT_TREND_DAYS = 30` 本身。
+
+## EVO-G89 —— 弃用点估计 `costUsd`，产品内部不再消费它
+
+### 事实：点估计不是任何一侧的界
+
+- `UsageSummary` 的三个成本字段（`costUsd` / `costLowUsd` / `costHighUsd`）**只累加已记录的金额**。`pricing_source: "missing"`（未定价）的请求按 0 入账，对三者都贡献 0；被 `rollupAndPrune()` 折进 `usage_daily_rollups` 的请求同理（汇总表不存价格来源）。
+- 因此只要区间里有**未定价或已折叠**的请求，真实总额就**高于**这三个数：`costUsd` **不是下限**（G78 已据此把下限改用 `costLowUsd`），**也不是上限**。三者之间只有 `costLowUsd ≤ costUsd ≤ costHighUsd`，且**仅对已记录金额成立**。
+- **价格按点记录**时（`manual` / `flat` / 供应商回传 / `exact` —— 所有 `low === high === usd` 的来源）三者相等：**`costLowUsd === costUsd === costHighUsd`**。这是下面每条迁移写法都安全、且 CLI 与看板输出逐字不变的情形。
+- **但「区间里没有未定价请求」并不等于三者相等**：`llm-pricing` 的档位估算给出的是**已定价的价差**（`low < usd < high`）——仓库自带的 fixture 就是这一形：`test/cli.test.ts` 的 `seedUsageEvent` 记 `low 0.01 / usd 0.012345 / high 0.02`，`test/cost-certainty.test.ts` 的 `wide-model` 同形（那里的注释写着「estimates a spread」）。**卡片原文把它写成「完全定价时 `low == usd == high`」，与代码不符**（R197：以代码为准）：没有未定价请求时 `low` 与 `high` 仍是区间两端，`usd` 只是区间内的一点，**三者可以不等**。此时单值表达的正确形式是**区间**，而不是那个点——点落在区间内部，两侧都不是界。
+
+### 变更 1（非破坏）：`@deprecated`
+
+- `packages/mik/src/types.ts` 的 `UsageSummary.costUsd` 就地加上 `@deprecated`，写明**原因**（点估计、两侧都不是界）与**迁移路径**（下限 / 区间 / `costLowerBoundOnly`）。
+- **字段继续存在且继续填充**：`summary().costUsd` 仍是原来那个数（整数微美元真源 `SUM(cost_microusd)`），既有宿主的读取与格式化代码不受影响。**删除公共字段属 major，本卡不删。**
+- 看板的类型镜像 `apps/dashboard/lib/types.ts` 的 `UsageSummary.costUsd` 同样标注（同一份说明）。
+
+### 变更 2：产品内部不再消费它
+
+- **CLI `usage summary`**：两条成本行都改由 `costCell(summary, bound, lang)` 产出（`src/cli/commands/usage.ts`）——上界未知则 G78 的 `至少 <下限>`；上界已知则 `low === high` 时印**单值**（与改前逐字相同），有价差时印**区间** `下限 – 上限`。改前在「上界已知」这一支无论有没有价差都印 `summary.costUsd`。
+- **看板**：`components/views/overview.tsx` 的「总花费」与 `components/views/trends.tsx` 的「区间成本」改用 `apps/dashboard/lib/format.ts` 新增的纯函数 `formatUsdSpan(costLowUsd, costHighUsd)`——点为单值、有价差为 `$a ~ $b`（与同一张卡上的区间提示同形）。
+- **改前 → 改后（真实输出，`packages/mik/test/g89-cost-point-estimate.test.ts` 的 spread 用例）**：一笔已定价但**有价差**的请求（`usd = 0.0005`、`low = 0.00034`、`high = 0.000777`；无未定价、无折叠）：
+
+  | | `Cost (USD)` | `Cost range` |
+  | --- | --- | --- |
+  | 改前 | `0.0005` ← 点估计（区间内的一点） | `0.000340 – 0.000777` |
+  | 改后 | `0.000340 – 0.000777` ← 区间 | `0.000340 – 0.000777`（未改） |
+
+  **按点记录**时（`usd = low = high = 0.00034`）两行改前改后**逐字相同**：`0.000340` 与 `0.000340 – 0.000340`——这是本卡「非破坏」的直接证据。**未定价**时仍是 G78 的 `at least 0.0000` 与 `at least 0.0000 (upper bound unknown: 1 request(s) unpriced)`，一个字都没动。两条成本行在每种情形下都**同形**（同一下限、或同一区间），与 G78「两行永不互相矛盾」的设计一致。
+- **既有断言的改动（仅一处，申报）**：`test/cli.test.ts` 的 G13 i18n 用例原断言 `toContain("0.0123")`（fixture 的 `usd` 是 `0.012345`，`0.0123` 只是它的子串），其语义是「数据保持既有的四位小数渲染」。本卡之后该格是区间，故改为 `toContain("0.0100 – 0.0200")` 并补 `not.toContain("0.012345")`——后者正是「CLI 不再读点估计」在这条面上的断言。**本卡未改任何其它既有断言。**
+- **未改**：`usage export` 的 22 列与前 15 列字面量锁、`usage logs` 默认输出、金额的整数微美元真源（仍无 `SUM(CAST(cost AS REAL))`）、G77 折叠提示 / G78 下限表达 / G79 范围说明 / G85 条件精度。
+
+### 迁移写法（面向宿主；发布说明用同一段）
+
+```ts
+// 1) 要下限 → costLowUsd（上界未知时 CLI 与看板印的就是它）
+const floor = summary.costLowUsd
+// 2) 要区间 → 两端（上界已知且有价差时 CLI 与看板印这个）
+const [lo, hi] = [summary.costLowUsd, summary.costHighUsd]
+const band = lo === hi ? String(lo) : `${lo} – ${hi}`
+// 3) 想标注「至少」→ costBound()；HTTP 面同名字段 costLowerBoundOnly
+const bound = costBound(summary, usage.unpricedCoverage(query))
+const cell = bound.costLowerBoundOnly ? `at least ${floor}` : band
+// 4) 价格按点记录时 low === usd === high，以上结果与今天的 costUsd 完全相同
+//    （看板侧同一规则：apps/dashboard/lib/format.ts 的 formatUsdSpan(low, high)）
+```
+
+### 边界与未覆盖（本卡不做的部分）
+
+- **分桶与趋势点不在此列**：`UsageBucket.costUsd`、`UsageTrendPoint.costUsd` 是另一类字段，**没有** low/high 端点可换（HTTP 面也只给单值），本卡未动、也未标注弃用——「`costUsd` 全仓禁用」不是本卡的结论。
+- **`examples/` 与测试仍读它，且是这样设计的**：`examples/cli-agent`、`examples/agent-cli`、`examples/openai-sdk` 作为**宿主示例**继续读 `summary.costUsd`——它们同时是「既有宿主的读取行为不变」这条非破坏承诺的活证据（A2）；测试里读它是为了断言字段仍被填充。**产品面（CLI / 看板）不再读它**，两件事互不矛盾。
+- **看板断言分两层**：`apps/dashboard/test/cost-span.test.ts` 直接 import 生产函数 `formatUsdSpan`（不是复制表达式）断言其输出；`packages/mik/test/g89-cost-point-estimate.test.ts` 断言真实视图文件里调用它的是 `costLowUsd`/`costHighUsd` 两个端点。**仍没有**页面级渲染断言（看板测试用 `node --test` 跑 `.ts`，不带 JSX 变换，渲染不了 RSC）。
+- **价差是否由上游真实产出未验证**：spread 用例通过 `UsageService.record()` 直接写入 `low < usd < high` 的 `CostInfo`；类型契约允许该形状，`PricingService.estimate()` 会把 `catalog.estimate()` 的 `low`/`high` 原样带出，仓库自带 fixture 也是这一形——但「`llm-pricing` 当前档位数据在真机上是否会给出价差」未在本卡验证（R208 申报）。
+- **两端一边缺失的分支**：`formatUsdSpan` 在 `high` 缺失时只回下限（`number` 类型下不可达，仅为 `NaN`/`undefined` 兜底）；该分支**无真实数据覆盖**，测试只覆盖「两端都缺 → `—`」（R208 申报）。
+
+
 
 
 

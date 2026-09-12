@@ -4,7 +4,7 @@ import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { Badge, Card, CardGrid, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
-import { formatCompact, formatInt, formatMs, formatPercent, formatUsd, tokenTotal } from "@/lib/format"
+import { formatCompact, formatInt, formatMs, formatPercent, formatUsd, formatUsdSpan, tokenTotal } from "@/lib/format"
 import { rangeQueryString, readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadBuckets, loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
@@ -66,9 +66,14 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       )}
 
       <CardGrid cols={3}>
+        {/* EVO-G89: the headline amount is the recorded band, never the deprecated
+            point estimate (`UsageSummary.costUsd`, which bounds nothing once
+            anything is unpriced or folded). A point-priced install records
+            `low === high`, so this renders what it always did; a band renders
+            `$a ~ $b`, the same shape as the interval hint below. */}
         <StatCard
           label="总花费"
-          value={formatUsd(summaryData?.costUsd)}
+          value={formatUsdSpan(summaryData?.costLowUsd, summaryData?.costHighUsd)}
           hint={
             summaryData
               ? `区间 ${formatUsd(summaryData.costLowUsd)} ~ ${formatUsd(summaryData.costHighUsd)}`

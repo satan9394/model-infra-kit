@@ -95,8 +95,18 @@ export interface UsageSummary {
   successes: number
   failures: number
   successRate: number
+  /**
+   * @deprecated Mirror of the public `UsageSummary.costUsd` (EVO-G89): a point
+   * estimate, and neither bound once a request is unpriced or a day is folded.
+   * Read `costLowUsd` (floor) or `costLowUsd`–`costHighUsd` (interval); the three
+   * are equal when the band is a point (`costLowUsd === costHighUsd`), not merely
+   * because the range is fully priced — a price source can record a spread with
+   * nothing missing. No view in this app reads this field.
+   */
   costUsd: number
+  /** Lower endpoint of the recorded range. Equals `costUsd` when the band is a point (`costLowUsd === costHighUsd`); a fully priced range can still carry a spread. */
   costLowUsd: number
+  /** Upper endpoint of the recorded range. Equals `costUsd` when the band is a point (`costLowUsd === costHighUsd`); a fully priced range can still carry a spread. */
   costHighUsd: number
   tokens: TokenUsage
   cacheHitRate: number

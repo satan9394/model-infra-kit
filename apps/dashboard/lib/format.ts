@@ -29,6 +29,31 @@ export function formatUsd(value: number | undefined | null, digits?: number): st
   return `$${trimmed}`
 }
 
+/**
+ * A *recorded* cost as one cell, from the two endpoints of its band (EVO-G89).
+ *
+ * The overview's headline and the trends section total used to render
+ * `UsageSummary.costUsd` — the point estimate, and the one member of
+ * `costLowUsd ≤ costUsd ≤ costHighUsd` that is an endpoint of nothing. The CLI's
+ * `usage summary` stopped reading it in the same card; a product that tells its
+ * hosts not to read a field must not read it itself, and the two surfaces must
+ * keep one money rule (EVO-G88).
+ *
+ * Point-priced sources (`manual` / `flat` / provider-reported) record
+ * `low === high`, so that case renders exactly the string it always did. A band
+ * renders `a ~ b` — the same shape the interval hint below it already uses, so
+ * the cell and the hint can never contradict each other. Nothing is
+ * interpolated: both ends are recorded amounts, and a missing value stays the
+ * dashboard's `—` rather than becoming half of a range.
+ */
+export function formatUsdSpan(low: number | undefined | null, high: number | undefined | null): string {
+  const floor = formatUsd(low)
+  if (typeof low !== "number" || typeof high !== "number" || !Number.isFinite(low) || !Number.isFinite(high)) {
+    return floor
+  }
+  return low === high ? floor : `${floor} ~ ${formatUsd(high)}`
+}
+
 export function formatInt(value: number | undefined | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—"
   return Math.round(value).toLocaleString("en-US")

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
-import type { UnpricedCoverage, UsageBucket, UsageEvent, UsageQuery } from "../../types.js"
+import type { UnpricedCoverage, UsageBucket, UsageEvent, UsageQuery, UsageSummary } from "../../types.js"
 import { toMicroUsd } from "../../store/money.js"
 import { costBound, type CostBound, type UsageService } from "../../usage/service.js"
 import { RESERVED_TAG_KEYS, tagLabelForDisplay } from "../../usage/tags.js"
@@ -228,10 +228,27 @@ function scopeNoticeLines(
  * the artifacts where the price is least certain. Both cost lines therefore
  * print the *same* floor, which also means the two can never contradict each
  * other on screen.
+ *
+ * EVO-G89: this is now the only source of the single-value cell — the priced,
+ * un-folded case included (`runSummary`) — so `UsageSummary.costUsd`, the
+ * deprecated point estimate, is not read by the CLI's usage surfaces at all.
+ * With the price known the cell is the recorded **band**, not the point inside
+ * it: `0.0100 – 0.0200` for an estimate that spans that much, and a single
+ * number when the band is a point (`costLowUsd === costHighUsd` — what the
+ * point-priced sources produce). The point is the one member of the triple that
+ * is an endpoint of nothing, and a product that tells its hosts not to read it
+ * must not read it itself.
  */
-function costCell(floorUsd: number, bound: CostBound, lang: Lang): string {
-  const money = formatUsageMoney(floorUsd)
-  return bound.costLowerBoundOnly ? tr(lang, "usage.summary.costAtLeast", money) : money
+function costCell(
+  summary: Pick<UsageSummary, "costLowUsd" | "costHighUsd">,
+  bound: CostBound,
+  lang: Lang,
+): string {
+  if (bound.costLowerBoundOnly) {
+    return tr(lang, "usage.summary.costAtLeast", formatUsageMoney(summary.costLowUsd))
+  }
+  const floor = formatUsageMoney(summary.costLowUsd)
+  return summary.costLowUsd === summary.costHighUsd ? floor : `${floor} – ${formatUsageMoney(summary.costHighUsd)}`
 }
 
 /** Why the total is only a floor, named with counts, e.g. `（上界未知：1 笔请求未定价）`. */
@@ -477,14 +494,18 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
         [tr(lang, "usage.summary.successRate"), formatPercent(summary.successRate)],
         // A cost that cannot be known is reported as the floor it is, never as a
         // point and never interpolated (EVO-G78, audit-R232 F2).
-        [
-          tr(lang, "usage.summary.cost"),
-          bound.costLowerBoundOnly ? costCell(summary.costLowUsd, bound, lang) : formatUsageMoney(summary.costUsd),
-        ],
+        //
+        // EVO-G89: the cell no longer has two sources. With the price known it
+        // is the recorded band (or the single number when the band is a point),
+        // and with the upper bound unknown it is G78's floor — `costUsd`, the
+        // deprecated point estimate, is read in neither case. `usage summary`
+        // therefore never reads it at all; the range line below keeps printing
+        // both endpoints, exactly as before.
+        [tr(lang, "usage.summary.cost"), costCell(summary, bound, lang)],
         [
           tr(lang, "usage.summary.costRange"),
           bound.costLowerBoundOnly
-            ? `${costCell(summary.costLowUsd, bound, lang)}${costBoundReason(bound, lang)}`
+            ? `${costCell(summary, bound, lang)}${costBoundReason(bound, lang)}`
             : `${formatUsageMoney(summary.costLowUsd)} – ${formatUsageMoney(summary.costHighUsd)}`,
         ],
         [tr(lang, "usage.summary.inputTokens"), formatTokens(summary.tokens.input)],

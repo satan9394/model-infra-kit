@@ -1353,8 +1353,15 @@ describe("subcommand i18n (EVO-G13)", () => {
     for (const label of ["请求数", "成功数", "失败数", "成功率", "成本 (USD)", "成本区间", "平均延迟", "首 token 延迟"]) {
       expect(result.stdout, label).toContain(label)
     }
-    // Data values keep their exact formatting.
-    expect(result.stdout).toContain("0.0123")
+    // Data values keep their exact formatting. The seeded event records a *band*
+    // (usd 0.012345, low 0.01, high 0.02 — `seedUsageEvent` below), and EVO-G89
+    // made `usage summary` render the recorded band instead of the deprecated
+    // point estimate, so the cost cell is a four-decimal pair. The point estimate
+    // is deliberately gone from this surface: it is the one member of the triple
+    // that is not an endpoint, and the CLI no longer reads `costUsd` at all. The
+    // per-row value is still on `usage logs` and in `usage export`.
+    expect(result.stdout).toContain("0.0100 – 0.0200")
+    expect(result.stdout).not.toContain("0.012345")
     // CJK labels are padded by display width: the widest label (首 token 延迟,
     // 13 columns) + the two-space gutter puts every value in column 15. Naive
     // `.length` padding would leave 请求数 five spaces short.
