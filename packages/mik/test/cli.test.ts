@@ -932,7 +932,13 @@ describe("usage", () => {
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("Requests        2")
     expect(result.stdout).toContain("Input tokens    3,200")
-    expect(result.stdout).toContain("Cost (USD)      1.5123")
+    // EVO-G78: r-2 has `source: "missing"`, so one of the two requests has no
+    // price and the recorded total is only a floor — named, with the count.
+    // The floor is `costLowUsd`: r-1's own estimate spans 0.01 – 0.02, so its
+    // point value (0.012345) is *not* a proven lower bound of the true total.
+    // Hand-computed: low = 0.0100 + 1.5000 = 1.5100.
+    expect(result.stdout).toContain("Cost (USD)      at least 1.5100")
+    expect(result.stdout).toContain("Cost range      at least 1.5100 (upper bound unknown: 1 request(s) unpriced)")
   })
 
   it("filters by app id", async () => {
@@ -1183,7 +1189,8 @@ describe("subcommand i18n (EVO-G13)", () => {
     "  -h, --help              Show help\n" +
     "  -v, --version           Show version\n"
   const EN_USAGE_SUMMARY_EMPTY =
-    "Range - → - · app=default\n\n" +
+    "Range all time (no --from/--to given) · app=default\n" +
+    "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.\n\n" +
     "Requests        0\n" +
     "Successes       0\n" +
     "Failures        0\n" +
@@ -1198,7 +1205,10 @@ describe("subcommand i18n (EVO-G13)", () => {
     "Cache hit rate  0.0%\n" +
     "Avg latency     0 ms\n" +
     "First token     0 ms\n"
-  const EN_USAGE_LOGS_EMPTY = "Range - → - · app=default\n\nNo usage recorded in this range.\n"
+  const EN_USAGE_LOGS_EMPTY =
+    "Range all time (no --from/--to given) · app=default\n" +
+    "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.\n\n" +
+    "No usage recorded in this range.\n"
 
   /** Framework prose that must never survive on the zh surface. */
   const ENGLISH_FRAMEWORK_WORDS = [

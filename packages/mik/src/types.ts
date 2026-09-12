@@ -35,8 +35,17 @@ export type ModelSource = "provider_api" | "models_dev" | "preset" | "manual"
  */
 export type PriceSource = "override" | "modelsdev" | "openrouter" | "fallback" | "provider" | "missing"
 
-/** How precisely a price could be resolved in time. */
-export type PriceBasis = "exact" | "flat" | "blended"
+/**
+ * How precisely a price could be resolved in time.
+ *
+ * `"unknown"` is the fourth, deliberately non-numeric case (EVO-G78, audit-R232
+ * F2/F12): **no price could be resolved at all**, so the row carries `usd: 0`
+ * with `source: "missing"`. Before it existed that row was recorded as
+ * `"flat"`, which is the one basis token that means "a real rate was applied" —
+ * so the CSV could not tell "this was free" from "nobody knows what this cost".
+ * An unknown price is never interpolated or guessed; it stays 0 and says so.
+ */
+export type PriceBasis = "exact" | "flat" | "blended" | "unknown"
 
 export interface ProviderPreset {
   id: string

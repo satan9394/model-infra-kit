@@ -226,6 +226,25 @@ function schemas(): Record<string, Schema> {
         cacheHitRate: { type: "number" },
         avgLatencyMs: { type: "number" },
         firstTokenMs: { type: "number" },
+        // EVO-G78: the three cost fields above sum only what was **recorded**, so
+        // an unpriced request adds 0 and does not widen the interval. These mark
+        // that: `costLowerBoundOnly` says to read the cost as a floor, and the
+        // two counters name what is missing. Additive; no number changed.
+        costLowerBoundOnly: {
+          type: "boolean",
+          description:
+            'True when `costUsd`/`costLowUsd`/`costHighUsd` must be read as a floor ("at least this much"), because part of the range has no knowable price: `unpricedRequests` and/or `unmeasuredRequests` is non-zero. A client that ignores this flag reads an unknown amount as an exact one — those three fields sum only what was recorded, and an unpriced request contributes 0. No amount is ever interpolated or estimated, and when this is false the cost is the exact recorded total.',
+        },
+        unpricedRequests: {
+          type: "integer",
+          description:
+            "Requests in this range whose price could not be resolved at all (missing `pricing_source`); each is recorded at 0 and adds 0 to every cost field. Detail rows only — a folded day is counted by `unmeasuredRequests` instead.",
+        },
+        unmeasuredRequests: {
+          type: "integer",
+          description:
+            "Requests already folded into `usage_daily_rollups`, whose `pricing_source` is no longer stored, so whether they were priced is unknowable. Counted so the gap is visible; never guessed at.",
+        },
       },
     },
     UsageTrendPoint: {

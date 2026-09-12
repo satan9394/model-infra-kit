@@ -152,7 +152,10 @@ export class PricingService {
     const pricing = estimate.pricing
     if (!pricing) {
       this.warnMissing(input.model)
-      return { usd: 0, low: 0, high: 0, basis: "flat", source: "missing", pricingModel: input.model }
+      // `basis: "unknown"` and not `"flat"` (EVO-G78): no rate was applied at
+      // all, and `flat` means the opposite — that a real rate was applied. The
+      // amount stays exactly 0; it is never interpolated or estimated.
+      return { usd: 0, low: 0, high: 0, basis: "unknown", source: "missing", pricingModel: input.model }
     }
 
     return {

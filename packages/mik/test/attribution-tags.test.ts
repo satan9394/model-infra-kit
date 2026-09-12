@@ -52,10 +52,16 @@ const TAGGED_SECRET = "sk-live-abcdefghijklmnopqrstuvwxyz"
 /**
  * `usage summary` on the two published-baseline rows, **stdout only**, exactly
  * as the 0.2.20 CLI printed it with `MIK_LANG=en`.
+ *
+ * EVO-G78 changed exactly one line of it — the header: `Range - → -` (which read
+ * as "the whole history, precisely scoped") became the explicit `all time` plus
+ * a scope notice. Every figure line is untouched, and the 0.2.20 header is kept
+ * below as a literal so the change is asserted, not assumed.
  */
-const PRE_CHANGE_SUMMARY =
-  "Range - → - · app=base-app\n" +
-  "\n" +
+const PRE_CHANGE_HEADER = "Range - → - · app=base-app"
+
+const PRE_CHANGE_SUMMARY_BODY =
+  "\n\n" +
   "Requests        2\n" +
   "Successes       2\n" +
   "Failures        0\n" +
@@ -70,6 +76,12 @@ const PRE_CHANGE_SUMMARY =
   "Cache hit rate  0.0%\n" +
   "Avg latency     120 ms\n" +
   "First token     0 ms\n"
+
+/** The 0.2.23 output, replaced line 1 only (EVO-G78). */
+const G78_SUMMARY =
+  "Range all time (no --from/--to given) · app=base-app\n" +
+  "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default." +
+  PRE_CHANGE_SUMMARY_BODY
 
 /** The published-baseline detail rows, oldest first, as the 0.2.20 CSV wrote them. */
 const PRE_CHANGE_EXPORT_ROWS = [
@@ -390,7 +402,11 @@ describe("EVO-G75 A2 — with no tags the output is byte-for-byte the 0.2.20 bas
     const { code, stdout } = await run(["usage", "summary", ...cliBase(dir, db), "--app", "base-app"], dir)
 
     expect(code).toBe(0)
-    expect(normalize(stdout).trimEnd()).toBe(normalize(PRE_CHANGE_SUMMARY).trimEnd())
+    // The 0.2.20 header is gone (that is EVO-G78's intended edit and the reason
+    // the expectation below can be a literal without hiding drift)...
+    expect(normalize(stdout)).not.toContain(PRE_CHANGE_HEADER)
+    // ...and every other line is byte-for-byte what 0.2.20 printed.
+    expect(normalize(stdout).trimEnd()).toBe(normalize(G78_SUMMARY).trimEnd())
   })
 
   it("keeps the fourteen pre-existing CSV columns byte-identical", () => {

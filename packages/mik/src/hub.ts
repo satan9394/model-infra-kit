@@ -123,7 +123,9 @@ function count(value: number | undefined): number | undefined {
 
 const ZERO_USAGE = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 })
 
-const MISSING_COST = (): CostInfo => ({ usd: 0, low: 0, high: 0, basis: "flat", source: "missing" })
+// `basis: "unknown"` (EVO-G78): nothing was priced here, which is not the same
+// claim as `flat` ("a real rate was applied"). The amount stays 0, unguessed.
+const MISSING_COST = (): CostInfo => ({ usd: 0, low: 0, high: 0, basis: "unknown", source: "missing" })
 
 /** "The endpoint reported no amount" — the path every pre-G73 provider takes. */
 const ABSENT_COST: ProviderCostReading = { kind: "absent" }

@@ -1,5 +1,6 @@
 import { PROTOCOL_PACKAGES } from "../registry/presets.js"
 import type { CostInfo, Protocol, ProviderConfig, TokenUsage, UsageEvent } from "../types.js"
+import { costBound } from "../usage/service.js"
 import { redactDeep } from "../util/redact.js"
 import { HttpError, type ServerContext } from "./context.js"
 import { parseUsageQuery, readJsonBody, sendJson } from "./http.js"
@@ -117,7 +118,7 @@ class EventRejection extends Error {}
 const TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"] as const
 
 /** A missing cost is `missing`, exactly as an unmetered hub call is. */
-const MISSING_COST = (model: string): CostInfo => ({ usd: 0, low: 0, high: 0, basis: "flat", source: "missing", pricingModel: model })
+const MISSING_COST = (model: string): CostInfo => ({ usd: 0, low: 0, high: 0, basis: "unknown", source: "missing", pricingModel: model })
 
 function requiredText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
@@ -406,7 +407,20 @@ export function registerApiRoutes(router: Router): void {
     })
 
     .add("GET", "/api/usage/summary", (ctx) => {
-      sendJson(ctx.res, 200, { summary: ctx.hub.usage.summary(parseUsageQuery(ctx.url)) })
+      /**
+       * EVO-G78 (audit-R232 F2): `costLowUsd === costHighUsd === costUsd` was a
+       * **closed** interval even when 16.7% of the requests could not be priced,
+       * which presented "unknown" to a machine reader as "exact". The three
+       * added fields are additive and change no existing number: `costUsd`,
+       * `costLowUsd` and `costHighUsd` are still the integer-micro-USD sums they
+       * always were, and `costLowerBoundOnly: true` says to read them as a
+       * **floor** ("at least"), with the missing pieces named and counted. No
+       * amount is interpolated or estimated (audit-R232 rejects that explicitly).
+       */
+      const query = parseUsageQuery(ctx.url)
+      const summary = ctx.hub.usage.summary(query)
+      const coverage = ctx.hub.usage.unpricedCoverage(query)
+      sendJson(ctx.res, 200, { summary: { ...summary, ...costBound(summary, coverage) } })
     })
 
     .add("GET", "/api/usage/trends", (ctx) => {

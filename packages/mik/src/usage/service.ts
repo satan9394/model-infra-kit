@@ -95,6 +95,59 @@ interface ActiveBudget {
   onWarn: ((message: string, error?: unknown) => void) | undefined
 }
 
+/**
+ * How certain a range's cost total is (EVO-G78, audit-R232 F2).
+ *
+ * `costUsd` / `costLowUsd` / `costHighUsd` are sums of **recorded** amounts. A
+ * request whose price could not be resolved is recorded at 0, contributes 0 to
+ * all three, and therefore does not widen the interval at all — so an install
+ * where 16.7% of requests were unpriced still printed `0.0175 – 0.0175`, an
+ * interval whose only job is to express uncertainty, while the same screen said
+ * "unpriced". The same blindness hits any day `rollupAndPrune()` folded away:
+ * those rows are gone and `usage_daily_rollups` stores no `pricing_source`, so
+ * nobody can tell whether they were priced.
+ *
+ * The honest statement in both cases is **not** a wider interval — the missing
+ * amount is not estimable, and interpolating a number for it is the one fix that
+ * must never ship (audit-R232, explicitly rejected). It is a *direction*: the
+ * total is a floor, "at least this much", with the reason named. That is what
+ * this returns. It is derived from the two aggregates the caller already has, so
+ * it costs no query and no state, and it changes no cost figure (rule 2: money
+ * stays integer micro-USD everywhere; nothing here touches it).
+ */
+export interface CostBound {
+  /**
+   * `true` when the totals must be read as a lower bound ("at least"), because
+   * some of the range's requests have no knowable price.
+   */
+  costLowerBoundOnly: boolean
+  /** Detail rows whose `pricing_source` is missing (no price resolved at all). */
+  unpricedRequests: number
+  /** Requests folded into `usage_daily_rollups`, whose price source is gone. */
+  unmeasuredRequests: number
+}
+
+/**
+ * Derive the certainty of a summary's cost from the summary itself plus the
+ * unpriced coverage measured over the same range.
+ *
+ * `unmeasuredRequests` is `summary.requests - coverage.totalRequests`: the
+ * summary counts rolled-up days, the coverage can only see retained detail rows
+ * (see `UnpricedCoverage`). It is clamped at 0 so a concurrent write can never
+ * produce a negative claim.
+ */
+export function costBound(
+  summary: Pick<UsageSummary, "requests">,
+  coverage: Pick<UnpricedCoverage, "requests" | "totalRequests">,
+): CostBound {
+  const unmeasuredRequests = Math.max(0, summary.requests - coverage.totalRequests)
+  return {
+    costLowerBoundOnly: coverage.requests > 0 || unmeasuredRequests > 0,
+    unpricedRequests: coverage.requests,
+    unmeasuredRequests,
+  }
+}
+
 export interface UsageServiceDeps {
   store: Store
   appId: string

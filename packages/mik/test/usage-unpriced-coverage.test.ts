@@ -118,10 +118,16 @@ const G75_CSV_HEADER = `${PRE_CHANGE_CSV_HEADER},tags`
  * The pre-change `usage summary` on an empty database, byte-for-byte
  * (`.tmp/g74-baseline/summary-empty-en.txt`). Any new segment that fired on a
  * healthy/empty install would break this.
+ *
+ * EVO-G78 changed **two** things here on purpose, and only those two:
+ *  - the header: `Range - → -` became the explicit `all time (no --from/--to
+ *    given)` plus the scope notice (audit-R232 F1: two commands disagreed about
+ *    their windows with nothing on screen saying so);
+ *  - nothing else. Every figure line below the header is still the 0.2.23
+ *    literal, which is why the body is kept as its own frozen constant instead
+ *    of being regenerated from the new output.
  */
-const PRE_CHANGE_EMPTY_SUMMARY =
-  "Range - → - · app=cli-app\n" +
-  "\n" +
+const PRE_CHANGE_EMPTY_BODY =
   "Requests        0\n" +
   "Successes       0\n" +
   "Failures        0\n" +
@@ -136,6 +142,14 @@ const PRE_CHANGE_EMPTY_SUMMARY =
   "Cache hit rate  0.0%\n" +
   "Avg latency     0 ms\n" +
   "First token     0 ms\n"
+
+/** The 0.2.23 header, kept as a literal so "it changed" is checkable, not assumed. */
+const PRE_CHANGE_EMPTY_HEADER = "Range - → - · app=cli-app"
+
+/** EVO-G78's replacement header + its scope notice, byte-for-byte. */
+const G78_EMPTY_HEADER =
+  "Range all time (no --from/--to given) · app=cli-app\n" +
+  "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.\n"
 
 /**
  * Seven requests, four of them unpriced. Hand-computed:
@@ -183,7 +197,17 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
 
     // The pre-existing lines keep their content, and the new segment sits after them.
     expect(result.stdout).toContain("Requests        7")
-    expect(result.stdout).toContain("Cost (USD)      0.5110")
+    /**
+     * EVO-G78 (audit-R232 F2) — the point of this card. Four of the seven
+     * requests have no resolvable price, so the recorded total is only a floor:
+     * it must not be printed as `0.5110` (a point) nor as a closed
+     * `0.5110 – 0.5110` interval, and the reason must name the count.
+     */
+    expect(result.stdout).toContain("Cost (USD)      at least 0.5110")
+    expect(result.stdout).toContain(
+      "Cost range      at least 0.5110 (upper bound unknown: 4 request(s) unpriced)",
+    )
+    expect(result.stdout).not.toContain("0.5110 – 0.5110")
     expect(result.stdout.indexOf("First token")).toBeLessThan(result.stdout.indexOf("Unpriced coverage"))
   })
 
@@ -224,7 +248,12 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.code).toBe(0)
     // The summary itself is still there...
     expect(result.stdout).toContain("Requests        5")
+    // ...still an exact point, because every request really was priced: G78 must
+    // not make a healthy install look fuzzy (the reverse of the A1 assertion).
     expect(result.stdout).toContain("Cost (USD)      0.1500")
+    expect(result.stdout).toContain("Cost range      0.1500 – 0.1500")
+    expect(result.stdout).not.toContain("at least")
+    expect(result.stdout).not.toContain("upper bound unknown")
     // ...and the coverage block is absent, in both languages, by every phrase it owns.
     for (const phrase of ["Unpriced", "未定价", "Top unpriced", "pricing set"]) {
       expect(result.stdout, phrase).not.toContain(phrase)
@@ -236,11 +265,15 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).not.toContain("folded")
   })
 
-  it("A2 — an empty range prints the pre-change summary byte-for-byte", async () => {
+  it("A2 — an empty range keeps every pre-change figure line and changes only the header", async () => {
     const { dir, base } = sandbox()
     const result = await run(["usage", "summary", ...base, ...APP], dir)
     expect(result.code).toBe(0)
-    expect(`${result.stdout}\n`).toBe(PRE_CHANGE_EMPTY_SUMMARY)
+    // The pre-change header is *gone*, which is the only reason the body below
+    // can be compared as a frozen literal (G78/G79 intent, not drift).
+    expect(result.stdout).not.toContain(PRE_CHANGE_EMPTY_HEADER)
+    expect(result.stdout.startsWith(G78_EMPTY_HEADER)).toBe(true)
+    expect(`${result.stdout}\n`).toBe(`${G78_EMPTY_HEADER}\n${PRE_CHANGE_EMPTY_BODY}`)
   })
 
   it("edge — all unpriced is 100.0% twice over and does not divide by zero", async () => {
@@ -311,6 +344,18 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       // EVO-G64 — the two shared-database notices.
       "usage.summary.sharedDb",
       "usage.summary.implicitDb",
+      // EVO-G78 — the cost certainty marking and the two scope notices.
+      "usage.summary.costAtLeast",
+      "usage.summary.costBound",
+      "usage.summary.costBound.unpriced",
+      "usage.summary.costBound.folded",
+      "usage.summary.unpriced.scope",
+      "usage.logs.sourceLegend",
+      "usage.range.unbounded",
+      "usage.range.since",
+      "usage.range.until",
+      "usage.note.allTimeScope",
+      "usage.note.defaultDaysScope",
     ]
     for (const key of NEW_KEYS) {
       expect(Object.prototype.hasOwnProperty.call(zh, key), `zh missing ${key}`).toBe(true)
@@ -321,12 +366,14 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     // EVO-G70/G60 added five `provider.test.failure.*` keys on both sides, so the
     // baseline moved 294 → 299; EVO-G77 added the rollup caveat → 300; EVO-G75
     // added six attribution-tag keys and two help descriptions → 309; EVO-G64
-    // added the two shared-database notices → 311. Parity (the line below) is
+    // added the two shared-database notices → 311; EVO-G78 added the cost-bound
+    // marking (4) + the unpriced scope note (1) + the log legend (1) + the range
+    // wording (3) + the two scope notices (2) → 322. Parity (the line below) is
     // the real invariant.
-    expect(Object.keys(zh)).toHaveLength(311)
-    expect(Object.keys(en)).toHaveLength(311)
+    expect(Object.keys(zh)).toHaveLength(322)
+    expect(Object.keys(en)).toHaveLength(322)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(311)
+    expect(i18nKeys()).toHaveLength(322)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })
@@ -376,12 +423,28 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).toContain(
       "Note: 1 request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
     )
+    /**
+     * EVO-G78: the folded row was itself unpriced, and its price provenance is
+     * gone forever, so the recorded `0.0100` is a floor — the same reason the
+     * retained-row case is one. The count named here is the *folded* counter,
+     * which is a different quantity from the unpriced-request counter.
+     */
+    expect(result.stdout).toContain("Cost (USD)      at least 0.0100")
+    expect(result.stdout).toContain(
+      "Cost range      at least 0.0100 (upper bound unknown: 1 request(s) folded into daily rollups, price source gone)",
+    )
     // The block is still silent — the rolled day is unmeasurable, not priced.
     expect(result.stdout).not.toContain("Unpriced coverage")
     expect(result.stdout).not.toContain("Top unpriced models")
     expect(result.stdout).not.toContain("Fix: mik pricing set")
-    // ...and the note is appended after every pre-existing line.
-    expect(result.stdout.indexOf("First token")).toBeLessThan(result.stdout.indexOf("Note:"))
+    // ...and the note is appended after every pre-existing line. EVO-G78 moved
+    // the anchor from the bare word `Note:` (the scope notice now owns the first
+    // occurrence, at the top) to this note's own text.
+    expect(result.stdout.indexOf("First token")).toBeLessThan(
+      result.stdout.indexOf("Note: 1 request(s) were folded into daily rollups"),
+    )
+    // The scope notice sits above the figures, the rollup caveat below them.
+    expect(result.stdout.indexOf("Note: with no --from/--to")).toBeLessThan(result.stdout.indexOf("First token"))
   })
 
   it("EVO-G77 — the caveat still fires when every *visible* row is priced", async () => {
@@ -402,7 +465,13 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     const result = await run(["usage", "summary", ...base, ...APP], dir)
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("Requests        2")
-    expect(result.stdout).toContain("Cost (USD)      0.0190")
+    // EVO-G78: every *visible* row is priced, yet the total still cannot be
+    // called exact — the folded day's provenance is unmeasurable, so it is a
+    // floor with the folded count named (and no unpriced count, which is 0).
+    expect(result.stdout).toContain("Cost (USD)      at least 0.0190")
+    expect(result.stdout).toContain(
+      "Cost range      at least 0.0190 (upper bound unknown: 1 request(s) folded into daily rollups, price source gone)",
+    )
     expect(result.stdout).toContain(
       "Note: 1 request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
     )
@@ -432,17 +501,19 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).not.toContain("Note:")
   })
 
-  it("EVO-G77 — detail-only data keeps the published 0.2.18 shape (block, no note)", async () => {
+  it("EVO-G77/G78 — detail-only data keeps the 0.2.23 shape (block, no rollup caveat)", async () => {
     // Gap == 0 means the new line is not merely empty, it is absent. The
     // byte-for-byte comparison against the published 0.2.18 build lives in
     // `.tmp/impl-G77.md` (A2); this pins the shape so it cannot regress here.
+    // EVO-G78 narrowed the check from "no `Note:` at all" to "no *rollup* note":
+    // the scope notices are new, intended lines of a different subject.
     const { dir, db, base } = sandbox()
     await seed(db, MIXED)
     const result = await run(["usage", "summary", ...base, ...APP], dir)
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("Requests        7")
     expect(result.stdout).toMatch(/Unpriced requests\s+4 \/ 7 \(57\.1%\)/)
-    expect(result.stdout).not.toContain("Note:")
-    expect(result.stdout).not.toContain("folded")
+    expect(result.stdout).not.toContain("folded into daily rollups")
+    expect(result.stdout).not.toMatch(/upper bound unknown: \d+ request\(s\) folded/)
   })
 })

@@ -154,7 +154,11 @@ for await (const event of mik.stream({ messages: [{ role: "user", content: "hi" 
 | 类型 | 字段 |
 |---|---|
 | `TokenUsage` | `input`、`output`、`cacheRead`、`cacheWrite`、`reasoning`（均为 `number`，缺失按 0 呈现） |
-| `CostInfo` | `usd`、`low`、`high`、`basis`（`exact\|flat\|blended\|manual`）、`source`（`override\|modelsdev\|openrouter\|fallback\|missing\|manual`）、`pricingModel?`、`providerId?` |
+| `CostInfo` | `usd`、`low`、`high`、`basis`（类型是 `PriceBasis \| "manual"`：`exact\|flat\|blended\|unknown`，外加 `manual`）、`source`（类型是 `PriceSource \| "manual"`：`override\|modelsdev\|openrouter\|fallback\|provider\|missing`，外加 `manual`）、`pricingModel?`、`providerId?` |
+
+> **枚举必须按联合类型读，不能按基础类型读**：`PriceBasis` / `PriceSource`（`src/types.ts`）本身**不含** `manual`，而 `CostInfo.basis` / `CostInfo.source` 的类型是 `PriceBasis | "manual"` / `PriceSource | "manual"`。`manual` 由两条真实路径写入——手动价（`pricing/service.ts` 的 `manualCost`）与宿主自报金额（`server/api.ts`，`server.test.ts` 有断言）——所以它是**存在的取值**，删掉它才会变成假事实。
+>
+> **`basis` / `source` 的枚举字面**：`unknown` 与 `source=missing` 是同一件事——**没有任何可用的计价依据**，此时 `usd=low=high=0`，且**不会**被插值或估算成一个数字；`0` 不等于免费。手动价记 `basis=flat`（套用了一个真实费率）。注意区分两套同形枚举：`CostInfo.source` 的 `modelsdev`（无下划线）是**成本来源**（models.dev 目录），而 `ModelInfo.source` 的 `models_dev`（带下划线）是**模型目录来源**，两者不可互换。
 
 > 内部计价保留「字段缺失 ≠ 0」的语义（传给 llm-pricing 的是 `Partial<TokenUsage>`），公共类型只是展示层。
 
