@@ -61,19 +61,32 @@
 - **下一步（路线图）**：**NEXT** = G58（子命令 `--help` 选项说明本地化，**卡与精确证据已备**）、G57（`dashboard` 在帮助/引导里被当可用但 npm 包不含）、G60+G61（输出噪声：`provider test` 重复文案、`node:sqlite` 实验警告）、G56 的补充项（`set-default` 命令 / CLI 无法设默认模型）。**LATER** = G63（用户可达文档入口，已按 R120 更正为须改**包内 README**）、G64（跨项目隔离提示）、G65（安装漏洞复测后定性）。
 - **技术债台账**（R127 合并）：G38–G44、G45/G46/G48/G49；G50（跨层文案三形态）、G51（`pricing.state.*` 对齐空格藏在字典值里）、G52（`lang` 默认值改必填）、G53（探针工具债）、**G66**（`serveBanner` 测试临时清空进程 SIGINT 监听，异常终止时不保证恢复）、**G67**（A1 工具是鲁棒性探测器，需补单源变体以支撑更强命题——R127 已补并实测）。
 
-## PRODUCT_STATE（R179，现行——G01-G73 已验收关闭）
+## PRODUCT_STATE（R182，现行——G01-G74 已验收关闭）
 
 > **本节是唯一现行状态**。上方两节是历史快照（R109/R127），保留仅为追溯；**排期与缺口以本节为准**。
 > **结构教训（R164，编排者自身）**：此前每轮收尾都是**插入**新 `PRODUCT_STATE` 而非**替换**，累积出三份互相冲突的「当前状态」。**此后每轮必须替换本节，不得再插入。**
 
-- **当前成熟度**：v0.2.14，**P0 清零**；**534 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。**产品核心承诺「成本对账」现已结构可闭合**（G73：端点回传账单额可被采纳并标 `cost_source: "provider"`）。
+- **当前成熟度**：v0.2.15，**P0 清零**；**544 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。**成本可信度这条线已成形**：G73 让端点回传的**账单真值**可被采纳并标注，G74 让**未定价覆盖**一眼可见（含可复制的修法）。
 - **定位获外部背书（R155 竞品刷新）**：「可嵌入宿主进程、零外部服务的模型层（含计量+计价+用量出口）」这一格**目前是空的**——证据：vercel/ai 把成本计算标 **`wontfix`**（17 👍，该仓 cost 标题下最高）；LiteLLM 的成本能力全绑在有状态 proxy；Langfuse 的绑在摄取后端+UI。**本产品不是既有类别的劣化版**。
-- **下一步**：**NOW = G74**（未定价覆盖率指标，P2，纯复用既有 `cost_source` 数据）。**NEXT** = G70（输出噪声）、G71（文档入口）、G72（`battery.sh` 的 `fail()`）、G75（归属标签，须改契约 + SQLite 迁移）。**LATER** = G64。**NOT_NOW = R1–R6**（竞品六条建议的拒绝，各附理由与证据，见 `.tmp/competitor-synthesis-R155.md` §3）。
+- **下一步**：**NOW = G76**（CLI 在 stdout 消费者提前关闭时以 EPIPE 退出——**新发现，编排者已用已发布 0.2.14 复现并确认是既有缺陷**；`mik usage logs | head` 在 `set -e`/`pipefail` 脚本里会失败）。**NEXT** = G70（输出噪声）、G71（文档入口）、**G72（部分已由 G74 吸收：`fail()` 的 `${2:-}` 已修；余下是电池失败时诊断退化，见 evaluator 建议）**、G75（归属标签，须改契约 + 迁移）、**G77（`pricing_source` 进 rollup，或「明细行数 < summary 行数」时打一行中性提示——否则折叠过的库上未定价段静默，正是 G74 要消灭的「看起来健康」）**。**LATER** = G64。**NOT_NOW = R1–R6**。
+- **G74 遗留待议（登记，`eval-G74.md`）**：① **`fallback` 是盲区**——它算「已定价但低置信度」，对「该给谁设 override」安全，但对「多少钱没算准」不敏感（后续单列）；② 电池失败时的**诊断退化**（落盘再 grep 后不再打印 `STEP/FAIL` 标记 → 建议 `node … >"$SUMMARY" 2>&1 || fail "summary" "cli exit non-zero"`，**已归口 G72**）；③ 交付者「断言一字未改」的表述**不精确**（`grep -q` 条件逐字未变，但调用点补了 `$2` 原因），已按此更正记录。
 - **G73 遗留待议（登记，`eval-G73.md`）**：① **整数单位无护栏且无开关**——`number` 直接当美元（`reported-cost.ts:107`），字符串走 `DECIMAL` 正则且**允许 `"1"`/`"100"`**，唯一护栏是 `Number.isSafeInteger(micros)`；若某真实端点用整数表示微美元/美分 → 落库 1e6/100 倍高，且标 `provider`+`exact`+`accepted`（**看似权威**）。更保守的替代（无小数点/指数 → `rejected ambiguous`）**误拒代价仅为回落目录估算**，不对称地更优。② **原子采纳未写进契约**，且 **SDK 桥只读 `finish-step`、而 `mik.fetch` 的 SSE 扫描器对任意帧取 `usage.cost`** → 同一端点走两条路径会得到不同采纳结果。③ `tags_json` 诊断键**无前缀**，会同名覆盖宿主键，并经 `usage-repository.ts:89` → 看板 `logs-client.tsx:95-98` **全量渲染**（终端用户会看到 `provider_cost_raw` 等内部键）。④ 多步不同 cost 的端到端用例未构造（风险方向保守）。
 - **技术债**：G38–G44、G45/G46/G48/G49、G50（跨层文案三形态）、G51/G52/G53、**G72**（工具错误路径）；**G66 降级为 P4**（R166 复核：`serveBanner` 已在 `finally` 恢复被停放的 SIGINT 监听——`cli.test.ts:1646-1648`——残余风险仅限进程被异常杀死，而非「异常终止时不保证恢复」）；**G67 销账（已关闭）**（R166 复核：`ONLY_SOURCE` 单源变体已实现在 `.tmp/verify-first-call.mjs:49-58`）。
 - **门禁增强两项 [P3]**（R163，Evaluator 提出）：① 死键门禁改**派生比对**（由 `COMMANDS` 生成期望键集并双向断言，消除「删/改名命令 → 其 summary/details 隐形死键」——Evaluator 指出 `DYNAMIC_PATTERNS` 豁免**是承重的**）；② 字典键改读**导出对象的 `Object.keys()`** 而非正则扫文本（消除「字典格式漂移」逃逸）。
 - **工具环境问题（待用户处理）**：**`web_search` 当前 401 不可用**（编排者 R155 独立复核确认）；错误提示指向 Settings → Plugins → Plugin configuration → Web search 或设 `DEEPSEEK_SEARCH_BASE_URL`。**只有用户应改该端点，编排者未擅动。**
 - **卡片队列**：`tasks/EVO-G70-output-noise.md`、`tasks/EVO-G71-doc-entrypoints.md`、`tasks/EVO-G72-tool-error-path.md`、`tasks/EVO-G73-provider-reported-cost.md` 已转正；**G74 卡已起草**（`.tmp/staged-G74-card.md`，待转正）。
+
+## G74 验收留痕（R180–R182）
+
+- **判定：独立 Evaluator ACCEPT**（0 必须修；4 条建议登记）。快照 `ddc1e15` 无漂移；`csv.ts` 未动；独立复跑新测试 **10/10 绿**。
+- **改动**：`types.ts` 新增 `UnpricedCoverage`；`store/usage-repository.ts` 新增 `unpricedCoverage()`（**无任何金额聚合**，不触硬性规则 2）；`usage/service.ts` 透传；`cli/commands/usage.ts` 末尾追加展示段；i18n 各 +8（**294/294**）；契约补一行；新增 `test/usage-unpriced-coverage.test.ts`（10 例）。
+- **编排者的独立验证**：tsc 0；**zh-CN 544/26、en-US 544/26**；e2e 绿；**电池三 PASS**；字典 294=294；**G36 从已发布包实测**——装上 peer 后走 mock→`provider add`→`serve`→POST，`usage summary` 末尾确现「未定价覆盖 1/1 (100.0%) / 18/18 (100.0%) / mock-mini 1 18 / 修法：mik pricing set …」。
+- **本卡最重要的编排判断：交付者改了验证工具** `scripts/check-envs/battery.sh`（原卡未要求），并**主动要求独立裁决**。Evaluator 用硬证据坐实了我的担忧：**`battery.sh:18` 是 `set -euo pipefail`** → 旧写法 `node | grep -q` **原本确实会拦 EPIPE**（pipefail 传播退出码），改动后电池**不再能发现 EPIPE**。它把这定性为**有记录的归口转移**（非静默掩盖），**前提是 G76 必须保持登记**——**若将来撤销 G76，必须回退该行**。此约束已写入提交信息。
+  → 同时确认：修法是**必要**的（失败由 G74 自身输出变长**确定性触发**，不修则三环境电池必红）、**无写入竞态**、**未放宽断言条件**（`grep -q "Requests"` 逐字未变）。
+- **G72 部分吸收（避免重复记工）**：`fail()` 已修为 `${2:-}` ✓（编辑器 diff 第 41 行），故 **G72 状态改为「部分由 G74 吸收」**。
+- **编排者的独立发现 → G76（新缺口，非 G74 引入）**：用**已发布 0.2.14** 复现 `usage summary | head -1` 与 `usage logs | head -1` **均退出码 1**，而 `--help | head -1` 为 **0** → 既有缺陷，**登记 G76（P2）**，**不属 G74 范围**。
+- **Evaluator 抓到编排者的一处残留（重要）**：我的证据写「编排者产物：无」，但工作区第 10 项 **`mik.config.json` 是我 EPIPE 复现时的残留**（`appId: pipetest`，且**未被 gitignore**）。风险真实：**电池会 `cd "$ROOT"`，CLI 会读到它**。已按删除铁律**送回收站**并在提交前清空工作区。
+- **交付**：提交 `85b981e`（10 文件，**显式点名未跟踪的新测试**）；npm `0.2.15` + Release；**CI 三 OS 一次通过**；**G36 产物级复验未定价段**。
 
 ## G73 验收留痕（R171–R179）
 

@@ -128,11 +128,17 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 
 - **PowerShell here-string 里的反引号是转义符**（R179）：我用 `@"..."@` 写提交信息，内容含 `` `usage.cost` ``，PowerShell 把 `` `u `` 当 unicode 转义 → **整个脚本在解析阶段就失败**（连 `git add` 都没执行）。**写含反引号/`$` 的文本一律用单引号 here-string `@'...'@`**（不解释任何转义）。这与 R156 的 bash `$` 展开同族：**跨 shell 边界传文本，先问「谁会解释它」**。
 
-## 当前状态（R113）
+- **编排者的复现动作会在仓库里留下垃圾，而证据文件必须认领每一处改动**（R182）：为验证「CLI 在管道提前关闭时是否崩」，我在**仓库根**跑了 `init --yes`，CLI 于是在 cwd 写下 **`mik.config.json`**（未被 gitignore）。我在证据里却写「编排者产物：无」——**独立 Evaluator 逐项核对工作区时抓到了这处不一致**。风险不止记账：**电池会 `cd "$ROOT"`，CLI 会读到这个 cwd 文件**，可能让三环境门禁读到非预期配置。
+  → 做法：① **复现类命令要在自建临时目录里跑**（`cd` 必须在同一调用内生效并先打印 cwd），不要图省事在仓库根跑；② **写证据时逐项列出工作区，并明确认领/否认每一项**——「产物：无」是一句**可被证伪的断言**，不要凭印象写；③ 提交**永远逐一点名**，绝不 `git add -A`（G27）。
 
-- **版本 v0.2.10**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 472 例**（`pnpm --filter model-infra-kit test`，21 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。
-- **已验收发布的切片**：G01–G14（`0.1.7` → `0.2.10`）。产品演进全貌、GAP_MAP（G01–G65）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节摘要更新更快）。
+- **验证工具里的「修管道」可能同时修掉一个门禁**（R182）：G74 的实现者把电池的 `node … | grep -q` 改为「落盘再 grep」，因为它的新输出让该步骤**确定性触发**了 EPIPE。**独立 Evaluator 的关键发现**：`battery.sh` 顶部是 `set -euo pipefail`，所以**旧写法原本确实会拦住 EPIPE**（pipefail 把上游退出码传上来）——改完之后电池**再也发现不了**这个缺陷。
+  → 判定为**可接受的「有记录的归口转移」**（因为它主动申报、编排者独立复现、并登记为 **G76**），但**附了硬约束**：**若撤销 G76，必须回退该行**。教训：**当「让门禁变绿」的手段是把检测点挪走时，必须同时在新位置补上等价检测，或显式登记被挪走的那个检测**，否则就是 G43「范围界定变成恒真」的又一变体。
+
+## 当前状态（R182 校正——本节的版本/基线数字必须随收口更新）
+
+- **版本 v0.2.15**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 544 例**（`pnpm --filter model-infra-kit test`，26 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS，字典 **294/294**。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。
+- **已验收发布的切片**：**G01–G74**（`0.1.7` → `0.2.15`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
 - **CLI 双语完成度（R113 更正）**：入门面（G12）+ `provider`/`usage`（G13）+ `models`/`serve`/`pricing`/`dashboard`/错误类/`warning:` 前缀（G14）已本地化。**但「已收口」是 R109 的过度宣称**：独立 UX 审计（R113）实测发现**各子命令 `--help` 的选项说明仍是大片英文**（`init`/`provider add`/`serve` 等）→ 已立 **G58（P2）**。
 - **独立 UX 审计（R113）结论**：新用户**「有条件能」**完成第一次成功使用（用 mock 供应商真跑通 200 + 计量入账），但**照官方帮助/`init` 引导的字面路径走不到**，需在 3 处自我纠偏。产出 11 条发现 + 编排者 3 条机械发现，已综合为 **G54–G65** 并定出下一片 **G15＝族 A「首次成功路径可达」**。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
