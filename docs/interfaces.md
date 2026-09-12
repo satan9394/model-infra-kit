@@ -461,8 +461,9 @@ writeSetting(key: string, value: string): void
 - **差异是有意设计**：库宿主显式传参应压过环境变量（显式 > 隐式）；CLI 的 flag 同样压过 env。两条路径的「env vs 文件/默认」不可比，因为库不读 `mik.config.json`。
 - **settings 表**（`cli.lang` 等小设置）只由 CLI 的 REPL/向导读写（`hub.readSetting`/`writeSetting`），优先级低于环境变量、高于系统语言：`MIK_LANG` → `cli.lang` → `OS locale` → `en`（见上文「小设置持久化」节）。
 - **`budget`（EVO-G07）**：属 config 入参层，即**最高优先级**；它没有环境变量、`mik.config.json` 或 settings 层的对应物（CLI 不读该字段），因此只有「显式入参 → 不配置」两种状态，不存在被覆盖的情形。
-- `mik.config.json` 只承载 `appId` / `db` / `initialProviders`（`src/cli/context.ts:25-34`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费。
-- 已由测试锁定：`packages/mik/test/config-precedence.test.ts`。
+- `mik.config.json` 承载 `appId` / `db` / `cacheDir` / `initialProviders`（`src/cli/context.ts`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费。
+  - **`cacheDir`（EVO-G84 / F11 新增）**：`mik init` 在命令行传了 `--cache-dir`（或环境里有 `MIK_CACHE_DIR`）时把该值写进文件；**未传时不写该字段**（既有文件的形状不变，非破坏性）。解析链与 `db`/`appId` 完全一致：`--cache-dir` → `MIK_CACHE_DIR` → `mik.config.json` 的 `cacheDir` → 库内置默认 `~/.model-infra-kit/cache`。此前该 flag 被**静默丢弃**（R232/F11 实测：传了 `--cache-dir` 后文件里只有 `appId`/`db`/`initialProviders`），后续命令仍落回主目录缓存。
+  - 已由测试锁定：`packages/mik/test/config-precedence.test.ts`（`appId` 链）、`packages/mik/test/g84-init-guidance.test.ts`（`cacheDir` 落盘 + 读取链 + 收尾指引）。
 
 ### 环境变量清单（源码实测，逐个 grep 确认；含 CLI 与库两条路径）
 
@@ -471,7 +472,7 @@ writeSetting(key: string, value: string): void
 | `MIK_DB` | `cli/context.ts:140`、`cli/commands/init.ts:56` | SQLite 路径（CLI；`--db` 优先） |
 | `MIK_APP_ID` | `cli/context.ts:141`、`cli/commands/init.ts:55`、`hub.ts:317` | 账本所属应用 id；多宿主共用一库时用于隔离 |
 | `MIK_CONFIG` | `cli/context.ts:75` | `mik.config.json` 的替代路径（`--config` 优先） |
-| `MIK_CACHE_DIR` | `cli/context.ts:142` | 价格目录缓存目录（`--cache-dir` 优先） |
+| `MIK_CACHE_DIR` | `cli/context.ts` | 价格目录缓存目录（`--cache-dir` 优先，其次本值，再次 `mik.config.json` 的 `cacheDir`；EVO-G84/F11） |
 | `MIK_OFFLINE` | `cli/context.ts:143`（`"1"` 为真） | 完全离线：禁用目录同步与在线价格拉取（flag `--offline` 为 `||` 关系，不是覆盖） |
 | `MIK_LANG` | `cli/commands/init.ts:54`、`cli/repl.ts:169`（非 TTY 分支 `cli/repl.ts:162`；解析统一在 `cli/i18n.ts` 的 `resolveCliLang`/`resolveLang`） | CLI/REPL 界面语言 `zh`/`en`；优先于 `cli.lang` 设置。不支持的值（如 `xx`）视为未设置，继续按 `cli.lang` → OS locale（`LC_ALL` → `LC_MESSAGES` → `LANG` → Windows `Intl`）→ `en` 解析 |
 | `MIK_SERVER_TOKEN` | `cli/commands/serve.ts:119` | `mik serve` 写端点 token（`--token` 优先）；未设置时写端点默认 401 |
@@ -716,6 +717,7 @@ mik usage export  --format csv [...]        # 表头追加第 15 列 tags
 
 - 新增只读 API `UsageService.appsInDatabase(): string[]`（`UsageRepository.apps()`）：升序返回该库写入过用量的全部 `app_id`，**不经 `scoped()`**，且同时读 `usage_events` 与 `usage_daily_rollups`（否则历史已折叠的 app 会凭空消失）。**只返回 id**，不含计数/成本/明细；属**只读提示**，绝不作为权限、配额或隔离判据。
 - `CliContext` 新增 `dbDefaulted: boolean`：**关于路径如何解析**的事实（是否落到内置默认），不是关于文件的事实；供命令在调用点判断而无需重算解析链。
+- **EVO-G84（F11）**：`CliContext` 新增可选 `cacheDir?: string`，值与交给 `ModelInfra.init()` 的 `cacheDir` 同源（与 `dbPath` 同性质，仅供调用点/测试读取，不改变任何输出）。
 - **不传 `--db` 的解析行为逐字未变**（默认仍是全局库，**未**改为按项目隔离）。
 - 两条提示都**不经 `scoped()`**：不受 `--app` / `--from` / `--to` 影响——它们讲的是**文件**。上面的统计数字仍按原样 scope 到当前 app；**既有行与顺序一字未动，新增内容只在末尾追加**。
 - **`usage export` 的 CSV 表头一字未变**（本卡不加列，仍 15 列）。

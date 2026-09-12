@@ -23,9 +23,21 @@ function presetList(): string {
   return PROVIDER_PRESETS.map((preset) => preset.id).join(", ")
 }
 
-/** The config file `mik init` writes. `initialProviders` is consumed by init only. */
-export function buildConfig(appId: string, db: string, presetId: string | undefined): CliConfigFile {
+/**
+ * The config file `mik init` writes. `initialProviders` is consumed by init only.
+ *
+ * EVO-G84 (F11): `cacheDir` is written whenever the invocation named one. Dropping it
+ * meant `--cache-dir <dir>` looked accepted while every later command still fell back
+ * to `~/.model-infra-kit/cache` — the audit reproduced exactly that (R232/F11).
+ */
+export function buildConfig(
+  appId: string,
+  db: string,
+  presetId: string | undefined,
+  cacheDir?: string,
+): CliConfigFile {
   const config: CliConfigFile = { appId, db }
+  if (cacheDir) config.cacheDir = cacheDir
   if (presetId) {
     const preset = getPreset(presetId)
     const entry: ProviderConfig = { id: presetId, presetId }
@@ -60,6 +72,9 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     let appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? "default"
     let db = flagString(parsed.values, "db") ?? env.MIK_DB ?? defaultDbPath()
     let presetId = flagString(parsed.values, "provider")
+    // Same precedence `openContext` uses (flag → env → file), so what init persists
+    // is exactly what a later command would have resolved anyway.
+    const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR
 
     if (interactive) {
       // First-run guide: language first (like a typical CLI onboarding), then
@@ -90,7 +105,7 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
       throw new CliUsageError(tr(lang, "init.unknownPreset", presetId, presetList()))
     }
 
-    const config = buildConfig(appId, db, presetId)
+    const config = buildConfig(appId, db, presetId, cacheDir)
     writeFileSync(filePath, `${JSON.stringify(config, null, 2)}\n`, "utf8")
     io.out(tr(lang, "init.wrote", filePath))
     io.out(tr(lang, "init.appIdLine", appId))
@@ -135,7 +150,11 @@ export async function runInit(parsed: ParsedCli, options: RunOptions): Promise<n
     context.io.out(tr(lang, "wizard.stepFirstCallCmd"))
     step("wizard.stepTest")
     step("wizard.stepModels")
-    step("wizard.stepDashboard")
+    // EVO-G84 (F10): this line used to read `mik dashboard`, which a packaged install
+    // cannot run at all — `apps/dashboard` is not in the tarball
+    // (`files: ["dist", "LICENSE"]`), so the guidance promised a step that failed on
+    // the spot. Every line here now names a command the npm-installed CLI can execute.
+    step("wizard.stepUsage")
     step("wizard.stepRepl")
     return 0
   })

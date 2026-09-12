@@ -354,7 +354,7 @@ my-agent plugin install mik            # 宿主写自己的配置
 my-agent config init --provider deepseek --api-key-ref env:DEEPSEEK_API_KEY
 ```
 
-- 本质是「宿主内部再走 ① 或 ③」，对用户暴露成宿主自己的概念；配置文件就是 `mik.config.json`（`appId` / `db` / `initialProviders`），CLI 的 `--config` 和 `MIK_CONFIG` 都认它。
+- 本质是「宿主内部再走 ① 或 ③」，对用户暴露成宿主自己的概念；配置文件就是 `mik.config.json`（`appId` / `db` / `cacheDir` / `initialProviders`；`cacheDir` 由 EVO-G84/F11 新增，`mik init --cache-dir` 才会写入），CLI 的 `--config` 和 `MIK_CONFIG` 都认它。
 - **升级**：宿主自己的升级机制；mik 版本被宿主锁死，用户无感。
 - **离线**：取决于宿主；如果宿主自带 mik 依赖则离线可用。
 - **体积**：宿主自带（同 ①）。
