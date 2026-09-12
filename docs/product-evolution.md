@@ -61,17 +61,31 @@
 - **下一步（路线图）**：**NEXT** = G58（子命令 `--help` 选项说明本地化，**卡与精确证据已备**）、G57（`dashboard` 在帮助/引导里被当可用但 npm 包不含）、G60+G61（输出噪声：`provider test` 重复文案、`node:sqlite` 实验警告）、G56 的补充项（`set-default` 命令 / CLI 无法设默认模型）。**LATER** = G63（用户可达文档入口，已按 R120 更正为须改**包内 README**）、G64（跨项目隔离提示）、G65（安装漏洞复测后定性）。
 - **技术债台账**（R127 合并）：G38–G44、G45/G46/G48/G49；G50（跨层文案三形态）、G51（`pricing.state.*` 对齐空格藏在字典值里）、G52（`lang` 默认值改必填）、G53（探针工具债）、**G66**（`serveBanner` 测试临时清空进程 SIGINT 监听，异常终止时不保证恢复）、**G67**（A1 工具是鲁棒性探测器，需补单源变体以支撑更强命题——R127 已补并实测）。
 
-## PRODUCT_STATE（R163，现行——G01-G69 已验收关闭）
+## PRODUCT_STATE（R179，现行——G01-G73 已验收关闭）
 
 > **本节是唯一现行状态**。上方两节是历史快照（R109/R127），保留仅为追溯；**排期与缺口以本节为准**。
 > **结构教训（R164，编排者自身）**：此前每轮收尾都是**插入**新 `PRODUCT_STATE` 而非**替换**，累积出三份互相冲突的「当前状态」。**此后每轮必须替换本节，不得再插入。**
 
-- **当前成熟度**：v0.2.13，**P0 清零**；**510 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。
+- **当前成熟度**：v0.2.14，**P0 清零**；**534 测试在 zh-CN 与 en-US 两种 locale 下均全绿、CI 三 OS 绿、e2e exit 0、三环境电池 PASS、发布产物经 G36 实测可用**。**产品核心承诺「成本对账」现已结构可闭合**（G73：端点回传账单额可被采纳并标 `cost_source: "provider"`）。
 - **定位获外部背书（R155 竞品刷新）**：「可嵌入宿主进程、零外部服务的模型层（含计量+计价+用量出口）」这一格**目前是空的**——证据：vercel/ai 把成本计算标 **`wontfix`**（17 👍，该仓 cost 标题下最高）；LiteLLM 的成本能力全绑在有状态 proxy；Langfuse 的绑在摄取后端+UI。**本产品不是既有类别的劣化版**。
-- **下一步（R155 路线图裁决）**：**NOW = G73**（**P1**：供应商回传成本——竞品调研认定它触及核心承诺「对账可闭合」；编排者**不采纳其 P0 评级**但**保留其论证**）。**NEXT** = G70（输出噪声）、G74（未定价覆盖率）、G75（归属标签，须改契约）、G71（文档入口）、G72（工具错误路径）。**LATER** = G64（跨项目隔离提示）。**NOT_NOW = R1–R6**（竞品六条建议的拒绝，各附理由与证据，见 `.tmp/competitor-synthesis-R155.md` §3）。
-- **技术债**：G38–G44、G45/G46/G48/G49、G50（跨层文案三形态）、G51/G52/G53、G66/G67、**G72**；**门禁增强两项 [P3]**（R163，Evaluator 提出）：① 死键门禁改**派生比对**（由 `COMMANDS` 生成期望键集并双向断言，消除「删/改名命令 → 其 summary/details 隐形死键」——Evaluator 指出 `DYNAMIC_PATTERNS` 豁免**是承重的**）；② 字典键改读**导出对象的 `Object.keys()`** 而非正则扫文本（消除「字典格式漂移」逃逸）。
+- **下一步**：**NOW = G74**（未定价覆盖率指标，P2，纯复用既有 `cost_source` 数据）。**NEXT** = G70（输出噪声）、G71（文档入口）、G72（`battery.sh` 的 `fail()`）、G75（归属标签，须改契约 + SQLite 迁移）。**LATER** = G64。**NOT_NOW = R1–R6**（竞品六条建议的拒绝，各附理由与证据，见 `.tmp/competitor-synthesis-R155.md` §3）。
+- **G73 遗留待议（登记，`eval-G73.md`）**：① **整数单位无护栏且无开关**——`number` 直接当美元（`reported-cost.ts:107`），字符串走 `DECIMAL` 正则且**允许 `"1"`/`"100"`**，唯一护栏是 `Number.isSafeInteger(micros)`；若某真实端点用整数表示微美元/美分 → 落库 1e6/100 倍高，且标 `provider`+`exact`+`accepted`（**看似权威**）。更保守的替代（无小数点/指数 → `rejected ambiguous`）**误拒代价仅为回落目录估算**，不对称地更优。② **原子采纳未写进契约**，且 **SDK 桥只读 `finish-step`、而 `mik.fetch` 的 SSE 扫描器对任意帧取 `usage.cost`** → 同一端点走两条路径会得到不同采纳结果。③ `tags_json` 诊断键**无前缀**，会同名覆盖宿主键，并经 `usage-repository.ts:89` → 看板 `logs-client.tsx:95-98` **全量渲染**（终端用户会看到 `provider_cost_raw` 等内部键）。④ 多步不同 cost 的端到端用例未构造（风险方向保守）。
+- **技术债**：G38–G44、G45/G46/G48/G49、G50（跨层文案三形态）、G51/G52/G53、**G72**（工具错误路径）；**G66 降级为 P4**（R166 复核：`serveBanner` 已在 `finally` 恢复被停放的 SIGINT 监听——`cli.test.ts:1646-1648`——残余风险仅限进程被异常杀死，而非「异常终止时不保证恢复」）；**G67 销账（已关闭）**（R166 复核：`ONLY_SOURCE` 单源变体已实现在 `.tmp/verify-first-call.mjs:49-58`）。
+- **门禁增强两项 [P3]**（R163，Evaluator 提出）：① 死键门禁改**派生比对**（由 `COMMANDS` 生成期望键集并双向断言，消除「删/改名命令 → 其 summary/details 隐形死键」——Evaluator 指出 `DYNAMIC_PATTERNS` 豁免**是承重的**）；② 字典键改读**导出对象的 `Object.keys()`** 而非正则扫文本（消除「字典格式漂移」逃逸）。
 - **工具环境问题（待用户处理）**：**`web_search` 当前 401 不可用**（编排者 R155 独立复核确认）；错误提示指向 Settings → Plugins → Plugin configuration → Web search 或设 `DEEPSEEK_SEARCH_BASE_URL`。**只有用户应改该端点，编排者未擅动。**
 - **卡片队列**：`tasks/EVO-G70-output-noise.md`、`tasks/EVO-G71-doc-entrypoints.md`、`tasks/EVO-G72-tool-error-path.md`、`tasks/EVO-G73-provider-reported-cost.md` 已转正；**G74 卡已起草**（`.tmp/staged-G74-card.md`，待转正）。
+
+## G73 验收留痕（R171–R179）
+
+- **判定：独立 Evaluator ACCEPT**（含 **1 条「提交前必须修」** + 4 条登记）。快照 `39c6042` 无漂移、10 项吻合、**`src/pricing/service.ts` 与 `api.ts` diff 为空**（既有估价通路零改动）。
+- **改动**：新增 `src/pricing/reported-cost.ts`（归一化唯一入口）+ `test/provider-cost.test.ts`（24 例）；`types.ts` 加 `"provider"` 并写清与 `"openrouter"`（价目表 vs 账单真值）之别；`hub.ts` 三路径接入；`fetch.ts` 读 `usage.cost`（含 SSE）；`cli/commands/usage.ts` 增来源列；i18n 各 +1；`docs/interfaces.md` 契约同步。
+- **编排者的独立产物级验证（路径与交付者测试完全不同）**：mock → `provider add` → `mik serve` → **HTTP POST** → **直查 SQLite**。A1：落库 `pricing_source="provider"` / `cost_usd=0.000123` / `pricing_basis="exact"` / 原始值在**既有** `tags_json`；A2（不回传）：`missing`/0/`flat` 且**不写任何 `provider_cost_*` 键**；A3（`"not-a-number"`）：**未采纳**、未抛异常、原值+拒绝原因留痕。
+- **交付者的关键实测（编排者点名索要）**：`providerMetadata` **为空**，真实载体是 `result.steps[i].usage.raw`（非流式）与 **`finish-step` part**（流式）；`finish` 的 `totalUsage` 无 raw → **流式只读 `finish-step`，否则多步重复计费**。**单位一律美元，明确拒绝猜 ticks**。
+- **Evaluator 的独到贡献（编排者漏掉的）**：发现**契约同步遗漏**——`fetch.ts` 给**公共导出**的 `ForwardedCall` 加了 `providerCost?`，而 `interfaces.md:322` 未同步，且 `ProviderCostReading` **未从 `index.ts` 导出**（公共签名引用宿主无法命名的类型）。它判为加法式变更不破坏宿主编译故不 REJECT，但要求提交前修。
+  → **修复（派回原实现者）**：`index.ts` 增纯类型导出、契约行补字段并定义**三态判别联合** `absent | accepted | rejected`、新增 1 例 barrel 导入断言。**它在产物层面复现了该硬伤**：修复前 `dist/index.d.mts` 的 **export 列表 0 命中**，修复后 `:228` 含 `type ProviderCostReading`；**编排者又在已发布包的 G36 里复验** `ProviderCostReading: true`。
+- **Evaluator 的三处纠错/加强**：① 指出「单位假设虽已写进契约，但**整数形态无护栏**」并给出不对称更优的替代；② 独立从 diff 核到「成本与 token 在同一批 step 同语义累加」，比交付者探针更强的支撑；③ 指出**原子采纳与 `mik.fetch` 的采纳路径不一致**（SDK 桥只读 `finish-step`，fetch 扫任意帧）→ 同一端点两条路径结果不同，且**未写进契约**。
+- **编排者的流程错误（如实记录）**：我在**实现者仍在做修复轮时**就擅自把 `package.json` 升到 `0.2.14`——**违反「实现者工作时不得动工作区」**（G12/G27 同族）。实现者发现并报告了这处「非它所改」的并发写入，且**按 R99 重跑全量**（0.2.14 在位仍全绿），故无实际损害。教训已入 `AGENTS.md`。
+- **交付**：提交 `c641d92`（11 文件）；npm `0.2.14` + Release；**CI 三 OS 一次通过**；**G36 从已发布包复验**类型导出与子路径。
 
 ## G69 验收留痕（R161–R163）
 
