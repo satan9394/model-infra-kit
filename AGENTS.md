@@ -199,11 +199,16 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 
 - **「最后说出口的那句话」值得单独验一遍**（R249，G84 的 F10）：`init` 收尾推荐 `mik dashboard`，而该命令**在装包环境必然 exit 1**（看板不在 tarball 里）。这类缺陷难被单测发现——因为**测试跑在仓库里，而仓库里看板是存在的**，正是 R120「用户会看到什么必须以产物为准」。
   → 做法：凡「向导/文档/帮助推荐你去运行某命令」的地方，**都要在真实装包环境里跑一次那条命令**。本轮实测方式值得复用：**在仓库外造一个只含 `dist` + `package.json` 的模拟装包布局**（不必真的 `npm i`），就能复现「装了包之后」的行为。
-## 当前状态（R249 校正——本节的版本/基线数字必须随收口更新）
+- **别把「退出码要紧」的命令接进 `Select-Object`**（R255，我自己的流程失误）：`gh release create v0.2.27 …` 因一次瞬时网络故障**未建成**（npm 却已发布），而我把它的输出接了 `| Select-Object -First 2` 只取首行——**该 cmdlet 会吞掉退出码**，于是失败被显示成一行无害的 `unexpected EOF`，我差点据此宣称发布完成。**是我随后主动 `gh release view` 才发现 `release not found`**。
+  → 做法：**凡 `gh release create` / `npm publish` / `git push` 这类「退出码即结论」的命令，不要接 `Select-Object`/`Where-Object`/`Out-String` 后只看输出**；要么先取 `$LASTEXITCODE` 再裁剪，要么**用产物复查**（`gh release view <tag>`、`npm view <pkg>@<ver>`）。这与「工具自身的退出码也要自检」（G10 的 `check-envs.mjs --json` 假绿）同族：**管道会掩盖状态，状态必须独立复核**。
 
-- **版本 v0.2.26**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 656 例**（`pnpm --filter model-infra-kit test`，28 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS，字典 **322/322**。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。**涉及平台/分块/外部命令的测试必须以 CI 为准**（R187/R193）。
-- **已验收发布的切片**：**G01–G84 + G64 + G72b**（`0.1.7` → `0.2.26`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
+- **独立评审可能推翻「编排者认为可接受」的偏差，且它常常更准**（R255，G81 的 D3）：G81 修好了导出的对账与防注入，但 **CLI 的 `usage logs` 表不打印 `request_id`**。我倾向判「可接受（数据层与 API 面完整，已申报）」。评审**挑战**了我：本项目是 **CLI 优先**的工具，**不跑 `serve` 的用户根本用不到 `/api/usage/logs/:id`**，而毫秒级组合键对同毫秒重复调用**不唯一**——于是「一行 CSV 与一条 log 对上」**在 CLI 面只完成了一半**，并建议它**优先于**显示精度那条（补法很小，`--with-id` 或表尾 id）。
+  → 采纳并按此排序（**G86 优先于 G85**）。教训：**当我自己写下「可接受」时，要问一句「用户手上真能完成这件事吗」**——尤其当可达路径需要起一个**本项目不默认运行的服务**时。
+## 当前状态（R255 校正——本节的版本/基线数字必须随收口更新）
+
+- **版本 v0.2.27**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 670 例**（`pnpm --filter model-infra-kit test`，35 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS，字典 **322/322**。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。**涉及平台/分块/外部命令的测试必须以 CI 为准**（R187/R193）。
+- **已验收发布的切片**：**G01–G85 + G64 + G72b**（`0.1.7` → `0.2.27`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
 - **CLI 双语完成度（R113 更正）**：入门面（G12）+ `provider`/`usage`（G13）+ `models`/`serve`/`pricing`/`dashboard`/错误类/`warning:` 前缀（G14）已本地化。**但「已收口」是 R109 的过度宣称**：独立 UX 审计（R113）实测发现**各子命令 `--help` 的选项说明仍是大片英文**（`init`/`provider add`/`serve` 等）→ 已立 **G58（P2）**。
 - **独立 UX 审计（R113）结论**：新用户**「有条件能」**完成第一次成功使用（用 mock 供应商真跑通 200 + 计量入账），但**照官方帮助/`init` 引导的字面路径走不到**，需在 3 处自我纠偏。产出 11 条发现 + 编排者 3 条机械发现，已综合为 **G54–G65** 并定出下一片 **G15＝族 A「首次成功路径可达」**。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
