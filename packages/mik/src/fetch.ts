@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { MODEL_LIST_PROTOCOLS } from "./ai/protocols.js"
 import { isModelInfraError, ModelInfraError, type ModelInfraErrorCode } from "./errors.js"
+import { reportedCostFromUsage, type ProviderCostReading } from "./pricing/reported-cost.js"
 import type { ResolvedProvider } from "./registry/registry.js"
 import type { TokenUsage } from "./types.js"
 import { redact } from "./util/redact.js"
@@ -21,6 +22,12 @@ export interface ForwardedCall {
   status: "ok" | "error"
   errorCode?: string
   isStreaming: boolean
+  /**
+   * The amount the endpoint said it billed (EVO-G73), read straight from the
+   * response body this adapter already parses. `absent` for every provider that
+   * does not report one, which keeps the pre-G73 accounting path unchanged.
+   */
+  providerCost?: ProviderCostReading
 }
 
 /** The model a request should be routed to. */
@@ -148,7 +155,13 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
     }
 
     const latencyMs = now() - startedAt
-    const meter = (usage: TokenUsage, modelActual: string, firstTokenMs: number | undefined, isStreaming: boolean) => {
+    const meter = (
+      usage: TokenUsage,
+      modelActual: string,
+      firstTokenMs: number | undefined,
+      isStreaming: boolean,
+      providerCost?: ProviderCostReading,
+    ) => {
       options.onCall({
         requestId,
         at: startedAt,
@@ -161,6 +174,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         status: response.ok ? "ok" : "error",
         errorCode: response.ok ? undefined : codeForStatus(response.status),
         isStreaming,
+        ...(providerCost === undefined ? {} : { providerCost }),
       })
     }
 
@@ -189,7 +203,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
             if (recorded) return
             recorded = true
             const found = scanner.result()
-            meter(found.usage ?? ZERO_USAGE(), found.model ?? target.modelId, found.firstTokenMs, true)
+            meter(found.usage ?? ZERO_USAGE(), found.model ?? target.modelId, found.firstTokenMs, true, found.cost)
           },
         }),
       )
@@ -203,7 +217,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       parsed = null
     }
     const found = readOpenAiUsage(parsed)
-    meter(found?.usage ?? ZERO_USAGE(), found?.model ?? target.modelId, undefined, false)
+    meter(found?.usage ?? ZERO_USAGE(), found?.model ?? target.modelId, undefined, false, found?.cost)
     return response
   }
 
@@ -283,10 +297,18 @@ function asCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
-/** What an OpenAI-compatible payload says was used, if it says anything. */
+/**
+ * What an OpenAI-compatible payload says was used, if it says anything.
+ *
+ * `cost` is the endpoint's own billed amount when it reports one (EVO-G73): the
+ * `usage` object it returns is parsed here already, so the reported amount needs
+ * no second read of the body. It is left off the result entirely when the field
+ * is absent, so the caller's fallback to the price catalogue is untouched.
+ */
 export function readOpenAiUsage(payload: Record<string, unknown> | null): {
   usage: TokenUsage
   model?: string
+  cost?: ProviderCostReading
 } | null {
   if (!payload) return null
   const usage = asRecord(payload.usage)
@@ -300,8 +322,16 @@ export function readOpenAiUsage(payload: Record<string, unknown> | null): {
   const cacheRead = asCount(prompt.cached_tokens) ?? asCount(usage.prompt_cache_hit_tokens) ?? asCount(prompt.cache_read_tokens)
   const cacheWrite = asCount(prompt.cache_creation_tokens) ?? asCount(prompt.cache_write_tokens)
   const reasoning = asCount(completion.reasoning_tokens) ?? asCount(completion.reasoning_token_count)
+  const cost = reportedCostFromUsage(usage)
 
-  if (input === undefined && output === undefined && cacheRead === undefined && cacheWrite === undefined && reasoning === undefined) {
+  if (
+    input === undefined &&
+    output === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined &&
+    reasoning === undefined &&
+    cost.kind === "absent"
+  ) {
     return null
   }
 
@@ -315,6 +345,7 @@ export function readOpenAiUsage(payload: Record<string, unknown> | null): {
       reasoning: reasoning ?? 0,
     },
     model,
+    ...(cost.kind === "absent" ? {} : { cost }),
   }
 }
 
@@ -328,13 +359,19 @@ function createSseScanner(
 ): {
   consume(chunk: Uint8Array): void
   finish(): void
-  result(): { usage: TokenUsage | undefined; model: string | undefined; firstTokenMs: number | undefined }
+  result(): {
+    usage: TokenUsage | undefined
+    model: string | undefined
+    firstTokenMs: number | undefined
+    cost: ProviderCostReading | undefined
+  }
 } {
   const decoder = new TextDecoder()
   let buffer = ""
   let usage: TokenUsage | undefined
   let model: string | undefined
   let firstTokenMs: number | undefined
+  let cost: ProviderCostReading | undefined
 
   const line = (text: string) => {
     if (firstTokenMs === undefined && text.trim()) firstTokenMs = now() - startedAt
@@ -347,6 +384,10 @@ function createSseScanner(
     } catch {
       return
     }
+    // The billed amount is read independently of the token counts: a gateway may
+    // send `usage.cost` on a frame whose token fields this adapter does not use.
+    const reported = reportedCostFromUsage(parsed?.usage)
+    if (reported.kind !== "absent") cost = reported
     const found = readOpenAiUsage(parsed)
     if (found) {
       usage = found.usage
@@ -378,7 +419,7 @@ function createSseScanner(
       buffer += decoder.decode()
       drain(true)
     },
-    result: () => ({ usage, model, firstTokenMs }),
+    result: () => ({ usage, model, firstTokenMs, cost }),
   }
 }
 

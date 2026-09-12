@@ -16,8 +16,24 @@ export type Protocol =
 /** Where a model's metadata or price came from. */
 export type ModelSource = "provider_api" | "models_dev" | "preset" | "manual"
 
-/** Where a price came from, mirroring llm-pricing's own vocabulary. */
-export type PriceSource = "override" | "modelsdev" | "openrouter" | "fallback" | "missing"
+/**
+ * Where a price came from, mirroring llm-pricing's own vocabulary.
+ *
+ * `"openrouter"` and `"provider"` are **not** the same thing, despite both
+ * naming a provider-side origin:
+ *
+ * - `"openrouter"` — the price was taken from OpenRouter's **price catalogue**
+ *   (a published per-token rate card). It is still an *estimate*: the amount
+ *   this product records is computed from token counts.
+ * - `"provider"` — the endpoint **returned the amount it billed** for this very
+ *   call (OpenAI-compatible `usage.cost`, carried by the SDK as `usage.raw`).
+ *   It is *billed truth*, not a rate card, and it is what cost reconciliation is
+ *   closed against.
+ *
+ * A card-based source is never `"provider"`, and a reported amount never reads
+ * as `"openrouter"`. See `docs/interfaces.md` and `pricing/reported-cost.ts`.
+ */
+export type PriceSource = "override" | "modelsdev" | "openrouter" | "fallback" | "provider" | "missing"
 
 /** How precisely a price could be resolved in time. */
 export type PriceBasis = "exact" | "flat" | "blended"

@@ -319,7 +319,7 @@ export function loadProviderFactory(protocol: Protocol): Promise<ProviderFactory
 
 ```ts
 // src/fetch.ts
-export interface ForwardedCall { requestId; at; providerId; modelRequested; modelActual; usage; latencyMs; firstTokenMs?; status: "ok" | "error"; errorCode?; isStreaming }
+export interface ForwardedCall { requestId; at; providerId; modelRequested; modelActual; usage; latencyMs; firstTokenMs?; status: "ok" | "error"; errorCode?; isStreaming; providerCost?: ProviderCostReading }
 export interface FetchTarget { providerId: string; modelId: string; requested: string }
 export interface MikFetchOptions {
   resolveProvider(providerId: string): ResolvedProvider   // 必需；缺失抛 PROVIDER_NOT_FOUND / CREDENTIAL
@@ -331,11 +331,19 @@ export interface MikFetchOptions {
   requestId?: () => string                                // 可选
 }
 export function createMikFetch(options: MikFetchOptions): typeof fetch
-export function readOpenAiUsage(payload: Record<string, unknown> | null): { usage: TokenUsage; model?: string } | null
+export function readOpenAiUsage(payload: Record<string, unknown> | null): { usage: TokenUsage; model?: string; cost?: ProviderCostReading } | null
+
+// EVO-G73（新增，`src/index.ts` 已 re-export）：端点回传计费额的读数
+// 判别联合；`absent` 表「没报」，与「报了 0」不同（SPEC §4）。见本文件 EVO-G73 节。
+export type ProviderCostReading =
+  | { kind: "absent" }
+  | { kind: "accepted"; micros: number; raw: string }
+  | { kind: "rejected"; raw: string; reason: string }
 ```
 
 - `createMikFetch()` 让现有 OpenAI 兼容客户端带计量：`new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })`。请求体的 `model` 决定路由，凭据由 provider 协议附加；**调用方自带的密钥不转发**；响应按字节原样返回（只读 clone）。
 - `readOpenAiUsage()` 兼容 `prompt_tokens`/`input_tokens`、`cached_tokens`/`prompt_cache_hit_tokens`/`cache_read_tokens`、`cache_creation_tokens`/`cache_write_tokens`、`reasoning_tokens`；**一个字段都读不到时返回 `null`**（而不是全 0 的 `TokenUsage`），调用方据此区分「上游没报 usage」与「确实为 0」。
+- EVO-G73：`ForwardedCall.providerCost`（也就是 `readOpenAiUsage().cost` 的来源）是端点回传计费额的读数。`kind: "absent"` 表示端点**没报**——此时 hub 仍走既有目录估算，`tags` **不写任何键**，行为与 G73 之前逐字一致；`accepted` 才按端点账单记账。类型与保留键的定义在下文「EVO-G73」节，两处不重复定义。
 
 ### 稳定 — `X-ModelHub-Provider` 请求头（HTTP 面）
 
@@ -524,4 +532,47 @@ export function quarantineDatabase(
 - 隔离成功后以同路径建空库（正常 `migrate`）并 `onWarn` 一条醒目告警，含隔离目录完整路径、账本已重置、SQLite 抢救指引。
 - 告警文案是公共行为约定：必须含隔离目录路径、`reset` 语义与恢复指引。
 - `ModelInfra.init()` 把自身的 `onWarn` 透传给 `Store.open`，因此宿主无需额外接线即可看到告警。
+
+## EVO-G73 — 供应商回传成本（第六种价格来源）
+
+`PriceSource`（`src/types.ts`，经 `src/index.ts` 从公共 API 导出）**新增一个取值**：`"provider"`。既有取值语义**不变**。
+
+```ts
+export type PriceSource =
+  | "override"   // pricing_overrides 里的人工价（source 读作 "manual"）
+  | "modelsdev"  // models.dev 目录价
+  | "openrouter" // OpenRouter **目录**（价目表）里的价格
+  | "fallback"   // 目录未命中时的兜底价
+  | "provider"   // ★ 新增：端点自己回传的**实际计费额**（账单，不是估算）
+  | "missing"    // 显式「没有价格」，绝不冒充免费
+```
+
+### `"openrouter"` 与 `"provider"` 的区别（同名不同义，务必分清）
+
+| 取值 | 说的是什么 | 钱从哪来 | 性质 |
+|---|---|---|---|
+| `"openrouter"` | 价格取自 **OpenRouter 的价格目录**（per-token 价目表） | 用 token 数 × 费率**算**出来 | **估算** |
+| `"provider"` | 端点**回传了这次调用实际被计费的金额** | 供应商/中转端自己给的数 | **账单** |
+
+两者都「和 OpenRouter 有关」，但一个是价目表、一个是账单。看到 `"openrouter"` **不等于**对账已闭合；只有 `"provider"` 才是账单口径。
+
+### 形状、单位与保留原始值（实测确定，勿照抄文档）
+
+- 载体是 AI SDK 的 **`usage.raw`**（"raw usage information from the provider"），**不是** `providerMetadata`：
+  实测（`.tmp/probe-g73.mjs`，`@ai-sdk/openai-compatible` + `ai` v7）`generateText` 的 `result.providerMetadata` 为 `{ mock: {} }`、`result.usage.raw` 为 `undefined`，而 **`result.steps[i].usage.raw`** 与流式 **`finish-step` part `.usage.raw`** 里带着 OpenAI 兼容体的 `usage` 对象（含 `cost`）。
+  本模块自己的 `mik.fetch` 适配器直接解析响应体，非流式与 SSE 两条路径都能读到同一个字段。
+- 单位**一律是美元**：`{"usage":{"cost":"0.000123"}}` 与 `{"usage":{"cost":0.000123}}` 都是 **123 微美元**。整数值同样是美元（`1` → $1 → 1_000_000 µ$）。
+  **不做**「整数即 ticks / 微美元」的猜测——猜错就是 10^6 倍的静默错账，比不用更糟；回传 ticks 的端点应在自己的边界换算。
+- 归一化后的**整数微美元**参与累加（硬性规则 2），落库仍走既有 `cost_usd` REAL 列 + `CAST(ROUND(cost_usd * 1000000) AS INTEGER)`；`usd = micros / 1e6` 可精确往返。
+- **原始回传值必须保留**（可查、可对账）：写入既有 JSON 列 `usage_events.tags_json`，**不加表、不加列**，两个保留键：
+  - `provider_cost_raw` — 供应商回传的原值文本（多步调用为 JSON 数组）；
+  - `provider_cost_status` — `"accepted"`，或 `"rejected: <原因>"`。
+  未回传计费额时**不写任何键**，`tags` 与改动前逐字一致。
+- `CostInfo`：`low === high === usd`、`basis: "exact"`（账单没有估算区间），`source: "provider"`；`pricingModel`/`providerId` 沿用同次目录估算的值，便于对账时比对「本该按哪张卡计费」。
+- 异常值（缺失 / `null` / 非有限 / 负数 / 无法解析 / 溢出 int / 正数却四舍五入到 0）**一律回落**到目录估算（含人工价），**不写 0 冒充免费**，**不抛异常**。显式 `0` 例外：那是供应商在说「这次免费」，照收并标 `provider`。
+- 多步调用**原子采纳**：只要有一个 step 没报（或报得不可用），整行回落到目录估算——部分求和会静默少计，与写 0 同类。
+- 失败的调用**永不**按回传值计费（与「失败不按价目表计费」同一不变式）。
+- **公共签名同步**（规则 5）：`ForwardedCall` 新增可选 `providerCost?: ProviderCostReading`；`readOpenAiUsage()` 的返回新增可选 `cost`。`ProviderCostReading` 是宿主可直接命名的公共类型，已由 `src/index.ts` re-export（纯类型导出，运行时导出集合不变），签名见上文「稳定 — fetch 适配器」节。
+- 口径可见：`usage export` 的 `pricing_source` 列、`usage logs` 的 `SOURCE`（zh：价格来源）列、HTTP 的 `cost_source` 都会显示 `provider`。
+
 

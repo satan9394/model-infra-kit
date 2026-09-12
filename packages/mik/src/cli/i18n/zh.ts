@@ -173,6 +173,7 @@ export const zh: Record<string, string> = {
   "usage.logs.header.input": "输入",
   "usage.logs.header.output": "输出",
   "usage.logs.header.cost": "成本 USD",
+  "usage.logs.header.source": "价格来源",
   "usage.logs.header.latency": "延迟",
   "usage.logs.showing": "显示 %s / %s 条事件（offset %s）。",
   "usage.export.wrote": "已写入 %s 行到 %s",
