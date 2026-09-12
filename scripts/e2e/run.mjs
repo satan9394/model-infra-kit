@@ -26,7 +26,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node
 import { createServer as createNetServer } from "node:net"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { formatCompact, formatInt, formatRate, formatUsd, tokenTotal } from "../../apps/dashboard/lib/format.ts"
+import { formatCompact, formatInt, formatRate, formatUsd, formatUsdSpan, tokenTotal } from "../../apps/dashboard/lib/format.ts"
 import { MOCK_MODELS, startMockProvider } from "./mock-provider.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -771,11 +771,15 @@ async function main() {
       // to the numbers this run actually wrote — not from literals.
       const summary = hub.usage.summary()
       assert(summary.requests >= 9, `the hub recorded only ${summary.requests} rows, the dashboard check needs the usage written above`)
-      assert(summary.costUsd > 0, "the hub recorded no cost at all")
+      // EVO-G89: the gate reads the same endpoints the page renders. `costUsd` is
+      // the deprecated point estimate and this check must not rely on it being
+      // equal to them (it is, for the point-priced mock rates this run writes —
+      // which is exactly why the equality would otherwise go unnoticed here).
+      assert(summary.costLowUsd > 0, "the hub recorded no cost at all")
       const ac3RequestId = hub.usage.query({ sessionId: "e2e-proxy-generate", limit: 1 }).events[0]?.requestId
       assert(ac3RequestId, "the AC3 generate row is missing, so there is nothing for the log page to show")
       const expected = {
-        cost: formatUsd(summary.costUsd),
+        cost: formatUsdSpan(summary.costLowUsd, summary.costHighUsd),
         requests: formatInt(summary.requests),
         tokens: formatCompact(tokenTotal(summary.tokens)),
         rowCost: formatUsd(expectedCost(priceP1)),
@@ -850,7 +854,9 @@ async function main() {
       numbers["DASH"] = {
         port: dashPort,
         build: buildNote,
-        costUsd: expected.cost,
+        // EVO-G89: the label matches what `expected.cost` is — the rendered band
+        // from `costLowUsd`/`costHighUsd`, not the deprecated `costUsd`.
+        cost: expected.cost,
         requests: summary.requests,
         tokens: expected.tokens,
         rowCost: expected.rowCost,
@@ -950,7 +956,10 @@ async function main() {
       process.stdout.write(`  usage rows              ${totals.requests} (ok ${totals.successes}, failed ${totals.failures})\n`)
       process.stdout.write(`  rows by source          ${JSON.stringify(numbers["rowsBySource"])}\n`)
       process.stdout.write(`  tokens                  ${JSON.stringify(totals.tokens)}\n`)
-      process.stdout.write(`  cost (USD)              ${totals.costUsd}\n`)
+      // EVO-G89: the recorded band's lower endpoint, not the deprecated point
+      // estimate (`costUsd`). Identical for the point-priced mock rates this run
+      // writes, which is why the distinction needs saying rather than measuring.
+      process.stdout.write(`  cost (USD)              ${totals.costLowUsd}\n`)
       process.stdout.write(`  cache hit rate          ${(totals.cacheHitRate * 100).toFixed(2)}%\n`)
     }
     for (const [key, value] of Object.entries(numbers)) {

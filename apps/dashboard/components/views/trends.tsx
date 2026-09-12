@@ -3,7 +3,7 @@ import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { Card, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
-import { formatCompact, formatInt, formatUsd, tokenTotal } from "@/lib/format"
+import { formatCompact, formatInt, formatUsd, formatUsdSpan, tokenTotal } from "@/lib/format"
 import { readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
@@ -50,7 +50,14 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="区间 token 合计" value={formatCompact(totals ? tokenTotal(totals.tokens) : undefined)} hint={`${points.length} 个有数据的天`} />
-        <StatCard label="区间成本" value={formatUsd(totals?.costUsd)} hint="按天聚合求和" />
+        {/* EVO-G89: the recorded band, never the deprecated point estimate
+            `costUsd` (unpriced and folded requests contribute 0 to all three, so
+            the point bounds nothing). Identical while the band is a point. */}
+        <StatCard
+          label="区间成本"
+          value={formatUsdSpan(totals?.costLowUsd, totals?.costHighUsd)}
+          hint="按天聚合求和"
+        />
         <StatCard
           label="最贵的一天"
           value={busiest ? formatUsd(busiest.costUsd) : "—"}

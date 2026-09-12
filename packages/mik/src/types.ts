@@ -229,8 +229,38 @@ export interface UsageSummary {
   successes: number
   failures: number
   successRate: number
+  /**
+   * @deprecated **A point estimate, and not a bound on either side** (EVO-G89).
+   *
+   * All three cost fields sum **only the amounts that were recorded**. A request
+   * whose price could not be resolved (`pricing_source: "missing"`) is recorded
+   * at 0 and contributes 0 here; so does every request a `rollupAndPrune()`
+   * folded into `usage_daily_rollups`, which stores no price source at all. The
+   * moment either exists the true total is **above** this number — so it is not
+   * a lower bound — and it is not an upper bound either (`costLowUsd ≤ costUsd ≤
+   * costHighUsd` holds for the recorded amounts only). Read it as a bound and you
+   * state a certainty the data does not have.
+   *
+   * **Migrate:**
+   * - want a **floor**? use `costLowUsd` (this is what `mik usage summary` and
+   *   the dashboard show, and what EVO-G78 already switched to);
+   * - want the **interval**? use `costLowUsd` – `costHighUsd`;
+   * - want to know whether the figure may only be read as "at least this much"?
+   *   read `costLowerBoundOnly` from `costBound()`;
+   * - nothing to do when the recorded amounts carry **no spread**: when every
+   *   recorded price is a point the three fields are one number, so every
+   *   migration above is byte-identical to today's output. What makes them equal
+   *   is the **price source recording no spread**, not whether every request was
+   *   priced: `llm-pricing`'s tier estimates record a band (`low < usd < high`)
+   *   even when no request is missing.
+   *
+   * The field is **still populated** and will keep being populated; removing a
+   * public field is a major change and is deliberately not part of this card.
+   */
   costUsd: number
+  /** Lower endpoint of the recorded range. Equals `costUsd` when the band is a point (`costLowUsd === costHighUsd`); a fully priced range can still carry a spread. */
   costLowUsd: number
+  /** Upper endpoint of the recorded range. Equals `costUsd` when the band is a point (`costLowUsd === costHighUsd`); a fully priced range can still carry a spread. */
   costHighUsd: number
   tokens: TokenUsage
   cacheHitRate: number
