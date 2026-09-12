@@ -299,6 +299,13 @@ export interface UsageQuery {
   model?: string
   status?: "ok" | "error"
   sessionId?: string
+  /** Only rows carrying this attribution tag key (EVO-G75). */
+  tag?: string
+  /**
+   * Only rows whose `tag` value is exactly this. Ignored unless `tag` is set;
+   * a row that has the key with a different value is excluded.
+   */
+  tagValue?: string
   limit?: number
   offset?: number
 }

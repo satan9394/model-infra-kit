@@ -329,8 +329,29 @@ const FLAG_STATUS: FlagSpec = {
   description: "Filter by request status",
   descriptionKey: "help.flag.status",
 }
+const FLAG_TAG: FlagSpec = {
+  name: "tag",
+  type: "string",
+  placeholder: "<key[=value]>",
+  description: "Only calls carrying this attribution tag (the host's own tag, e.g. feature=quant-backtest)",
+  descriptionKey: "help.flag.tag",
+}
+const FLAG_BY_TAG: FlagSpec = {
+  name: "by-tag",
+  type: "boolean",
+  description: "Break the summary down by attribution tag instead of one total",
+  descriptionKey: "help.flag.byTag",
+}
 
-const QUERY_FLAGS: readonly FlagSpec[] = [FLAG_FROM, FLAG_TO, FLAG_APP, FLAG_PROVIDER_FILTER, FLAG_MODEL, FLAG_STATUS]
+const QUERY_FLAGS: readonly FlagSpec[] = [
+  FLAG_FROM,
+  FLAG_TO,
+  FLAG_APP,
+  FLAG_PROVIDER_FILTER,
+  FLAG_MODEL,
+  FLAG_STATUS,
+  FLAG_TAG,
+]
 
 export const COMMANDS: readonly CommandSpec[] = [
   {
@@ -446,7 +467,13 @@ export const COMMANDS: readonly CommandSpec[] = [
     summary: "Query recorded usage: summary, trends, logs, CSV export",
     usage: "mik usage <summary|trends|logs|export> [options]",
     actions: [
-      { name: "summary", summary: "Totals for the selected range", usage: "mik usage summary [--from <date>] [--to <date>] [--app <appId>]", flags: QUERY_FLAGS },
+      {
+        name: "summary",
+        summary: "Totals for the selected range",
+        usage:
+          "mik usage summary [--from <date>] [--to <date>] [--app <appId>] [--tag <key[=value]>] [--by-tag]",
+        flags: [...QUERY_FLAGS, FLAG_BY_TAG],
+      },
       {
         name: "trends",
         summary: "Per-day totals",

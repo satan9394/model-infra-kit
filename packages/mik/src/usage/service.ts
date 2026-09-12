@@ -293,6 +293,21 @@ export class UsageService {
     return this.store.usage.byModel(this.scoped(query))
   }
 
+  /**
+   * Cost split by host-defined attribution tag (EVO-G75), most expensive first.
+   *
+   * Detail rows only: `usage_daily_rollups` stores no tags, so a day already
+   * folded away is unmeasurable and is left out rather than guessed at. A
+   * caller that prints this must say so when the breakdown's request count is
+   * smaller than `summary()`'s (see the G74/G77 precedent).
+   *
+   * Tags are **attribution only** — never an identity. Nothing here (or
+   * anywhere else) grants access, quota or isolation based on a tag value.
+   */
+  byTag(query?: UsageQuery): UsageBucket[] {
+    return this.store.usage.byTag(this.scoped(query))
+  }
+
   query(filter?: UsageQuery): UsagePage {
     return this.store.usage.query(this.scoped(filter))
   }

@@ -1,8 +1,14 @@
 import type { UsageEvent } from "../types.js"
+import { tagsToText } from "../usage/tags.js"
 
 /**
  * The exported column order is a contract with the dashboard and with any host
  * that ingests the file, so it is defined once, here, and never reordered.
+ *
+ * EVO-G75 **appends** `tags` at the end. Appending is the only compatible way to
+ * add a column: every pre-existing name keeps its position, so a script reading
+ * by index or by header name is unaffected. The G75 test asserts the first
+ * fourteen names are byte-identical to the pre-change list.
  */
 export const USAGE_CSV_COLUMNS = [
   "ts",
@@ -19,7 +25,11 @@ export const USAGE_CSV_COLUMNS = [
   "pricing_source",
   "pricing_basis",
   "latency_ms",
+  "tags",
 ] as const
+
+/** The columns as they were before EVO-G75 — the frozen part of the contract. */
+export const USAGE_CSV_LEGACY_COLUMNS = USAGE_CSV_COLUMNS.slice(0, 14) as readonly string[]
 
 export const USAGE_CSV_HEADER = USAGE_CSV_COLUMNS.join(",")
 
@@ -52,6 +62,19 @@ export function usageCsvRow(event: UsageEvent): string {
     csvField(event.cost.source),
     csvField(event.cost.basis),
     csvField(event.latencyMs),
+    // EVO-G75: the host's attribution tags as stable `key=value` pairs, with the
+    // machine-written keys left out: `_mik_`-prefixed ones and the EVO-G73
+    // reconciliation keys (`provider_cost_raw` / `provider_cost_status`, which
+    // are **unprefixed** — see `RESERVED_TAG_KEYS`). They stay readable through
+    // `UsageEvent.tags` and the API.
+    //
+    // `tagsToText` redacts **at render time** (`redactTagsForDisplay` →
+    // `redactDeep`). That is not belt-and-braces: a row written before EVO-G75
+    // stored its tags unredacted, and this card is the one that opened a CSV
+    // column for them — so the column must not be the path that prints a
+    // plaintext token. Redacting here covers those rows without rewriting a
+    // stored byte and without a migration.
+    csvField(tagsToText(event.tags)),
   ].join(",")
 }
 

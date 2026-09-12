@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
 import { openContext, offlineFetch } from "../src/cli/context.js"
-import { USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
+import { USAGE_CSV_COLUMNS, USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
 import { formatMoney, formatTable, formatTokens } from "../src/cli/format.js"
 import { isDirectInvocation, main } from "../src/cli/index.js"
 import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
@@ -201,10 +201,29 @@ describe("usageCsv", () => {
   }
 
   it("keeps the header fixed and column order stable", () => {
+    // EVO-G75 appended `tags` as the 15th column. Appending is the only change a
+    // host script can absorb: the fourteen existing names keep their exact
+    // positions, and the frozen prefix is asserted as a literal.
     expect(USAGE_CSV_HEADER).toBe(
-      "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms",
+      "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms,tags",
     )
-    expect(USAGE_CSV_HEADER.split(",")).toHaveLength(14)
+    expect(USAGE_CSV_HEADER.split(",")).toHaveLength(15)
+    expect(USAGE_CSV_HEADER.split(",").slice(0, 14)).toEqual([
+      "ts",
+      "app_id",
+      "provider",
+      "model",
+      "status",
+      "input",
+      "output",
+      "cache_read",
+      "cache_write",
+      "reasoning",
+      "cost_usd",
+      "pricing_source",
+      "pricing_basis",
+      "latency_ms",
+    ])
   })
 
   it("renders one row per event, oldest first", () => {
@@ -212,8 +231,10 @@ describe("usageCsv", () => {
     const lines = csv.trimEnd().split("\n")
     expect(lines[0]).toBe(USAGE_CSV_HEADER)
     expect(lines).toHaveLength(3)
+    // EVO-G75: the pre-change fields keep their exact positions; only the
+    // appended `tags` field is empty here (the fixture carries no tags).
     expect(lines[1]).toBe(
-      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.0123,modelsdev,flat,850",
+      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.0123,modelsdev,flat,850,",
     )
     expect(lines[2]?.startsWith("2026-09-01T10:00:01.000Z")).toBe(true)
   })
@@ -224,9 +245,12 @@ describe("usageCsv", () => {
   })
 
   it("leaves a missing latency empty rather than writing null", () => {
-    const row = usageCsvRow({ ...event, latencyMs: undefined })
-    expect(row.endsWith(",850")).toBe(false)
-    expect(row.split(",").at(-1)).toBe("")
+    const fields = usageCsvRow({ ...event, latencyMs: undefined }).split(",")
+    expect(fields).toHaveLength(USAGE_CSV_COLUMNS.length)
+    // `latency_ms` keeps index 13 and stays empty; the appended `tags` is 14.
+    expect(USAGE_CSV_COLUMNS.indexOf("latency_ms")).toBe(13)
+    expect(fields[13]).toBe("")
+    expect(fields[14]).toBe("")
   })
 })
 
@@ -947,9 +971,9 @@ describe("usage", () => {
     expect(lines[0]).toBe(USAGE_CSV_HEADER)
     expect(lines).toHaveLength(3)
     expect(lines[1]).toBe(
-      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.0123,modelsdev,flat,850",
+      "2026-09-01T10:00:00.000Z,cli-app,deepseek,deepseek-chat,ok,1200,300,800,0,64,0.0123,modelsdev,flat,850,",
     )
-    expect(lines[2]).toContain(",openai,gpt-4o,error,2000,500,0,0,0,1.5000,missing,flat,1200")
+    expect(lines[2]).toContain(",openai,gpt-4o,error,2000,500,0,0,0,1.5000,missing,flat,1200,")
   })
 
   it("writes the CSV to --out", async () => {

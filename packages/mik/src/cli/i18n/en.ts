@@ -177,6 +177,13 @@ export const en: Record<string, string> = {
   "usage.summary.unpriced.fix": "Fix: mik pricing set %s --input <usd/M> --output <usd/M>",
   "usage.summary.unpriced.rollupNote":
     "Note: %s request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
+  "usage.summary.tags.title": "Cost by attribution tag",
+  "usage.summary.tags.empty": "No tagged usage in this range.",
+  "usage.summary.tags.header.tag": "TAG",
+  "usage.summary.tags.header.requests": "REQUESTS",
+  "usage.summary.tags.header.cost": "COST (USD)",
+  "usage.summary.tags.note":
+    "Note: a call with several tags counts its whole cost under each of them, so these rows sum to more than the total; a call with no tag is not listed at all; machine-written keys (%s, and the _mik_ prefix) are excluded; values are redacted for display. Raw detail: the tags column of usage export.",
   "usage.empty": "No usage recorded in this range.",
   "usage.trends.header.date": "DATE",
   "usage.trends.header.requests": "REQUESTS",
@@ -206,6 +213,7 @@ export const en: Record<string, string> = {
   "usage.error.badLimit": "--limit must be an integer between 1 and 1000, got %s.",
   "usage.error.badOffset": "--offset must be zero or greater, got %s.",
   "usage.error.badFormat": "--format \"%s\" is not supported yet; only csv is available.",
+  "usage.error.badTag": "--tag expects <key> or <key>=<value>, got \"%s\".",
   "usage.error.unknownAction": "Unknown usage action \"%s\".",
   // Closing slice (EVO-G14): `models` / `serve` / `pricing` / `dashboard` output
   // plus the framework `warning:` lines in `context.ts`. Same rule as G13 —
@@ -334,6 +342,8 @@ export const en: Record<string, string> = {
   "help.flag.app": "Filter by owning application id",
   "help.flag.model": "Filter by model id",
   "help.flag.status": "Filter by request status",
+  "help.flag.tag": "Only calls carrying this attribution tag (the host's own tag, e.g. feature=quant-backtest)",
+  "help.flag.byTag": "Break the summary down by attribution tag instead of one total",
   // `help.details.init.2` is absent on purpose: it is the verbatim command
   // example, which is data and must not be "translated".
   "help.details.init.0": "Prompts when stdin is a terminal; otherwise it uses the flags and defaults.",

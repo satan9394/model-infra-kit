@@ -7,7 +7,7 @@ import { ModelInfraError } from "../src/errors.js"
 import { Store } from "../src/store/database.js"
 import { nodeSqliteDriver, type SqlDriver, type SqlDriverFactory } from "../src/store/driver.js"
 import { fromMicroUsd, localDateKey, startOfLocalDay, toMicroUsd } from "../src/store/money.js"
-import { migrate } from "../src/store/schema.js"
+import { MIGRATIONS, migrate } from "../src/store/schema.js"
 import type { UsageEvent } from "../src/types.js"
 
 const stores: Store[] = []
@@ -345,8 +345,10 @@ describe("Store storage failures", () => {
     }
 
     // Without `INSERT OR IGNORE` this throws a primary-key conflict.
-    expect(migrate(racer)).toBe(1)
-    expect(Number(real.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n)).toBe(1)
+    // EVO-G75 added migration v2, so the count is `MIGRATIONS.length`, not a
+    // literal that has to be bumped by every future card.
+    expect(migrate(racer)).toBe(MIGRATIONS.length)
+    expect(Number(real.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get()?.n)).toBe(MIGRATIONS.length)
     real.close()
   })
 })

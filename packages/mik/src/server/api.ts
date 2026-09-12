@@ -499,7 +499,18 @@ export function registerApiRoutes(router: Router): void {
       stream.open()
       stream.startHeartbeat()
       const unsubscribe = ctx.bus.subscribe((event) => {
-        void stream.send(event.type, event.data)
+        /**
+         * EVO-G75: the bus republishes whatever the caller handed to
+         * `UsageService.record()`. The normal paths (`hub.generate/stream/fetch`,
+         * `POST /api/usage/events`) redact tags before they get here, but a host
+         * calling `hub.usage.record()` directly — and the EVO-G73 reconciliation
+         * keys, which are written after sanitisation — are not covered by that.
+         * The SSE frame is an outbound response, so it is redacted at this edge,
+         * exactly like every other JSON response in this file. Keys are kept
+         * (only secret-shaped values are masked), so reconciliation still reads
+         * `provider_cost_raw` from the frame.
+         */
+        void stream.send(event.type, sanitize(event.data))
       })
       // Both listeners fire on a client disconnect; `close()` is idempotent.
       stream.onClose(() => {

@@ -1,4 +1,5 @@
 import type { CostInfo, TokenUsage, UnpricedCoverage, UsageEvent, UsageQuery, UsageSummary, UsageTrendPoint, UsageBucket } from "../types.js"
+import { RESERVED_TAG_KEYS } from "../usage/tags.js"
 import { asNumber, asString, toSqlValue, type SqlDriver, type SqlValue } from "./driver.js"
 import { fromMicroUsd, localDateKey, localHourKey, startOfLocalDay, toMicroUsd } from "./money.js"
 
@@ -51,7 +52,53 @@ function buildWhere(query: UsageQuery, column: "ts" | "date"): Where {
     parts.push("session_id = ?")
     params.push(query.sessionId)
   }
+  /**
+   * Attribution-tag filter (EVO-G75), detail rows only — a folded day has no
+   * tags to match, so `usage_daily_rollups` is left alone here rather than
+   * silently matching every rolled-up row.
+   *
+   * `->>` yields the **text** value (`->` would yield a JSON-quoted string, so
+   * `tagValue: "chat"` would never match `"chat"`). The key is embedded in the
+   * JSON path, so the quotes and backslashes it may contain are escaped; an
+   * absurd key cannot break out of the path literal.
+   */
+  if (query.tag && column === "ts") {
+    parts.push("tags_json ->> ? IS NOT NULL")
+    params.push(jsonPath(query.tag))
+    if (query.tagValue !== undefined) {
+      parts.push("tags_json ->> ? = ?")
+      params.push(jsonPath(query.tag), query.tagValue)
+    }
+  }
   return { clause: parts.length > 0 ? ` WHERE ${parts.join(" AND ")}` : "", params }
+}
+
+/** A `$.key` JSON path safe for a key holding quotes or backslashes. */
+function jsonPath(key: string): string {
+  return `$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+}
+
+/**
+ * Parse a stored `tags_json` cell.
+ *
+ * Defensive on purpose (AGENTS rule 6): the column is host-influenced data that
+ * reaches a CLI/HTTP read path, so a malformed or non-object cell must degrade
+ * to "no tags" rather than throw out of a query. Only own string values
+ * survive, matching the shape `sanitizeTags()` writes.
+ */
+function parseTags(raw: unknown): Record<string, string> {
+  if (typeof raw !== "string" || raw.length === 0) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+    const tags: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string") tags[key] = value
+    }
+    return tags
+  } catch {
+    return {}
+  }
 }
 
 function rowToEvent(row: Record<string, unknown>): UsageEvent {
@@ -86,7 +133,7 @@ function rowToEvent(row: Record<string, unknown>): UsageEvent {
     errorCode: row.error_code ? asString(row.error_code) : undefined,
     isStreaming: asNumber(row.is_streaming) === 1,
     sessionId: row.session_id ? asString(row.session_id) : undefined,
-    tags: typeof row.tags_json === "string" && row.tags_json ? (JSON.parse(row.tags_json) as Record<string, string>) : {},
+    tags: parseTags(row.tags_json),
   }
 }
 
@@ -431,6 +478,127 @@ export class UsageRepository {
     return this.groupBy(query, { events: "model_actual", rollups: "model" })
   }
 
+  /**
+   * Cost split by **host-defined attribution tag** (EVO-G75), most expensive
+   * first. One bucket per `key=value` pair; a single event with three tags
+   * contributes its whole cost to three buckets, so the buckets are a
+   * decomposition *of the same money*, not a partition of it.
+   *
+   * Coverage equals `summary()`: detail rows are exploded with `json_each`,
+   * and days already folded away are read from `usage_tag_rollups` (written by
+   * `rollup()` in the same transaction that deletes the details). Requests whose
+   * cost is only known in the tag-less `usage_daily_rollups` — details folded
+   * by a build older than EVO-G75 — cannot be attributed and are simply absent;
+   * a caller that displays this must compare the attributed request count with
+   * `summary().requests` and say so when they differ, exactly as the G74/G77
+   * unpriced block does.
+   *
+   * **Reserved keys are excluded.** `provider_cost_raw` / `provider_cost_status`
+   * (EVO-G73) are machine-written reconciliation data, not attribution, and the
+   * raw one is per-call noise. They stay in `usage_events.tags_json` and in
+   * `usage export`, which never drops a column.
+   *
+   * Money is summed as integer micro-USD — `CAST(ROUND(cost_usd * 1000000) AS
+   * INTEGER)` on details and the stored `cost_microusd` on rollups — never as a
+   * float (rule 2).
+   */
+  byTag(query: UsageQuery = {}): UsageBucket[] {
+    const buckets = new Map<string, UsageBucket>()
+    const merge = (key: string, requests: number, costMicro: number, tokens: TokenUsage): void => {
+      const existing = buckets.get(key) ?? { key, requests: 0, costUsd: 0, tokens: EMPTY_TOKENS() }
+      existing.requests += requests
+      existing.costUsd = fromMicroUsd(toMicroUsd(existing.costUsd) + costMicro)
+      existing.tokens.input += tokens.input
+      existing.tokens.output += tokens.output
+      existing.tokens.cacheRead += tokens.cacheRead
+      existing.tokens.cacheWrite += tokens.cacheWrite
+      existing.tokens.reasoning += tokens.reasoning
+      buckets.set(key, existing)
+    }
+
+    /**
+     * `buildWhere` names columns unqualified (they are unambiguous against a
+     * single table), so every filter is re-anchored onto the `t` alias of the
+     * derived table here. The list is exhaustive for `buildWhere(query, "ts")`
+     * — a column omitted from it would be read from `json_each` instead and
+     * silently filter nothing.
+     */
+    const qualify = (clause: string): string =>
+      clause.replace(/\b(ts|app_id|provider_id|model_actual|status|session_id)\b/g, "t.$1")
+    /**
+     * `json_valid` is a **guard, not a nicety**: `json_each()` is evaluated
+     * while the derived table is scanned, so a single malformed cell makes the
+     * whole statement throw `malformed JSON` before any `WHERE` on it runs
+     * (measured — `.tmp/spike-g75-sql.mjs`). The column is host-influenced data
+     * read on a CLI/HTTP path, so it must degrade to "no tags", never abort a
+     * query.
+     *
+     * The reserved-key filter is **two clauses**, and the second is the one that
+     * does the work today: EVO-G73's reconciliation keys are
+     * `provider_cost_raw` / `provider_cost_status`, i.e. **unprefixed**, so the
+     * `_mik_` LIKE alone excludes nothing at all. The key list comes from its
+     * owner (`RESERVED_TAG_KEYS` in `usage/tags.ts`, defined from
+     * `pricing/reported-cost.ts`) — never re-typed here.
+     */
+    const detailTags =
+      "SELECT *, json_extract(tags_json, '$') AS __tags FROM usage_events WHERE json_valid(tags_json)"
+    const reservedKey = `json_each.key NOT LIKE '\\_mik\\_%' ESCAPE '\\'
+          AND json_each.key NOT IN (${RESERVED_TAG_KEYS.map(() => "?").join(", ")})`
+    /** The bind values of `reservedKey`, in the order that clause appears. */
+    const reservedParams: SqlValue[] = [...RESERVED_TAG_KEYS]
+
+    const where = buildWhere(query, "ts")
+    for (const row of this.driver
+      .prepare(
+        `SELECT json_each.key AS tag_key, json_each.value AS tag_value, COUNT(*) AS requests,
+          SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
+          SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+          SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
+          SUM(reasoning_tokens) AS reasoning_tokens
+        FROM (${detailTags}) t, json_each(t.__tags)
+        WHERE t.__tags LIKE '{%'
+          AND ${reservedKey}
+          ${where.clause === "" ? "" : `AND ${qualify(where.clause.replace(/^ WHERE /, ""))}`}
+        GROUP BY tag_key, tag_value`,
+      )
+      .all(...reservedParams, ...where.params)) {
+      merge(
+        `${asString(row.tag_key)}=${asString(row.tag_value)}`,
+        asNumber(row.requests),
+        asNumber(row.cost_micro),
+        {
+          input: asNumber(row.input_tokens),
+          output: asNumber(row.output_tokens),
+          cacheRead: asNumber(row.cache_read_tokens),
+          cacheWrite: asNumber(row.cache_write_tokens),
+          reasoning: asNumber(row.reasoning_tokens),
+        },
+      )
+    }
+
+    // Folded days. `usage_tag_rollups` stores no tokens (the breakdown shows
+    // requests and cost), so the token fields stay zero for a rolled-up pair.
+    const rollupWhere = buildWhere(query, "date")
+    for (const row of this.driver
+      .prepare(
+        `SELECT tag_key, tag_value, SUM(request_count) AS requests,
+          SUM(cost_microusd) AS cost_micro
+        FROM usage_tag_rollups${rollupWhere.clause} GROUP BY tag_key, tag_value`,
+      )
+      .all(...rollupWhere.params)) {
+      merge(
+        `${asString(row.tag_key)}=${asString(row.tag_value)}`,
+        asNumber(row.requests),
+        asNumber(row.cost_micro),
+        EMPTY_TOKENS(),
+      )
+    }
+
+    return [...buckets.values()].sort(
+      (a, b) => b.costUsd - a.costUsd || b.requests - a.requests || a.key.localeCompare(b.key),
+    )
+  }
+
   trends(query: UsageQuery = {}, bucket: "day" | "hour" = "day"): UsageTrendPoint[] {
     const points = new Map<string, UsageTrendPoint>()
     const merge = (key: string, requests: number, costMicro: number, tokens: TokenUsage) => {
@@ -550,6 +718,38 @@ export class UsageRepository {
             first_token_count = first_token_count + excluded.first_token_count`,
         )
         .run(cutoff)
+      /**
+       * EVO-G75: the tag dimension folded in the **same transaction**, before
+       * the detail rows below are deleted. `usage_daily_rollups` cannot carry
+       * tags, so without this the attribute split would silently lose every
+       * folded day while the overall totals kept counting it.
+       *
+       * Reserved (`_mik_`) keys are skipped here to match `byTag()`, so the
+       * rollup table never accumulates reconciliation keys that no query reads.
+       * Nothing is deleted from it here: the tag rows cover the same date range
+       * as the main rollups and age out with them.
+       */
+      this.driver
+        .prepare(
+          `INSERT INTO usage_tag_rollups (date, app_id, tag_key, tag_value, request_count, cost_microusd)
+          SELECT
+            strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime') AS d,
+            app_id, json_each.key, json_each.value,
+            COUNT(*),
+            SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER))
+          FROM (SELECT *, json_extract(tags_json, '$') AS __tags FROM usage_events WHERE ts < ? AND json_valid(tags_json)) t,
+            json_each(t.__tags)
+          WHERE t.__tags LIKE '{%'
+            AND json_each.key NOT LIKE '\\_mik\\_%' ESCAPE '\\'
+            AND json_each.key NOT IN (${RESERVED_TAG_KEYS.map(() => "?").join(", ")})
+          GROUP BY d, app_id, json_each.key, json_each.value
+          ON CONFLICT(date, app_id, tag_key, tag_value) DO UPDATE SET
+            request_count = request_count + excluded.request_count,
+            cost_microusd = cost_microusd + excluded.cost_microusd`,
+        )
+        // Order matters: `ts < ?` sits inside the subquery, the reserved keys in
+        // the outer `WHERE`.
+        .run(cutoff, ...RESERVED_TAG_KEYS)
       const deleted = Number(this.driver.prepare("DELETE FROM usage_events WHERE ts < ?").run(cutoff).changes)
       this.driver.exec("COMMIT")
       return deleted
