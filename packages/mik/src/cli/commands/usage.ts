@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
-import type { UsageEvent, UsageQuery } from "../../types.js"
+import type { UnpricedCoverage, UsageEvent, UsageQuery } from "../../types.js"
 import type { UsageService } from "../../usage/service.js"
 import { flagNumber, flagString, type ParsedCli } from "../args.js"
 import { contextLang, invocationLang, resolveCwd, withContext, type RunOptions } from "../context.js"
@@ -20,6 +20,9 @@ import { tr, type Lang } from "../i18n.js"
 
 const MAX_EXPORT_ROWS = 200_000
 const PAGE_SIZE = 1000
+
+/** How many unpriced models the summary lists before it stops (EVO-G74). */
+const MAX_UNPRICED_MODELS = 5
 
 /**
  * Accept a plain date, an ISO timestamp or epoch milliseconds.
@@ -109,6 +112,71 @@ function rangeLabel(query: UsageQuery, appId: string, lang: Lang): string {
   return tr(lang, "usage.range", from, to, scope, filters.length > 0 ? ` · ${filters.join(" ")}` : "")
 }
 
+function indent(block: string, spaces: number): string {
+  const pad = " ".repeat(spaces)
+  return block
+    .split("\n")
+    .map((line) => `${pad}${line}`)
+    .join("\n")
+}
+
+/**
+ * The unpriced-coverage block (EVO-G74) that is appended to `usage summary`.
+ *
+ * It answers the one question a bare `Cost (USD) 0.0000` cannot: *is this cheap,
+ * or is a pile of models simply unpriced?* — and turns the answer into a to-do
+ * by naming the models and the exact `mik pricing set` line to fix each.
+ *
+ * **Silent when healthy.** With zero unpriced requests (which includes the
+ * empty database and the all-priced install) this returns `[]`, so the default
+ * output is byte-for-byte what it was before. A coverage banner that always
+ * fires would be noise, and noise is what makes people stop reading.
+ *
+ * **Display-only.** It reads figures it does not recompute: no cost total,
+ * no existing line and no ordering changes.
+ *
+ * Each ratio prints `part / total` next to the percentage, so the denominator
+ * is checkable by hand instead of being taken on faith. Both sides come from
+ * the same detail rows (`usage_daily_rollups` stores no pricing source), which
+ * is why the printed totals are the block's own rather than a reprint of the
+ * summary's.
+ */
+function unpricedLines(coverage: UnpricedCoverage, lang: Lang): string[] {
+  if (coverage.requests === 0 || coverage.totalRequests === 0) return []
+  const ratio = (part: number, total: number): string =>
+    `${formatTokens(part)} / ${formatTokens(total)} (${formatPercent(total === 0 ? 0 : part / total)})`
+  const lines = [
+    tr(lang, "usage.summary.unpriced.title"),
+    indent(
+      formatKeyValues([
+        [tr(lang, "usage.summary.unpriced.requests"), ratio(coverage.requests, coverage.totalRequests)],
+        [tr(lang, "usage.summary.unpriced.tokens"), ratio(coverage.tokens, coverage.totalTokens)],
+      ]),
+      2,
+    ),
+  ]
+  const models = coverage.models.slice(0, MAX_UNPRICED_MODELS)
+  if (models.length > 0) {
+    lines.push(`  ${tr(lang, "usage.summary.unpriced.topModels")}`)
+    lines.push(
+      indent(
+        formatTable(
+          [
+            tr(lang, "usage.summary.unpriced.header.model"),
+            tr(lang, "usage.summary.unpriced.header.requests"),
+            tr(lang, "usage.summary.unpriced.header.tokens"),
+          ],
+          models.map((model) => [model.model, formatTokens(model.requests), formatTokens(model.tokens)]),
+          ["left", "right", "right"],
+        ),
+        4,
+      ),
+    )
+    for (const model of models) lines.push(`  ${tr(lang, "usage.summary.unpriced.fix", model.model)}`)
+  }
+  return lines
+}
+
 async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<number> {
   // Flag validation happens before the hub opens, so it uses the invocation
   // environment; the rendered output uses the hub-level language below.
@@ -116,6 +184,7 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
   return withContext(parsed, options, async (context) => {
     const lang = contextLang(context, options)
     const summary = context.hub.usage.summary(query)
+    const unpriced = context.hub.usage.unpricedCoverage(query)
     context.io.out(rangeLabel(query, context.appId, lang))
     context.io.out("")
     context.io.out(
@@ -136,6 +205,12 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
         [tr(lang, "usage.summary.firstToken"), formatDuration(summary.firstTokenMs)],
       ]),
     )
+    // Appended last: every pre-existing line keeps its content and its order.
+    const extra = unpricedLines(unpriced, lang)
+    if (extra.length > 0) {
+      context.io.out("")
+      context.io.out(extra.join("\n"))
+    }
     return 0
   })
 }

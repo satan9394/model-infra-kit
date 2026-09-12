@@ -229,6 +229,51 @@ export interface UsageSummary {
   firstTokenMs: number
 }
 
+/**
+ * One model's share of the *unpriced* work in a range (EVO-G74): the events
+ * whose `pricing_source` is `missing`, i.e. no price could be resolved at all.
+ *
+ * `tokens` is every bucket summed (input + output + cacheRead + cacheWrite +
+ * reasoning), the same definition as `UnpricedCoverage.totalTokens`.
+ */
+export interface UnpricedModelCoverage {
+  model: string
+  requests: number
+  tokens: number
+}
+
+/**
+ * How much of a range's usage carries **no price at all** (EVO-G74).
+ *
+ * Display-only: this never feeds a cost total, and it changes no existing
+ * figure. Its whole purpose is the question a bare "0.0000" cannot answer —
+ * "did I really spend almost nothing, or did a pile of models go unpriced?"
+ *
+ * Only `usage_events` detail rows record a `pricing_source`
+ * (`usage_daily_rollups` has no such column), so **both sides** of every ratio
+ * here are measured over the retained detail rows. A range whose older days
+ * were folded into rollups therefore reports a smaller denominator than
+ * `UsageSummary.requests` — deliberately, rather than pairing a measurable
+ * numerator with an unmeasurable one.
+ */
+export interface UnpricedCoverage {
+  /** Requests with no resolved price. */
+  requests: number
+  /** Requests in the same rows, the ratio's denominator. */
+  totalRequests: number
+  /** All tokens on unpriced requests. */
+  tokens: number
+  /** All tokens in the same rows, the ratio's denominator. */
+  totalTokens: number
+  /**
+   * Every unpriced model, most tokens first (ties: more requests, then id).
+   * **Never** deduplicated against priced rows: a model that is priced for some
+   * requests and unpriced for others carries only its unpriced counts, so a
+   * partly-priced model can never masquerade as fully priced.
+   */
+  models: UnpricedModelCoverage[]
+}
+
 export interface UsageBucket {
   key: string
   requests: number

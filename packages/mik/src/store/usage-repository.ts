@@ -1,4 +1,4 @@
-import type { CostInfo, TokenUsage, UsageEvent, UsageQuery, UsageSummary, UsageTrendPoint, UsageBucket } from "../types.js"
+import type { CostInfo, TokenUsage, UnpricedCoverage, UsageEvent, UsageQuery, UsageSummary, UsageTrendPoint, UsageBucket } from "../types.js"
 import { asNumber, asString, toSqlValue, type SqlDriver, type SqlValue } from "./driver.js"
 import { fromMicroUsd, localDateKey, localHourKey, startOfLocalDay, toMicroUsd } from "./money.js"
 
@@ -310,6 +310,58 @@ export class UsageRepository {
       cacheHitRate: billableInput === 0 ? 0 : total.tokens.cacheRead / billableInput,
       avgLatencyMs: total.latencyCount === 0 ? 0 : total.latencySum / total.latencyCount,
       firstTokenMs: total.firstTokenCount === 0 ? 0 : total.firstTokenSum / total.firstTokenCount,
+    }
+  }
+
+  /**
+   * Unpriced coverage for a range (EVO-G74): how many requests and tokens carry
+   * **no resolved price** (`pricing_source` NULL or `missing`), against the same
+   * totals over the same rows, plus a per-model breakdown of the unpriced ones.
+   *
+   * Detail rows only. `usage_daily_rollups` stores no `pricing_source`, so a
+   * rolled-up day is *unmeasurable*: it is left out of both the numerator and
+   * the denominator rather than inflating the denominator with rows whose price
+   * provenance is gone. `summary()` is untouched by this and still counts them.
+   *
+   * `NULL` counts as unpriced because the read-back path maps a missing source
+   * to `"missing"` (`rowToEvent`); the two must never disagree.
+   *
+   * Display-only. No money is aggregated here at all, so there is no float sum
+   * to avoid (rule 2) — and none of the cost totals change.
+   */
+  unpricedCoverage(query: UsageQuery = {}): UnpricedCoverage {
+    const where = buildWhere(query, "ts")
+    const unpriced = "COALESCE(pricing_source, 'missing') = 'missing'"
+    const tokens = "input_tokens + output_tokens + cache_read_tokens + cache_write_tokens + reasoning_tokens"
+    const totals = this.driver
+      .prepare(
+        `SELECT
+          COUNT(*) AS requests,
+          COALESCE(SUM(${tokens}), 0) AS tokens,
+          COALESCE(SUM(CASE WHEN ${unpriced} THEN 1 ELSE 0 END), 0) AS unpriced_requests,
+          COALESCE(SUM(CASE WHEN ${unpriced} THEN ${tokens} ELSE 0 END), 0) AS unpriced_tokens
+        FROM usage_events${where.clause}`,
+      )
+      .get(...where.params)
+    const models = this.driver
+      .prepare(
+        `SELECT model_actual AS model, COUNT(*) AS requests, COALESCE(SUM(${tokens}), 0) AS tokens
+        FROM usage_events${where.clause === "" ? " WHERE" : `${where.clause} AND`} ${unpriced}
+        GROUP BY model_actual`,
+      )
+      .all(...where.params)
+    return {
+      requests: asNumber(totals?.unpriced_requests),
+      totalRequests: asNumber(totals?.requests),
+      tokens: asNumber(totals?.unpriced_tokens),
+      totalTokens: asNumber(totals?.tokens),
+      models: models
+        .map((row) => ({
+          model: asString(row.model),
+          requests: asNumber(row.requests),
+          tokens: asNumber(row.tokens),
+        }))
+        .sort((a, b) => b.tokens - a.tokens || b.requests - a.requests || a.model.localeCompare(b.model)),
     }
   }
 
