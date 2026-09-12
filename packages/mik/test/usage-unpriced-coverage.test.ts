@@ -223,6 +223,10 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       expect(result.stdout, phrase).not.toContain(phrase)
     }
     expect(result.stdout.match(/Unpriced coverage/g)).toBeNull()
+    // The EVO-G77 rollup caveat is not here either: with every row still in
+    // `usage_events` there is no gap between `Requests` and the detail rows, so
+    // there is nothing to caveat.
+    expect(result.stdout).not.toContain("folded")
   })
 
   it("A2 — an empty range prints the pre-change summary byte-for-byte", async () => {
@@ -279,7 +283,7 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).not.toContain("Unpriced")
   })
 
-  it("A5 — both dictionaries define the new keys (286 → 294 → 299) with equal key sets", async () => {
+  it("A5 — both dictionaries define the new keys (286 → 294 → 299 → 300) with equal key sets", async () => {
     const NEW_KEYS = [
       "usage.summary.unpriced.title",
       "usage.summary.unpriced.requests",
@@ -289,6 +293,7 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       "usage.summary.unpriced.header.requests",
       "usage.summary.unpriced.header.tokens",
       "usage.summary.unpriced.fix",
+      "usage.summary.unpriced.rollupNote",
     ]
     for (const key of NEW_KEYS) {
       expect(Object.prototype.hasOwnProperty.call(zh, key), `zh missing ${key}`).toBe(true)
@@ -297,11 +302,12 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       expect(tr("en", key), key).not.toBe("")
     }
     // EVO-G70/G60 added five `provider.test.failure.*` keys on both sides, so the
-    // baseline moved 294 → 299; parity (the line below) is the real invariant.
-    expect(Object.keys(zh)).toHaveLength(299)
-    expect(Object.keys(en)).toHaveLength(299)
+    // baseline moved 294 → 299; EVO-G77 added the rollup caveat → 300. Parity
+    // (the line below) is the real invariant.
+    expect(Object.keys(zh)).toHaveLength(300)
+    expect(Object.keys(en)).toHaveLength(300)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(299)
+    expect(i18nKeys()).toHaveLength(300)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })
@@ -328,11 +334,12 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(readFileSync(target, "utf8").split("\n")[0]).toBe(PRE_CHANGE_CSV_HEADER)
   })
 
-  it("boundary — a rolled-up range is unmeasurable, so the block stays silent", async () => {
-    // `usage_daily_rollups` stores no `pricing_source`, so an unpriced day that
-    // was folded away cannot be measured. The block is silent rather than
-    // guessing; `Requests` still counts the rolled-up rows. Documented boundary,
-    // pinned here so it stays a decision instead of becoming an accident.
+  it("EVO-G77 — a rolled-up range says so instead of staying silent", async () => {
+    // `usage_daily_rollups` stores no `pricing_source`, so a day that was folded
+    // away cannot be measured: the unpriced *block* must stay silent (it would
+    // be guessing). But `Requests` counts the folded rows, so silence is a lie
+    // of omission — `Cost 0.0000` with no caveat reads as "healthy". The note
+    // names the exact number of requests that fell outside the measurement.
     const { dir, db, base } = sandbox()
     await seed(db, [
       { id: "r-1", model: "rolled-unpriced", source: "missing", input: 900, ts: Date.now() - 3 * 86_400_000 },
@@ -344,7 +351,78 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
 
     const result = await run(["usage", "summary", ...base, ...APP], dir)
     expect(result.code).toBe(0)
+    // Hand-computed: 2 requests counted by `summary()`, 1 detail row left.
     expect(result.stdout).toContain("Requests        2")
-    expect(result.stdout).not.toContain("Unpriced")
+    expect(result.stdout).toContain(
+      "Note: 1 request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
+    )
+    // The block is still silent — the rolled day is unmeasurable, not priced.
+    expect(result.stdout).not.toContain("Unpriced coverage")
+    expect(result.stdout).not.toContain("Top unpriced models")
+    expect(result.stdout).not.toContain("Fix: mik pricing set")
+    // ...and the note is appended after every pre-existing line.
+    expect(result.stdout.indexOf("First token")).toBeLessThan(result.stdout.indexOf("Note:"))
+  })
+
+  it("EVO-G77 — the caveat still fires when every *visible* row is priced", async () => {
+    // Deliberate decision, pinned: this is the case the caveat exists for. All
+    // retained detail rows are priced and the unpriced block is silent, so
+    // without the note the install looks perfectly healthy while an unknown
+    // slice of history was never measured. It is a statement about measurement
+    // scope, not about unpriced work, so it is not noise.
+    const { dir, db, base } = sandbox()
+    await seed(db, [
+      { id: "q-1", model: "old-priced", source: "modelsdev", input: 900, usd: 0.009, ts: Date.now() - 3 * 86_400_000 },
+      { id: "q-2", model: "today-priced", source: "modelsdev", input: 100, usd: 0.01, ts: Date.now() },
+    ])
+    const store = await Store.open({ path: db })
+    new UsageService({ store, appId: "cli-app", enabled: true }).rollupAndPrune(Date.now())
+    store.close()
+
+    const result = await run(["usage", "summary", ...base, ...APP], dir)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Requests        2")
+    expect(result.stdout).toContain("Cost (USD)      0.0190")
+    expect(result.stdout).toContain(
+      "Note: 1 request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
+    )
+    // Still no unpriced *block*: proving the two signals are independent.
+    expect(result.stdout).not.toContain("Unpriced coverage")
+    expect(result.stdout).not.toContain("Fix: mik pricing set")
+  })
+
+  it("EVO-G77 — localizes the caveat and keeps the hand-computed count literal", async () => {
+    const { dir, db, base } = sandbox()
+    await seed(db, [
+      { id: "z-1", model: "rolled-a", source: "missing", input: 900, ts: Date.now() - 4 * 86_400_000 },
+      { id: "z-2", model: "rolled-b", source: "missing", input: 800, ts: Date.now() - 4 * 86_400_000 },
+      { id: "z-3", model: "rolled-c", source: "missing", input: 700, ts: Date.now() - 4 * 86_400_000 },
+      { id: "z-4", model: "today-priced", source: "modelsdev", input: 100, usd: 0.01, ts: Date.now() },
+    ])
+    const store = await Store.open({ path: db })
+    new UsageService({ store, appId: "cli-app", enabled: true }).rollupAndPrune(Date.now())
+    store.close()
+
+    const result = await run(["usage", "summary", ...base, ...APP], dir, { MIK_LANG: "zh" })
+    expect(result.code).toBe(0)
+    // 4 requests counted, 1 detail row left → 3 folded, written literally.
+    expect(result.stdout).toMatch(/请求数\s+4\b/)
+    expect(result.stdout).toContain("说明：另有 3 条请求已折叠为按天汇总，不含价格来源，无法计入未定价统计。")
+    expect(result.stdout).not.toContain("未定价覆盖")
+    expect(result.stdout).not.toContain("Note:")
+  })
+
+  it("EVO-G77 — detail-only data keeps the published 0.2.18 shape (block, no note)", async () => {
+    // Gap == 0 means the new line is not merely empty, it is absent. The
+    // byte-for-byte comparison against the published 0.2.18 build lives in
+    // `.tmp/impl-G77.md` (A2); this pins the shape so it cannot regress here.
+    const { dir, db, base } = sandbox()
+    await seed(db, MIXED)
+    const result = await run(["usage", "summary", ...base, ...APP], dir)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Requests        7")
+    expect(result.stdout).toMatch(/Unpriced requests\s+4 \/ 7 \(57\.1%\)/)
+    expect(result.stdout).not.toContain("Note:")
+    expect(result.stdout).not.toContain("folded")
   })
 })

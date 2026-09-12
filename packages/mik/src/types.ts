@@ -254,7 +254,10 @@ export interface UnpricedModelCoverage {
  * here are measured over the retained detail rows. A range whose older days
  * were folded into rollups therefore reports a smaller denominator than
  * `UsageSummary.requests` — deliberately, rather than pairing a measurable
- * numerator with an unmeasurable one.
+ * numerator with an unmeasurable one. Callers that display this must say so
+ * when the two counts differ (EVO-G77: `usage summary` appends a note naming
+ * the folded request count), because an unmeasured slice that is never
+ * mentioned is indistinguishable from a healthy one.
  */
 export interface UnpricedCoverage {
   /** Requests with no resolved price. */
