@@ -28,7 +28,7 @@ npm i @ai-sdk/xai                 # xai
 
 > 需要 Node ≥ 22.13（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`）。缺失的 provider 包会在 `mik provider add` 之后与 `mik serve` 启动横幅上被提前指出；库面 `loadProviderFactory()` 仍给出「装哪个包」的可读错误。
 >
-> **本包不含看板。** `files` 只有 `dist` 与 `LICENSE`（库 + CLI + HTTP 服务）；Next.js 看板在仓库的 `apps/dashboard`，`mik dashboard` 只在 monorepo 内可用，装包环境会报错并给出指引。详见[项目 README 的「看板」一节](../../README.md#看板)。
+> **本包不含看板。** `files` 只有 `dist` 与 `LICENSE`（库 + CLI + HTTP 服务）；Next.js 看板在仓库的 `apps/dashboard`，`mik dashboard` 只在 monorepo 内可用，装包环境会报错并给出指引。详见[项目 README 的「看板」一节](https://github.com/satan9394/model-infra-kit/blob/main/README.md#看板)。
 
 ---
 
@@ -278,6 +278,7 @@ try {
 
 ## 相关文档
 
-- 接入示例：[`../../examples/`](../../examples/)（`cli-agent` 嵌入式库、`openai-sdk` fetch 适配器、`python-host` 跨语言）
-- 项目 README：[`../../README.md`](../../README.md)
-- 契约：[`../../docs/interfaces.md`](../../docs/interfaces.md)；取舍：[`../../docs/decisions.md`](../../docs/decisions.md)
+- 接入示例：[`examples/`](https://github.com/satan9394/model-infra-kit/tree/main/examples/)（`cli-agent` 嵌入式库、`openai-sdk` fetch 适配器、`python-host` 跨语言）
+- 项目 README：[`README.md`](https://github.com/satan9394/model-infra-kit/blob/main/README.md)
+- 契约：[`docs/interfaces.md`](https://github.com/satan9394/model-infra-kit/blob/main/docs/interfaces.md)；取舍：[`docs/decisions.md`](https://github.com/satan9394/model-infra-kit/blob/main/docs/decisions.md)
+- 成本对账：[`docs/cost-reconciliation.md`](https://github.com/satan9394/model-infra-kit/blob/main/docs/cost-reconciliation.md)（**本地账本与供应商账单对不上时看这份**：口径差异、缺价降级、手动价覆盖、时区日界的逐项排查清单）
