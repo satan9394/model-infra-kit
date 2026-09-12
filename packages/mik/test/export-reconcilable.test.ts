@@ -12,7 +12,7 @@ import {
   csvMoney,
   usageCsv,
 } from "../src/cli/csv.js"
-import { formatMoney } from "../src/cli/format.js"
+import { formatMoney, formatUsageMoney } from "../src/cli/format.js"
 import { main } from "../src/cli/index.js"
 import { localDateKey, startOfLocalDay, toMicroUsd } from "../src/store/money.js"
 import { Store } from "../src/store/database.js"
@@ -200,7 +200,8 @@ function csvRecords(stdout: string): Array<Record<string, string>> {
  * The `Cost (USD)` value `usage summary` printed, verbatim.
  *
  * The unpriced rows in the fixtures make `usage summary` print its honest floor
- * — `at least 0.0007` (EVO-G78) — so the optional prefix is part of the read.
+ * — `at least 0.000654` (EVO-G78 wording, EVO-G85 precision) — so the optional
+ * prefix is part of the read.
  */
 function summaryCostToken(stdout: string): string {
   const match = normalize(stdout).match(/^Cost \(USD\)\s+(?:at least\s+)?(\S+)/m)
@@ -213,14 +214,28 @@ function summaryCostToken(stdout: string): string {
  *
  * 340 + 180 + 0 + 0 + 134 = 654 µ$ = 0.000654. That is the value where the
  * defect was visible: the four-decimal *rows* sum to 0.0006 while the total
- * prints 0.0007 (`(0.000654).toFixed(4) === "0.0007"`, and the row values round
- * 0.0003 + 0.0002 + 0 + 0 + 0.0001 = 0.0006). The priced/unpriced mix is on
+ * printed 0.0007 (`(0.000654).toFixed(4) === "0.0007"`, and the row values round
+ * 0.0003 + 0.0002 + 0 + 0 + 0.0001 = 0.0006). Since EVO-G85 the summary prints
+ * `0.000654` as well, so the row sum and the total are the same digits; the old
+ * `0.0007` survives in this file only as the declared pre-change literal
+ * (`PRE_G85_FOUR_DECIMAL_TOTAL`). The priced/unpriced mix is on
  * purpose (audit F2/F15): an unpriced row must contribute exactly 0 µ$ — never a
  * guess — and must not break the total.
  */
 const MIXED_MICROS = [340, 180, 0, 0, 134]
 const MIXED_TOTAL_MICROS = 654
-const MIXED_DISPLAY_TOTAL = "0.0007"
+/**
+ * What `usage summary` printed for that total **before EVO-G85**, hand-typed:
+ * `(0.000654).toFixed(4)`. Kept as the declared pre-change literal (G82's
+ * handling): this card deliberately changes the value, so the old one stays in
+ * the file next to the new one instead of being quietly relaxed away.
+ */
+const PRE_G85_FOUR_DECIMAL_TOTAL = "0.0007"
+/**
+ * What both surfaces print from EVO-G85 on: the micro-USD unit, verbatim, which
+ * is the sum of the exported rows' own `cost_usd` cells.
+ */
+const MIXED_DISPLAY_TOTAL = "0.000654"
 
 function seedMixed(store: Store, ts: number): void {
   MIXED_MICROS.forEach((micro, index) => {
@@ -262,13 +277,30 @@ describe("EVO-G81 A1 — the exported rows reconcile with `usage summary`", () =
     //    command printed. Both sides are the artifact's own bytes.
     const printedRowSum = records.reduce((total, record) => total + Number(record.cost_usd), 0)
     const displayed = summaryCostToken(summary.stdout)
-    expect(displayed).toBe(MIXED_DISPLAY_TOTAL) // frozen: 654 µ$ renders as 0.0007
-    expect(printedRowSum.toFixed(4)).toBe(Number(displayed).toFixed(4))
+    expect(displayed).toBe(MIXED_DISPLAY_TOTAL) // EVO-G85: 654 µ$ renders as 0.000654
+    // EVO-G85 closed the second layer of F4: the two figures are compared with
+    // **no** rounding on either side, because the display precision is now the
+    // micro-USD the CSV writes. Before this card this line read
+    // `printedRowSum.toFixed(4) === Number(displayed).toFixed(4)`, i.e. the two
+    // numbers only agreed *after* the reader applied a rounding rule.
+    expect(printedRowSum.toFixed(6)).toBe(displayed)
     // ...and the CSV itself is exact, not rounded to the display precision.
     expect(printedRowSum.toFixed(6)).toBe("0.000654")
-    // The display precision is the *only* difference between the two digits: the
-    // exact micro total, rounded the way `usage summary` rounds, is its figure.
-    expect(formatMoney(MIXED_TOTAL_MICROS / 1_000_000)).toBe(displayed)
+    // The pre-change figure is pinned as gone, not forgotten: the total is no
+    // longer the four-decimal rendering of the same integer.
+    expect(displayed).not.toBe(PRE_G85_FOUR_DECIMAL_TOTAL)
+    // Layer ①, still: the four-decimal rows sum to 0.0006 — a number no display
+    // precision of the correct total can produce.
+    expect(
+      MIXED_MICROS.map((micro) => (micro / 1_000_000).toFixed(4))
+        .reduce((total, value) => total + Number(value), 0)
+        .toFixed(4),
+    ).toBe("0.0006")
+    // The display renderer and the catalogue renderer are different on purpose:
+    // the amount is the exact micro total where a user reconciles it, and four
+    // decimals where the CLI only ever quotes a per-million price.
+    expect(formatUsageMoney(MIXED_TOTAL_MICROS / 1_000_000)).toBe(displayed)
+    expect(formatMoney(MIXED_TOTAL_MICROS / 1_000_000)).toBe(PRE_G85_FOUR_DECIMAL_TOTAL)
 
     // 2) The same reconciliation in the unit money is accumulated in (rule 2),
     //    with no float and no display rounding at all.
@@ -286,8 +318,9 @@ describe("EVO-G81 A1 — the exported rows reconcile with `usage summary`", () =
     expect(summary.stdout).toContain("Requests        5")
     // The unpriced rows make EVO-G78's floor wording fire, so the figure the CSV
     // is reconciled against is the *lower bound* the summary prints — the branch
-    // is reached on purpose rather than assumed (`costLowerBoundOnly`).
-    expect(summary.stdout).toContain("at least 0.0007")
+    // is reached on purpose rather than assumed (`costLowerBoundOnly`). EVO-G85
+    // renders that bound at the micro-USD unit too, so it equals the row sum.
+    expect(summary.stdout).toContain("at least 0.000654")
   })
 
   it("holds for the audit's own shape: 4-decimal rows would sum to 0.0006", () => {
@@ -298,6 +331,10 @@ describe("EVO-G81 A1 — the exported rows reconcile with `usage summary`", () =
     const oldSum = oldRows.reduce((total, value) => total + Number(value), 0)
     expect(oldRows).toEqual(["0.0003", "0.0002", "0.0000", "0.0000", "0.0001"])
     expect(oldSum.toFixed(4)).toBe("0.0006")
+    // The four-decimal rows match *neither* the pre-G85 summary total (0.0007 —
+    // F4's layer ②, only equal after rounding) nor the micro-exact one (0.000654
+    // — F4's layer ①, wrong at any precision).
+    expect(oldSum.toFixed(4)).not.toBe(PRE_G85_FOUR_DECIMAL_TOTAL)
     expect(oldSum.toFixed(4)).not.toBe(MIXED_DISPLAY_TOTAL)
     // The shipped renderer, on the same integers, sums to the total's own number.
     const newRows = MIXED_MICROS.map((micro) => csvMoney(micro))

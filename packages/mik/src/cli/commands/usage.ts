@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import type { UnpricedCoverage, UsageBucket, UsageEvent, UsageQuery } from "../../types.js"
+import { toMicroUsd } from "../../store/money.js"
 import { costBound, type CostBound, type UsageService } from "../../usage/service.js"
 import { RESERVED_TAG_KEYS, tagLabelForDisplay } from "../../usage/tags.js"
 import { flagBool, flagNumber, flagString, type ParsedCli } from "../args.js"
@@ -11,11 +12,11 @@ import {
   formatDate,
   formatDuration,
   formatKeyValues,
-  formatMoney,
   formatPercent,
   formatTable,
   formatTimestamp,
   formatTokens,
+  formatUsageMoney,
 } from "../format.js"
 import { tr, type Lang } from "../i18n.js"
 
@@ -212,7 +213,7 @@ function scopeNoticeLines(query: UsageQuery, defaultWindowDays: number | undefin
  * other on screen.
  */
 function costCell(floorUsd: number, bound: CostBound, lang: Lang): string {
-  const money = formatMoney(floorUsd)
+  const money = formatUsageMoney(floorUsd)
   return bound.costLowerBoundOnly ? tr(lang, "usage.summary.costAtLeast", money) : money
 }
 
@@ -424,7 +425,7 @@ function tagBreakdownLines(buckets: readonly UsageBucket[], lang: Lang): string[
           // EVO-G75, when tags were stored unredacted (see `tagLabelForDisplay`).
           clipTag(tagLabelForDisplay(bucket.key)),
           formatTokens(bucket.requests),
-          formatMoney(bucket.costUsd),
+          formatUsageMoney(bucket.costUsd),
         ]),
         ["left", "right", "right"],
       ),
@@ -461,13 +462,13 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
         // point and never interpolated (EVO-G78, audit-R232 F2).
         [
           tr(lang, "usage.summary.cost"),
-          bound.costLowerBoundOnly ? costCell(summary.costLowUsd, bound, lang) : formatMoney(summary.costUsd),
+          bound.costLowerBoundOnly ? costCell(summary.costLowUsd, bound, lang) : formatUsageMoney(summary.costUsd),
         ],
         [
           tr(lang, "usage.summary.costRange"),
           bound.costLowerBoundOnly
             ? `${costCell(summary.costLowUsd, bound, lang)}${costBoundReason(bound, lang)}`
-            : `${formatMoney(summary.costLowUsd)} – ${formatMoney(summary.costHighUsd)}`,
+            : `${formatUsageMoney(summary.costLowUsd)} – ${formatUsageMoney(summary.costHighUsd)}`,
         ],
         [tr(lang, "usage.summary.inputTokens"), formatTokens(summary.tokens.input)],
         [tr(lang, "usage.summary.outputTokens"), formatTokens(summary.tokens.output)],
@@ -543,7 +544,7 @@ async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number
       formatTokens(point.tokens.input),
       formatTokens(point.tokens.output),
       formatTokens(point.tokens.cacheRead),
-      formatMoney(point.costUsd),
+      formatUsageMoney(point.costUsd),
     ])
     const totals = points.reduce(
       (accumulator, point) => ({
@@ -551,9 +552,13 @@ async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number
         input: accumulator.input + point.tokens.input,
         output: accumulator.output + point.tokens.output,
         cacheRead: accumulator.cacheRead + point.tokens.cacheRead,
-        cost: accumulator.cost + point.costUsd,
+        // Integer micro-USD, like every other money total in this codebase
+        // (hard rule 2): the printed `Total` is then the printed day column's
+        // own sum, digit for digit, instead of a float sum re-rounded for
+        // display (EVO-G85).
+        costMicros: accumulator.costMicros + toMicroUsd(point.costUsd),
       }),
-      { requests: 0, input: 0, output: 0, cacheRead: 0, cost: 0 },
+      { requests: 0, input: 0, output: 0, cacheRead: 0, costMicros: 0 },
     )
     rows.push([
       tr(lang, "usage.trends.total"),
@@ -561,7 +566,7 @@ async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number
       formatTokens(totals.input),
       formatTokens(totals.output),
       formatTokens(totals.cacheRead),
-      formatMoney(totals.cost),
+      formatUsageMoney(totals.costMicros / 1_000_000),
     ])
     context.io.out(
       formatTable(
@@ -604,7 +609,7 @@ function logRows(events: readonly UsageEvent[], withId: boolean): string[][] {
       event.status,
       formatTokens(event.usage.input),
       formatTokens(event.usage.output),
-      formatMoney(event.cost.usd),
+      formatUsageMoney(event.cost.usd),
       // Which claim this row's money is (EVO-G73): `provider` means the endpoint
       // reported the amount it billed, anything else is a computed estimate.
       event.cost.source,

@@ -1,8 +1,9 @@
 /**
  * Human-readable output helpers for the `mik` CLI.
  *
- * Two rules are load-bearing here and are enforced by the card's acceptance
- * criteria: money is always four decimals, and token counts always carry
+ * Three rules are load-bearing here and are enforced by the card's acceptance
+ * criteria: catalogue money is always four decimals, usage money is rendered at
+ * the micro-USD the totals really have (EVO-G85), and token counts always carry
  * thousands separators.
  */
 
@@ -12,6 +13,34 @@ export function formatMoney(usd: number | undefined): string {
   // Avoid "-0.0000" for a tiny negative rounding to zero.
   const value = Math.abs(usd) < 0.00005 ? 0 : usd
   return value.toFixed(4)
+}
+
+/**
+ * Money as the **usage surfaces** print it — `usage summary`, `logs`, `trends`
+ * and `--by-tag` (EVO-G85).
+ *
+ * The job here is reconciliation, not column width. Every amount these surfaces
+ * show is a sum of **integer micro-USD** (hard rule 2) and `usage export`
+ * renders those same integers at six decimals, so an amount whose micro total
+ * has nothing below 1e-4 is printed at four decimals exactly as it always was,
+ * while a remainder is printed at six — the micro-USD unit itself. The audit's
+ * F4 shape then reads `0.000654` on both surfaces: the reader adds the exported
+ * column and compares digits, with no display-rounding rule in between. EVO-G81
+ * left these surfaces at four decimals, and that is precisely why the two
+ * figures only agreed *after* the reader rounded one of them.
+ *
+ * The zero clamp is half a **micro**, not half of 1e-4 (as `formatMoney` uses):
+ * a total of 30 µ$ is a real amount, and printing it `0.0000` is the same
+ * disagreement in miniature. Catalogue prices (`mik models`, `mik pricing`) keep
+ * `formatMoney`: they are dollars per million tokens, not reconciliation
+ * targets, and the localized help text promises four decimals for them.
+ */
+export function formatUsageMoney(usd: number | undefined): string {
+  if (typeof usd !== "number" || !Number.isFinite(usd)) return "n/a"
+  const micros = Math.round(usd * 1_000_000)
+  // Avoid "-0.0000" for a negative that is zero micro-USD.
+  if (micros === 0) return "0.0000"
+  return (micros / 1_000_000).toFixed(micros % 100 === 0 ? 4 : 6)
 }
 
 /** Integer count with thousands separators, e.g. `1,234,567`. */
