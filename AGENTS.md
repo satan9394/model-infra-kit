@@ -134,11 +134,18 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 - **验证工具里的「修管道」可能同时修掉一个门禁**（R182）：G74 的实现者把电池的 `node … | grep -q` 改为「落盘再 grep」，因为它的新输出让该步骤**确定性触发**了 EPIPE。**独立 Evaluator 的关键发现**：`battery.sh` 顶部是 `set -euo pipefail`，所以**旧写法原本确实会拦住 EPIPE**（pipefail 把上游退出码传上来）——改完之后电池**再也发现不了**这个缺陷。
   → 判定为**可接受的「有记录的归口转移」**（因为它主动申报、编排者独立复现、并登记为 **G76**），但**附了硬约束**：**若撤销 G76，必须回退该行**。教训：**当「让门禁变绿」的手段是把检测点挪走时，必须同时在新位置补上等价检测，或显式登记被挪走的那个检测**，否则就是 G43「范围界定变成恒真」的又一变体。
 
-## 当前状态（R182 校正——本节的版本/基线数字必须随收口更新）
+- **本机实测的环境约定，不得作为跨平台事实进入提交物**（R187，我自己的简报害了实现者）：我把「本机 `bash` 是 WSL、路径要写 `/mnt/c/...`」写进本文件，又抄进 G76 的简报当作「硬事实」。实现者照做，把 `/mnt/c/...` **硬编码进测试脚本** → **CI 上 windows-latest 红**（GitHub 的 Windows runner 用 **Git Bash**，前缀是 `/c/...`；且临时路径含 **8.3 短名 `RUNNER~1`**），macOS 也红（其测量链把读者的退出状态混进了 `$?`）。本机 6 连绿，CI 两台红。
+  → 教训有两层：① **本机为真的环境事实 ≠ 普适事实**——交接这类事实时必须写明「**仅在本机成立**」，或直接给「如何不依赖它」的方案；② **测试不要经过外部 shell**：`bash + head + PIPESTATUS + mktemp` 这套脚手架在三平台行为不一致（前缀、短名、`PIPESTATUS` 语义、`head` 缓冲），而实现者**无法本地覆盖其它平台**——正确做法是用 `spawn(process.execPath, …)` + `stdio` 管道，由进程自己 `destroy()` 读端来模拟「读者提前关闭」，退出码直接取 child 的 `close`，**零 shell、零路径翻译**。这是 R99「本地绿不算数」的又一变体，只是这次的根因来自**我**。
+  → 附带：被修好的用例还应带一条**行为性 self-check**（断言启动的 `file === process.execPath` 且不是 `bash/sh/cmd.exe/powershell`），防止将来有人改回 shell 启动——G76 已这么做。
 
-- **版本 v0.2.15**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 544 例**（`pnpm --filter model-infra-kit test`，26 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS，字典 **294/294**。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。
-- **已验收发布的切片**：**G01–G74**（`0.1.7` → `0.2.15`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
+- **批量杀进程前必须逐个确认归属**（R187，近失事故）：排查偶发测试失败时，我看到一个 **1229MB、CPU 2745s** 的陈旧 node 进程，第一反应是「清理大进程」。**查了命令行才发现那是 dsh web 本体**（`dsh lib/bin.js web --patch`，占 **3080**）——**那是用户此刻正在交互的 GUI**。若按「清理陈旧大进程」动手就把它杀了。
+  → 做法：**先 `Get-CimInstance Win32_Process` 看 `CommandLine` 与 `netstat` 看端口归属，再决定**；尤其**先确认哪些 PID 是 harness 自身**（本会话：3080 上的 dsh web）。同时确认了测试相关端口（3210-3215、3990-3999）全空闲 → 我早前的测试未泄漏服务器。
+
+## 当前状态（R190 校正——本节的版本/基线数字必须随收口更新）
+
+- **版本 v0.2.16**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 558 例**（`pnpm --filter model-infra-kit test`，27 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS，字典 **294/294**。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。**涉及平台/外部命令的测试必须以 CI 为准**（R187）。
+- **已验收发布的切片**：**G01–G76**（`0.1.7` → `0.2.16`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
 - **CLI 双语完成度（R113 更正）**：入门面（G12）+ `provider`/`usage`（G13）+ `models`/`serve`/`pricing`/`dashboard`/错误类/`warning:` 前缀（G14）已本地化。**但「已收口」是 R109 的过度宣称**：独立 UX 审计（R113）实测发现**各子命令 `--help` 的选项说明仍是大片英文**（`init`/`provider add`/`serve` 等）→ 已立 **G58（P2）**。
 - **独立 UX 审计（R113）结论**：新用户**「有条件能」**完成第一次成功使用（用 mock 供应商真跑通 200 + 计量入账），但**照官方帮助/`init` 引导的字面路径走不到**，需在 3 处自我纠偏。产出 11 条发现 + 编排者 3 条机械发现，已综合为 **G54–G65** 并定出下一片 **G15＝族 A「首次成功路径可达」**。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
