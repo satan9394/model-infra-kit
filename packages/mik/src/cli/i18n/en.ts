@@ -152,13 +152,27 @@ export const en: Record<string, string> = {
   "provider.test.failure.connection": "Connection failed: could not reach the provider endpoint.",
   "provider.test.failure.model": "Model not found: the provider does not know this model id.",
   "provider.test.failure.missingPackage": "Missing dependency: %s is not installed. Run npm i %s.",
-  "usage.range": "Range %s → %s · app=%s%s",
+  "usage.range": "Range %s · app=%s%s",
+  // EVO-G78 (G79): an implied bound is spelled out, never a bare "-".
+  "usage.range.unbounded": "all time (no --from/--to given)",
+  "usage.range.since": "%s to now",
+  "usage.range.until": "everything up to %s",
+  // Both directions are named: each command states its own window and the other's default.
+  "usage.note.allTimeScope":
+    "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.",
+  "usage.note.defaultDaysScope":
+    "Note: with no --from/--to/--days this command covers only the last %s days; usage summary and usage logs cover the whole history by default.",
   "usage.summary.requests": "Requests",
   "usage.summary.successes": "Successes",
   "usage.summary.failures": "Failures",
   "usage.summary.successRate": "Success rate",
   "usage.summary.cost": "Cost (USD)",
   "usage.summary.costRange": "Cost range",
+  // EVO-G78 (F2): with any unknowable price the amount is a floor, never a point, never interpolated.
+  "usage.summary.costAtLeast": "at least %s",
+  "usage.summary.costBound": " (upper bound unknown: %s)",
+  "usage.summary.costBound.unpriced": "%s request(s) unpriced",
+  "usage.summary.costBound.folded": "%s request(s) folded into daily rollups, price source gone",
   "usage.summary.inputTokens": "Input tokens",
   "usage.summary.outputTokens": "Output tokens",
   "usage.summary.cacheRead": "Cache read",
@@ -177,6 +191,9 @@ export const en: Record<string, string> = {
   "usage.summary.unpriced.fix": "Fix: mik pricing set %s --input <usd/M> --output <usd/M>",
   "usage.summary.unpriced.rollupNote":
     "Note: %s request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
+  // EVO-G78 (F9/F12): define both sides of the ratio, and say that 0 is not free.
+  "usage.summary.unpriced.scope":
+    "Note: tokens count input + output + cache read + cache write + reasoning, the same buckets on both sides; an unpriced request is recorded at 0, and 0 does not mean free.",
   "usage.summary.tags.title": "Cost by attribution tag",
   "usage.summary.tags.empty": "No tagged usage in this range.",
   "usage.summary.tags.header.tag": "TAG",
@@ -207,6 +224,9 @@ export const en: Record<string, string> = {
   "usage.logs.header.source": "SOURCE",
   "usage.logs.header.latency": "LATENCY",
   "usage.logs.showing": "Showing %s of %s event(s) (offset %s).",
+  // EVO-G78 (F12): SOURCE stays the recorded token; this is how to read it.
+  "usage.logs.sourceLegend":
+    "Note: the price source is the raw enum from the record (not localized) — missing means the request was unpriced and recorded at 0 (which is not free), modelsdev means the price came from the upstream models.dev catalogue, manual means a hand-set price; in the CSV, pricing_basis=unknown means no pricing basis was available and flat means a single rate was applied.",
   "usage.export.wrote": "Wrote %s row(s) to %s",
   "usage.export.truncated": "warning: export stopped at %s rows; narrow the range with --from/--to.",
   "usage.error.badDate": "%s is not a valid date: \"%s\".",

@@ -139,6 +139,16 @@ export class UsageService {
    * `Provider` 回传的账单真值（`pricing_source="provider"`）**已定价**，不计入。
    */
   unpricedCoverage(query?: UsageQuery): UnpricedCoverage
+  /**
+   * G78 追加（纯函数，无查询、无状态）：由一个 `summary()` 与同一区间的
+   * `unpricedCoverage()` 推出**成本总额的确定性**。
+   * `costUsd/low/high` 只是**已记录的**金额之和，未定价请求按 0 入账、不会撑开区间，
+   * 于是 16.7% 未定价时仍打印 `0.0175 – 0.0175`——把"未知"呈现成"精确"（R232-F2）。
+   * 该函数不改任何数字、也不插值，只返回 `costLowerBoundOnly`（读作"至少"）、
+   * `unpricedRequests`、`unmeasuredRequests`（已折叠进 rollup、价格来源不可考的请求数）。
+   * CLI 与 HTTP 出口共用它，两边口径不得各写一套。
+   */
+  costBound(summary: Pick<UsageSummary, "requests">, coverage: UnpricedCoverage): CostBound
   trends(query?: UsageQuery, bucket?: "day" | "hour"): UsageTrendPoint[]
   byProvider(query?: UsageQuery): UsageBucket[]
   byModel(query?: UsageQuery): UsageBucket[]
@@ -239,6 +249,10 @@ GET  /api/models               GET /api/models/:ref
 GET  /api/pricing              PUT /api/pricing/:modelId   POST /api/pricing/sync
 DELETE /api/pricing/:modelId   （T07 追加并经指挥批准：看板需要撤销手动价）
 GET  /api/usage/summary|trends|by-provider|by-model|logs|logs/:id
+       （G78：`/api/usage/summary` 的响应在 `summary` 上**追加**三个字段，
+         `costLowerBoundOnly` / `unpricedRequests` / `unmeasuredRequests`，
+         由 `costBound()` 推出。既有字段与数字一个都没变；加了它们之后，
+         `costLowUsd === costHighUsd` 才不再被机器读者当成"精确值"。）
 GET  /api/events               （SSE：usage.recorded / catalog.updated / pricing.updated）
 POST /api/usage/events         （F19 新增：宿主自己调模型，把用量上报进来）
 GET  /openapi.json

@@ -191,8 +191,10 @@ async function withFakeHome<T>(body: (home: string, db: string) => Promise<T>): 
  * It is a literal rather than a value recomputed by the code under test, and it
  * is the assertion that pins "no notice on a database with nothing in it".
  */
-const PRE_CHANGE_EMPTY_SUMMARY =
-  "Range - → - · app=cli-app\n" +
+const PRE_CHANGE_EMPTY_HEADER = "Range - → - · app=cli-app"
+
+/** Everything below the header, byte-for-byte from 0.2.23. */
+const PRE_CHANGE_EMPTY_BODY =
   "\n" +
   "Requests        0\n" +
   "Successes       0\n" +
@@ -208,6 +210,15 @@ const PRE_CHANGE_EMPTY_SUMMARY =
   "Cache hit rate  0.0%\n" +
   "Avg latency     0 ms\n" +
   "First token     0 ms\n"
+
+/**
+ * The same empty summary after EVO-G78: the header line and its scope notice are
+ * new, every figure line is the frozen literal above.
+ */
+const G78_EMPTY_SUMMARY =
+  "Range all time (no --from/--to given) · app=cli-app\n" +
+  "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.\n" +
+  PRE_CHANGE_EMPTY_BODY
 
 /**
  * The published 15-column `usage export` header (A3), re-typed as a literal:
@@ -274,7 +285,8 @@ describe("EVO-G64 — the shared-database notice in `usage summary`", () => {
     const result = await run(["usage", "summary", "--app", "alpha-app", "--app-id", "cli-app", ...base], dir)
     expect(result.code).toBe(0)
     // The figures follow the filter...
-    expect(result.stdout).toContain("Range - → - · app=alpha-app")
+    // EVO-G78 replaced `Range - → -` with the explicit `all time` wording.
+    expect(result.stdout).toContain("Range all time (no --from/--to given) · app=alpha-app")
     expect(result.stdout).toContain("Requests        1")
     expect(result.stdout).toContain("Cost (USD)      0.5000")
     // ...and the sharing fact is unchanged, because it is a property of the file.
@@ -298,11 +310,12 @@ describe("EVO-G64 — the shared-database notice in `usage summary`", () => {
     expect(result.stdout).not.toContain(db)
   })
 
-  it("A2 — an empty database prints the pre-change summary byte-for-byte", async () => {
+  it("A2 — an empty database keeps every pre-change figure line and changes only the header", async () => {
     const { dir, base } = sandbox()
     const result = await run(["usage", "summary", "--app-id", "cli-app", ...base], dir)
     expect(result.code).toBe(0)
-    expect(`${result.stdout}\n`).toBe(PRE_CHANGE_EMPTY_SUMMARY)
+    expect(result.stdout).not.toContain(PRE_CHANGE_EMPTY_HEADER)
+    expect(`${result.stdout}\n`).toBe(G78_EMPTY_SUMMARY)
   })
 
   it("A2 — omitting `--db` still resolves to the machine-global database", async () => {
@@ -518,9 +531,17 @@ describe("EVO-G64 — the shared-database notice in `usage summary`", () => {
       const project = tempDir()
       const result = await run(noDbArgs(home, project), project)
       expect(result.code).toBe(0)
-      const lines = normalize(result.stdout)
+      const noteLines = normalize(result.stdout)
         .split("\n")
         .filter((line) => line.startsWith("Note:"))
+      // EVO-G78 prepends its own scope notice as the first `Note:` line (a
+      // different subject: the queried time window, not the file). It is
+      // asserted here explicitly rather than filtered out silently, so it can
+      // never be mistaken for one of the two database notices.
+      expect(noteLines[0]).toBe(
+        "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.",
+      )
+      const lines = noteLines.slice(1)
       expect(lines).toEqual([
         `Note: no --db was given, so this reads the default shared database ${db}; ` +
           "another project using the same default settings writes into the same file " +

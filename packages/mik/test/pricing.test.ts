@@ -306,7 +306,11 @@ describe("PricingService", () => {
     const first = service.estimate({ model: "totally-unknown-model", usage: usage({ input: 10, output: 5 }) })
     const second = service.estimate({ model: "totally-unknown-model", usage: usage({ input: 10, output: 5 }) })
 
-    expect(first).toMatchObject({ usd: 0, low: 0, high: 0, basis: "flat", source: "missing" })
+    // EVO-G78 (audit-R232 F2/F12): no rate was applied at all, so the basis is
+    // `unknown`. It used to say `flat`, which is the token that means "a real
+    // rate was applied" — the CSV could not then tell "free" from "unpriced".
+    // The amount stays exactly 0: an unknown price is never interpolated.
+    expect(first).toMatchObject({ usd: 0, low: 0, high: 0, basis: "unknown", source: "missing" })
     expect(second.usd).toBe(0)
     expect(warns.filter((m) => m.includes("totally-unknown-model"))).toHaveLength(1)
   })

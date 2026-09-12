@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import type { UnpricedCoverage, UsageBucket, UsageEvent, UsageQuery } from "../../types.js"
-import type { UsageService } from "../../usage/service.js"
+import { costBound, type CostBound, type UsageService } from "../../usage/service.js"
 import { RESERVED_TAG_KEYS, tagLabelForDisplay } from "../../usage/tags.js"
 import { flagBool, flagNumber, flagString, type ParsedCli } from "../args.js"
 import { contextLang, invocationLang, resolveCwd, withContext, type RunOptions } from "../context.js"
@@ -21,6 +21,16 @@ import { tr, type Lang } from "../i18n.js"
 
 const MAX_EXPORT_ROWS = 200_000
 const PAGE_SIZE = 1000
+
+/**
+ * The window `usage trends` falls back to when the caller gives neither bound
+ * nor `--days` (EVO-G78 / audit-R232 F1).
+ *
+ * Named here because the default is now *printed*: an implied window that only
+ * exists in the code is how one database came to show two different totals on
+ * one screen with nothing saying why.
+ */
+const DEFAULT_TREND_DAYS = 30
 
 /** How many unpriced models the summary lists before it stops (EVO-G74). */
 const MAX_UNPRICED_MODELS = 5
@@ -125,7 +135,7 @@ function startOfTomorrow(): number {
 
 /** `--days` only fills a missing bound; explicit `--from`/`--to` always win. */
 function applyDays(query: UsageQuery, parsed: ParsedCli, lang: Lang): UsageQuery {
-  const days = flagNumber(parsed.values, "days", parsed.action?.usage, lang) ?? 30
+  const days = flagNumber(parsed.values, "days", parsed.action?.usage, lang) ?? DEFAULT_TREND_DAYS
   if (!Number.isInteger(days) || days < 1 || days > 3650) {
     throw new CliUsageError(tr(lang, "usage.error.badDays", days))
   }
@@ -136,14 +146,29 @@ function applyDays(query: UsageQuery, parsed: ParsedCli, lang: Lang): UsageQuery
 }
 
 /**
- * `Range … → … · app=…[ · provider=… model=… status=…]`.
+ * The time-scope header every read command prints (EVO-G78 / audit-R232 F1).
  *
- * Only the word `Range` is prose; `app=` / `provider=` / `model=` / `status=`
- * are key names a user can copy into a command, so they stay literal.
+ * Only the word `Range` and the two implied-bound phrases are prose; `app=` /
+ * `provider=` / `model=` / `status=` are key names a user can copy into a
+ * command, so they stay literal.
+ *
+ * **A bound the caller did not give is spelled out, never `-`.** `区间 - → -`
+ * read as "the whole history, precisely scoped" while `usage trends` floors the
+ * same-looking header at 30 days, so one database produced `5 / 0.0174` in
+ * `summary` and `4 / 0.0006` in `trends` with nothing on screen saying the two
+ * scopes differed. Naming the implied bound (`全部时间` / `至今`) is what makes
+ * the header self-describing, and it is also what lets the notices below tell
+ * "no bound given" apart from "a bound was given" without re-parsing flags.
  */
 function rangeLabel(query: UsageQuery, appId: string, lang: Lang): string {
-  const from = query.from === undefined ? "-" : formatDate(query.from)
-  const to = query.to === undefined ? "-" : formatDate(query.to - 1)
+  const span =
+    query.from === undefined && query.to === undefined
+      ? tr(lang, "usage.range.unbounded")
+      : query.from === undefined
+        ? tr(lang, "usage.range.until", formatDate(query.to! - 1))
+        : query.to === undefined
+          ? tr(lang, "usage.range.since", formatDate(query.from))
+          : `${formatDate(query.from)} → ${formatDate(query.to - 1)}`
   const scope = query.appId ?? appId
   const filters = [
     query.providerId ? `provider=${query.providerId}` : null,
@@ -152,7 +177,55 @@ function rangeLabel(query: UsageQuery, appId: string, lang: Lang): string {
     // A tag is a key/value pair; `tag=key=value` keeps both halves visible.
     query.tag ? `tag=${query.tag}${query.tagValue === undefined ? "" : `=${query.tagValue}`}` : null,
   ].filter((item): item is string => item !== null)
-  return tr(lang, "usage.range", from, to, scope, filters.length > 0 ? ` · ${filters.join(" ")}` : "")
+  return tr(lang, "usage.range", span, scope, filters.length > 0 ? ` · ${filters.join(" ")}` : "")
+}
+
+/**
+ * The two scope notices that keep `summary`/`logs` and `trends` from ever
+ * disagreeing silently (EVO-G78 / audit-R232 F1).
+ *
+ * They are *symmetric on purpose*: whichever command the reader is looking at,
+ * it states its own window **and** the other command's default, so the pair
+ * cannot be compared without the difference being on screen. Both stay silent
+ * when the caller passed explicit bounds — the windows are then identical and
+ * there is nothing to explain. Neither changes a figure above it.
+ */
+function scopeNoticeLines(query: UsageQuery, defaultWindowDays: number | undefined, lang: Lang): string[] {
+  if (defaultWindowDays !== undefined) return [tr(lang, "usage.note.defaultDaysScope", formatTokens(defaultWindowDays))]
+  if (query.from === undefined && query.to === undefined) return [tr(lang, "usage.note.allTimeScope")]
+  return []
+}
+
+/**
+ * The value cell for the cost lines (EVO-G78).
+ *
+ * With every request priced this is the same string it always was — the whole
+ * point is that a healthy install does not get fuzzier. The moment a request (or
+ * a folded day) has no knowable price, the number is **not** widened and not
+ * interpolated: it is relabelled as the floor it actually is.
+ *
+ * The floor is `costLowUsd`, never `costUsd`: a per-request estimate has a
+ * spread (`low ≤ usd ≤ high`), so the recorded point total is not a proven lower
+ * bound, and printing "at least <costUsd>" would overstate the floor in exactly
+ * the artifacts where the price is least certain. Both cost lines therefore
+ * print the *same* floor, which also means the two can never contradict each
+ * other on screen.
+ */
+function costCell(floorUsd: number, bound: CostBound, lang: Lang): string {
+  const money = formatMoney(floorUsd)
+  return bound.costLowerBoundOnly ? tr(lang, "usage.summary.costAtLeast", money) : money
+}
+
+/** Why the total is only a floor, named with counts, e.g. `（上界未知：1 笔请求未定价）`. */
+function costBoundReason(bound: CostBound, lang: Lang): string {
+  const parts: string[] = []
+  if (bound.unpricedRequests > 0) {
+    parts.push(tr(lang, "usage.summary.costBound.unpriced", formatTokens(bound.unpricedRequests)))
+  }
+  if (bound.unmeasuredRequests > 0) {
+    parts.push(tr(lang, "usage.summary.costBound.folded", formatTokens(bound.unmeasuredRequests)))
+  }
+  return tr(lang, "usage.summary.costBound", parts.join("; "))
 }
 
 function indent(block: string, spaces: number): string {
@@ -197,6 +270,12 @@ function unpricedLines(coverage: UnpricedCoverage, lang: Lang): string[] {
       ]),
       2,
     ),
+    // EVO-G78 (audit-R232 F9/F12): the ratio above is only readable if both of
+    // its sides are defined, and the only honest definition is "the same token
+    // buckets on both sides". Naming them also kills the other half of F12: an
+    // unpriced request is recorded at 0, which the numeric column cannot
+    // distinguish from a genuinely free one.
+    `  ${tr(lang, "usage.summary.unpriced.scope")}`,
   ]
   const models = coverage.models.slice(0, MAX_UNPRICED_MODELS)
   if (models.length > 0) {
@@ -364,7 +443,13 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
     const lang = contextLang(context, options)
     const summary = context.hub.usage.summary(query)
     const unpriced = context.hub.usage.unpricedCoverage(query)
-    context.io.out(rangeLabel(query, context.appId, lang))
+    /**
+     * EVO-G78: whether the cost figures above may be read as an exact answer.
+     * Derived from the same two aggregates the block below already uses, so this
+     * costs no extra query and changes no number.
+     */
+    const bound = costBound(summary, unpriced)
+    context.io.out([rangeLabel(query, context.appId, lang), ...scopeNoticeLines(query, undefined, lang)].join("\n"))
     context.io.out("")
     context.io.out(
       formatKeyValues([
@@ -372,8 +457,18 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
         [tr(lang, "usage.summary.successes"), formatTokens(summary.successes)],
         [tr(lang, "usage.summary.failures"), formatTokens(summary.failures)],
         [tr(lang, "usage.summary.successRate"), formatPercent(summary.successRate)],
-        [tr(lang, "usage.summary.cost"), formatMoney(summary.costUsd)],
-        [tr(lang, "usage.summary.costRange"), `${formatMoney(summary.costLowUsd)} – ${formatMoney(summary.costHighUsd)}`],
+        // A cost that cannot be known is reported as the floor it is, never as a
+        // point and never interpolated (EVO-G78, audit-R232 F2).
+        [
+          tr(lang, "usage.summary.cost"),
+          bound.costLowerBoundOnly ? costCell(summary.costLowUsd, bound, lang) : formatMoney(summary.costUsd),
+        ],
+        [
+          tr(lang, "usage.summary.costRange"),
+          bound.costLowerBoundOnly
+            ? `${costCell(summary.costLowUsd, bound, lang)}${costBoundReason(bound, lang)}`
+            : `${formatMoney(summary.costLowUsd)} – ${formatMoney(summary.costHighUsd)}`,
+        ],
         [tr(lang, "usage.summary.inputTokens"), formatTokens(summary.tokens.input)],
         [tr(lang, "usage.summary.outputTokens"), formatTokens(summary.tokens.output)],
         [tr(lang, "usage.summary.cacheRead"), formatTokens(summary.tokens.cacheRead)],
@@ -417,11 +512,26 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
 
 async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const flagLang = invocationLang(options)
+  /**
+   * Whether this window came from the default rather than from flags. Read
+   * *before* `applyDays` fills the bounds in, because afterwards a defaulted
+   * window and a typed one are byte-identical — and telling them apart is the
+   * whole job of the notice below (EVO-G78 / audit-R232 F1).
+   */
+  const boundsDefaulted =
+    flagString(parsed.values, "from") === undefined &&
+    flagString(parsed.values, "to") === undefined &&
+    flagString(parsed.values, "days") === undefined
   const query = applyDays(buildUsageQuery(parsed, flagLang), parsed, flagLang)
   return withContext(parsed, options, async (context) => {
     const lang = contextLang(context, options)
     const points = context.hub.usage.trends(query)
-    context.io.out(rangeLabel(query, context.appId, lang))
+    context.io.out(
+      [
+        rangeLabel(query, context.appId, lang),
+        ...scopeNoticeLines(query, boundsDefaulted ? DEFAULT_TREND_DAYS : undefined, lang),
+      ].join("\n"),
+    )
     context.io.out("")
     if (points.length === 0) {
       context.io.out(tr(lang, "usage.empty"))
@@ -503,7 +613,7 @@ async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> 
   return withContext(parsed, options, async (context) => {
     const lang = contextLang(context, options)
     const page = context.hub.usage.query({ ...query, limit, offset })
-    context.io.out(rangeLabel(query, context.appId, lang))
+    context.io.out([rangeLabel(query, context.appId, lang), ...scopeNoticeLines(query, undefined, lang)].join("\n"))
     context.io.out("")
     if (page.events.length === 0) {
       context.io.out(tr(lang, "usage.empty"))
@@ -529,6 +639,17 @@ async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> 
     )
     context.io.out("")
     context.io.out(tr(lang, "usage.logs.showing", formatTokens(page.events.length), formatTokens(page.total), offset))
+    /**
+     * The `SOURCE` column is a machine token copied straight from the record, so
+     * it is never localized (a caller greps it). What it needed was a reading
+     * (EVO-G78 / audit-R232 F12): `missing` is the *only* signal that a row is
+     * unpriced rather than free, and both it and `modelsdev` were unexplained.
+     * Printed only when an unpriced row is actually on screen, so the output of
+     * a fully priced install is unchanged.
+     */
+    if (page.events.some((event) => event.cost.source === "missing")) {
+      context.io.out(tr(lang, "usage.logs.sourceLegend"))
+    }
     return 0
   })
 }

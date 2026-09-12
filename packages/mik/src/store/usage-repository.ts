@@ -102,12 +102,29 @@ function parseTags(raw: unknown): Record<string, string> {
 }
 
 function rowToEvent(row: Record<string, unknown>): UsageEvent {
+  const source = (asString(row.pricing_source) || "missing") as CostInfo["source"]
   const cost: CostInfo = {
     usd: asNumber(row.cost_usd),
     low: asNumber(row.cost_low_usd),
     high: asNumber(row.cost_high_usd),
-    basis: (asString(row.pricing_basis) || "flat") as CostInfo["basis"],
-    source: (asString(row.pricing_source) || "missing") as CostInfo["source"],
+    /**
+     * EVO-G78 — the same rule as the write path, applied to rows that were
+     * stored before it: a row with **no recorded basis and no price** is
+     * `"unknown"`, not `"flat"`. `flat` is the token that means "a real rate was
+     * applied", so falling back to it here is what kept printing
+     * `missing,flat` for unpriced rows in every pre-existing database — the
+     * exact "unknown reads as exact" defect this card exists to kill, surviving
+     * on disk.
+     *
+     * Safety of the fallback (it must not touch a genuine `flat`): a stored
+     * basis — `flat`, `exact`, `blended`, `manual`, `unknown` — is truthy and
+     * short-circuits the `||` untouched, and `NULL`/empty with a real
+     * `pricing_source` (`modelsdev`, `override`, `provider`, …) still falls back
+     * to `flat` exactly as before. Only `basis absent AND source missing` changes
+     * meaning, and for that row `unknown` is the honest reading.
+     */
+    basis: (asString(row.pricing_basis) || (source === "missing" ? "unknown" : "flat")) as CostInfo["basis"],
+    source,
     pricingModel: row.pricing_model ? asString(row.pricing_model) : undefined,
   }
   return {
