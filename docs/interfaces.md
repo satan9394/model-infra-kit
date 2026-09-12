@@ -686,6 +686,7 @@ byTag(query?: UsageQuery): UsageBucket[]   // 见上文 T04 块；key 形如 "fe
 ```
 mik usage summary [--from <date>] [--to <date>] [--app <appId>] [--tag <key[=value]>] [--by-tag]
 mik usage export  --format csv [...]        # 表头 = 固定 15 列 + EVO-G81 追加 7 列（共 22 列）
+mik usage logs    [--limit 20] [--offset <n>] [--with-id] [...]   # --with-id 表尾追加 REQUEST ID 列（EVO-G86）
 ```
 
 - `--tag <键>` / `--tag <键>=<值>`：只统计带该标签的调用（在 `usage summary|trends|logs|export` 全部可用，属 `QUERY_FLAGS`）。只按**第一个** `=` 切分，标签值本身可含 `=`。
@@ -756,13 +757,28 @@ EVO-G81 **追加**（顺序固定）：
 | 22 | `cost_microusd` | **integer** | 该行金额的**整数微美元**（真相源）。与同行 `cost_usd` 满足 `cost_microusd == round(cost_usd * 1e6)`；逐行求和即对账合计。 |
 
 - 追加是**唯一**兼容的加列方式：按索引或按表头读取的宿主脚本不受影响；`usage summary` / `logs` / `trends` 的行与顺序本卡未改。
-- **用户如何把一行 CSV 与一条 log 对上**：`request_id` 是两侧共用的身份——HTTP 面用 `GET /api/usage/logs/:id` 直接取该条；`usage logs` 的表按 `TS/app/provider/model/status` 展示，可与 `request_id` 一起用于人眼核对（`usage logs` 的表**本卡未加列**，故 CLI 文本面本身不打印 id）。
+- **用户如何把一行 CSV 与一条 log 对上**：`request_id` 是两侧共用的身份——HTTP 面用 `GET /api/usage/logs/:id` 直接取该条；**CLI 面用 `usage logs --with-id`**（见「EVO-G86」节）在表尾打印同一个 id；`usage logs` 的表按 `TS/app/provider/model/status` 展示，可与 `request_id` 一起用于人眼核对。
 
 ### 行结构不变量（不可注入）
 
 - **单条记录恰好一行**：任何单元格都不得含能结束一行的字符（CR / LF / U+2028 / U+2029）。G82 已在 `tags` 单元格做过（`tagsToText` → `redactTagsForDisplay` → `sanitizeTagForDisplay`）；**EVO-G81 把它提升为整行的性质**：`csvField()` 对每个文本单元格套用同一个 `sanitizeTagForDisplay()`（`\n`/`\r`/`\t` → 两字符转义，其余 C0/C1 → `?`），因此宿主/上游可控的 `model`、`session_id`、`error_code` 等列同样不会把记录拆成多个物理行。**这是「一个不变式、一处实现」，不是第二份策略。**
 - 逗号与双引号仍按 RFC 4180 加引号；加引号后**不会**再出现换行（换行已在渲染前被转义），故「加引号 = 跨行」这一读法在本产物上不成立。
 - 空库导出 = 一行表头，无数据行（`--out` 文件内容恰为 `表头 + "\n"`）。
+
+
+## EVO-G86 —— CLI 面把一行 CSV 对到一条 log（`usage logs --with-id`）
+
+**本卡只新增一个开关，不改任何既有列、不改默认输出。**
+
+```
+mik usage logs [--limit 20] [--offset <n>] [--with-id] [...QUERY_FLAGS]
+```
+
+- `--with-id`：**opt-in**，在 `usage logs` 的表**尾追加一列** `REQUEST ID`（zh：`请求 ID`），值为该事件的 `request_id`——与 `usage export` 的第 16 列、`UsageEvent.requestId`、`GET /api/usage/logs/:id` 是**同一个值**。列**追加而非插入**，故既有 10 列的索引不变（与 CSV 追加列同一策略）。
+- **不加这个 flag 时输出与改前逐字一致**（同 EVO-G75 `--by-tag` 的取法）：默认表仍是 10 列，空库仍只打印 `usage.empty` 那一行、不出现空表头。
+- 为什么必须有一个真实标识：`TS/app/provider/model/status` 组合键**对同一毫秒的两次调用不唯一**（`test/cli-traceability.test.ts` 的 A2 用例断言这两行除 id 外**逐格相同**），CLI 又不能依赖 `mik serve`（它不是默认运行的东西）。因此「一行 CSV ↔ 一条 log」在 CLI 首选项下**需要这个开关**。
+- `usage logs` **没有** `--json` 分支（本卡未新增），故不存在 JSON 侧的一致性问题。
+- `--limit` 截断、`--offset` 分页时 id 与该行其余单元格同源渲染，不会错位。
 
 
 

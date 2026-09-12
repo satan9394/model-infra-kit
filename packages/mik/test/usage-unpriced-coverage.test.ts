@@ -378,12 +378,13 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     // added six attribution-tag keys and two help descriptions → 309; EVO-G64
     // added the two shared-database notices → 311; EVO-G78 added the cost-bound
     // marking (4) + the unpriced scope note (1) + the log legend (1) + the range
-    // wording (3) + the two scope notices (2) → 322. Parity (the line below) is
-    // the real invariant.
-    expect(Object.keys(zh)).toHaveLength(322)
-    expect(Object.keys(en)).toHaveLength(322)
+    // wording (3) + the two scope notices (2) → 322; EVO-G86 added the
+    // `--with-id` help line and the `REQUEST ID` header (2) → 324. Parity (the
+    // line below) is the real invariant.
+    expect(Object.keys(zh)).toHaveLength(324)
+    expect(Object.keys(en)).toHaveLength(324)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(322)
+    expect(i18nKeys()).toHaveLength(324)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })
