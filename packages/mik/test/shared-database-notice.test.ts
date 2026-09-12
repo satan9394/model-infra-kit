@@ -208,8 +208,10 @@ const PRE_CHANGE_EMPTY_BODY =
   "Cache write     0\n" +
   "Reasoning       0\n" +
   "Cache hit rate  0.0%\n" +
-  "Avg latency     0 ms\n" +
-  "First token     0 ms\n"
+  "Avg latency     -\n" +
+  // EVO-G82 / audit-R232 F3: an empty range measured nothing, so this is `-`
+  // (it was `0 ms` before the card; both latency lines now use one convention).
+  "First token     -\n"
 
 /**
  * The same empty summary after EVO-G78: the header line and its scope notice are

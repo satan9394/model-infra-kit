@@ -140,8 +140,11 @@ const PRE_CHANGE_EMPTY_BODY =
   "Cache write     0\n" +
   "Reasoning       0\n" +
   "Cache hit rate  0.0%\n" +
-  "Avg latency     0 ms\n" +
-  "First token     0 ms\n"
+  "Avg latency     -\n" +
+  // EVO-G82 / audit-R232 F3 changed these two lines on purpose: nothing in an
+  // empty range was measured, so `0 ms` was the defect (unmeasured read as
+  // instant). The rest of this 0.2.23 body is still byte-for-byte as published.
+  "First token     -\n"
 
 /** The 0.2.23 header, kept as a literal so "it changed" is checkable, not assumed. */
 const PRE_CHANGE_EMPTY_HEADER = "Range - → - · app=cli-app"

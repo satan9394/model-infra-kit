@@ -100,8 +100,10 @@ export interface UsageSummary {
   costHighUsd: number
   tokens: TokenUsage
   cacheHitRate: number
-  avgLatencyMs: number
-  firstTokenMs: number
+  /** Absent when nothing in the range recorded one — never `0` (EVO-G82, R232 F3). */
+  avgLatencyMs?: number
+  /** Absent when nothing was measured; `formatMs` renders it as `—`. */
+  firstTokenMs?: number
 }
 
 export interface UsageBucket {

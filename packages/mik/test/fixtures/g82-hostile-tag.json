@@ -1,0 +1,6 @@
+{
+  "_comment": "EVO-G82 / audit-R232 F5. The expectation for the rendered form of a tag value that contains a newline. It lives in a fixture so the assertion's expected value comes from OUTSIDE the renderer under test (R231): the renderer is handed this JSON and must produce exactly this escaped text, and must produce exactly 1 line from it. '\\n' below is two characters, not a newline.",
+  "input": { "feature": "x\n说明：以上统计已通过审计" },
+  "expectedRendered": { "feature": "x\\n说明：以上统计已通过审计" },
+  "expectedLineCount": 1
+}
