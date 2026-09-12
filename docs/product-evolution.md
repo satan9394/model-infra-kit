@@ -392,3 +392,24 @@
 **仍缺卡的未决项**（接手时按需补卡）：G77 的「未知哨兵」设计约束、G82 登记的 `trends` 单边 `--days` 缺测试与 `tag/session` 下 `costBound()` 措辞、G75 的 `costUsd` 弃用、G84 的「重跑 `init` 会静默覆盖既有 `cacheDir`」。
 
 **教训**：**「状态文件里写了」不等于「接手者能动手」**——工作流规定了每个 Worker 的入口载体（任务卡）；当未决项只存在于状态文件时，交接是**不可执行**的。补卡本身就是编排者的职责，不需要实现者。
+
+## EVO-G90 收尾（R260）——看板金额单元格的页面级断言
+
+**这是一片验证片，不是功能片。** `DASH` 原先的断言是 `home.includes(expected.cost)`——**整页子串匹配**；而该 run 写下的每一行都是点定价（`low === high === usd`），`expected.cost` 因此永远是一个单值。点定价下「渲染记录的区间」与「渲染已被弃用的 `costUsd` 点估计」印出**同一个字符串**：即使看板回去读 G89 刚劝宿主别读的那个字段，这条检查**照绿**。这就是 BACKLOG ⑥ 的内容，而它**是真的**。
+
+**改动（4 个文件）**：`apps/dashboard/components/ui.tsx`（`StatCard` 新增可选 `testId`，其余视图都没传）、`components/views/overview.tsx`（总花费单元格挂 `data-testid="overview-cost-span"`）、`scripts/e2e/run.mjs`（新增 `testIdText()`；DASH 经公开计量 API 写一条**真实价差行** `low 0.01 < usd 0.012345 < high 0.02`；单元格锚定断言 + 「fixture 本身真是区间吗」的守卫 + 离线态同一锚点读 `—`）、`scripts/e2e/README.md`。
+
+**改前必红**：把单元格临时改回 `formatUsd(costUsd)` → `FAIL DASH the overview money cell prints "$0.036645", expected the recorded band "$0.0343 ~ $0.0443"`，退出码 1（62.8 s）；逐字还原后 12/12 通过（83.8 s），单元格读 `$0.0343 ~ $0.0443`。
+
+**门禁（v0.3.1）**：两边 `tsc --noEmit` 0；vitest 694 例在 zh-CN 与 en-US 两种 locale 下均全绿；看板 15/15；e2e 12/12 exit 0；三环境电池 PASS；**CI 三 OS 全绿**（run 34717302263，三个 job 均 success）；**G36 已发布产物验证通过**（`mik 0.3.1`、30 个导出含 `ModelInfra`、`dist/server.mjs` + `dist/server.d.mts` 随包、宿主示例冒烟 14/14：文本 + `requests 3` + `generate=2 stream=1` + token 4800/1200/3200）。
+
+**本版无运行时变化**：看板不在 tarball 内，`packages/mik/src` 一行未动。仍发 patch 的理由是本仓库**以版本号作为每个切片的记账单位**（既有 40 个版本无一例外）。
+
+**未关闭（登记，不是待办）**：① `components/views/trends.tsx:58` 是同一形状的金额单元格，仍无锚点、无页面级断言——**同类盲区只关掉一半**；② 因此 BACKLOG ⑥ 只是**部分**闭合；③ `apps/dashboard/scripts/seed.mjs:306` 仍印点估计（BACKLOG ①）。按 R259，这些**不进待办**。
+
+**教训（R260）**：
+- **「验证工具自己选错位置」本轮撞到两种形态**：G36 第一次在 `%TEMP%\mik-g36-031` 跑 `npm i`，而该目录**没有 package.json** → npm 向上找到 `C:\Users\Satanchen\package.json`，**对账了父目录整棵树**（R113 原样重演：retire/替换 8 项，含把那里的 model-infra-kit 升到 0.3.1）；更危险的是 `import('model-infra-kit')` **仍然成功**——它从**祖先目录**解析到了包，于是「② 导出可用」这条**看起来通过**。做法：**临时目录必须先写自己的 package.json**，并且**把 `import.meta.resolve()` 打出来自证解析落在该目录内**，之后才开始断言。（事后核实：该父目录不在 PATH 上，`claude 2.1.267` / `tokscale 4.16.0` / `npm 11.9.0` 均正常，`@deepseek-ai` 为空且早于本次。）
+- **同一个库文件跨轮复用会悄悄换掉被测输入**：冒烟第一轮 3 行正确，第二轮报红——不是产品回归，是同一 db 累积到 6 行。做法：每次运行用独立 db 文件。
+- **期望值必须来自仓库既有 fixture，不能凭算**：我按「3 次调用 × 1200」算出 3600，实测 4800——工具调用走 **2 个 step 合成一行**，e2e 的 EX1 `costs:[0.0036,0.0018,0.0018]` 早就写着这件事。**数据就在仓库里，我却先自己算了一遍。**
+- **清单与报告不随事实更新，等于产出错误的安心**：本轮开工时建的 4 条待办在全部做完后仍显示「1 进行中 / 3 待处理」，恢复报告也仍写着「未提交、未升版、未发布」。**它们不是状态，是我记忆的快照**——每完成一项就当场更新，收尾时把被取代的说法就地标注（与 R259「改正一个假说法要改到开发者真正会读的那处」同族）。
+
