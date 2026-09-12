@@ -70,9 +70,14 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
             point estimate (`UsageSummary.costUsd`, which bounds nothing once
             anything is unpriced or folded). A point-priced install records
             `low === high`, so this renders what it always did; a band renders
-            `$a ~ $b`, the same shape as the interval hint below. */}
+            `$a ~ $b`, the same shape as the interval hint below.
+            `testId` is the hook the DASH check in `scripts/e2e/run.mjs` anchors
+            its band assertion on: the two shapes are identical strings whenever
+            every row is point-priced, which is why "the cell prints the band"
+            needs a cell-level anchor and a genuinely spread row to prove it. */}
         <StatCard
           label="总花费"
+          testId="overview-cost-span"
           value={formatUsdSpan(summaryData?.costLowUsd, summaryData?.costHighUsd)}
           hint={
             summaryData
