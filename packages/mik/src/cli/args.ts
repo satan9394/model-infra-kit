@@ -364,10 +364,16 @@ export const COMMANDS: readonly CommandSpec[] = [
   },
   {
     name: "dashboard",
-    summary: "Start the dashboard app (default 3210)",
+    summary:
+      "Start the dashboard app (default 3210) — not in the npm package: run it from a repository clone or your own deployment",
     usage: "mik dashboard [--port 3210] [--dir <path>]",
     flags: [FLAG_PORT_DASHBOARD, FLAG_DIR],
-    details: ["Refuses to start when the port is already in use."],
+    details: [
+      "Refuses to start when the port is already in use.",
+      // EVO-G69 / G57: the README already states this boundary; the help must not
+      // present the command as boxed-and-ready without it.
+      "Not shipped in the npm package: the app lives at apps/dashboard in this repository, so run it from a clone or point --dir at your own copy.",
+    ],
   },
   {
     name: "provider",

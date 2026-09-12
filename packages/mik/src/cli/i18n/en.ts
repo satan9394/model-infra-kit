@@ -41,7 +41,6 @@ export const en: Record<string, string> = {
   "wizard.appId": "Application id [%s]: ",
   "wizard.db": "SQLite database path [%s]: ",
   "wizard.provider": "First provider preset (blank to skip) [%s]: ",
-  "wizard.nextStepsTitle": "Next steps",
   "wizard.done": "Config ready. You are set up:",
   "wizard.stepSetProvider": "set the provider credential, then continue",
   "wizard.stepTest": "test the connection: mik provider test <id>",
@@ -77,7 +76,8 @@ export const en: Record<string, string> = {
   "cli.flagRequired": "--%s is required.",
   "cmd.init.summary": "Write mik.config.json (app id, database path, first provider)",
   "cmd.serve.summary": "Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)",
-  "cmd.dashboard.summary": "Start the dashboard app (default 3210)",
+  "cmd.dashboard.summary":
+    "Start the dashboard app (default 3210) — not in the npm package: run it from a repository clone or your own deployment",
   "cmd.provider.summary": "List, add, remove and test providers",
   "cmd.provider.list.summary": "List configured providers and the default model",
   "cmd.provider.add.summary": "Add or update a provider (preset fills protocol, base URL and env var)",
@@ -329,6 +329,8 @@ export const en: Record<string, string> = {
   "help.details.serve.6": "(https://app.example). Off by default, so browser code must go through a",
   "help.details.serve.7": "same-origin proxy unless --cors is given.",
   "help.details.dashboard.0": "Refuses to start when the port is already in use.",
+  "help.details.dashboard.1":
+    "Not shipped in the npm package: the app lives at apps/dashboard in this repository, so run it from a clone or point --dir at your own copy.",
   "help.details.provider.add.0": "Secrets are referenced, never stored: use --api-key-ref env:VAR or file:path.",
   "help.details.provider.add.1": "Without --api-key-ref the provider falls back to the preset's environment",
   "help.details.provider.add.2": "variable and the CLI says so instead of storing anything.",

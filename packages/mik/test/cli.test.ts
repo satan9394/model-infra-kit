@@ -796,7 +796,13 @@ describe("dashboard launch is shell-free", () => {
 
   it("launches node itself, with the resolved entry point as an argument", () => {
     expect(source).toContain("command = process.execPath")
-    expect(source).toContain("findPnpmScript(process.env)")
+    // EVO-G69: the lookup reads the *resolved* environment (`resolveEnv(options)`,
+    // i.e. `options.env ?? process.env`) instead of the real `process.env`, so an
+    // injected environment decides where pnpm is found — the EVO-G12 rule that an
+    // injectable entry point must never fall back to the host environment. In a
+    // real CLI run `env` *is* `process.env`, so nothing changes for users.
+    expect(source).toContain("findPnpmScript(env)")
+    expect(source).not.toContain("findPnpmScript(process.env)")
     expect(source).toMatch(/args = \[pnpmScript, "exec", "next", "start", "-p", String\(port\)\]/)
   })
 
