@@ -234,8 +234,17 @@ export interface UsageSummary {
   costHighUsd: number
   tokens: TokenUsage
   cacheHitRate: number
-  avgLatencyMs: number
-  firstTokenMs: number
+  /**
+   * `undefined` when **no event in the range recorded one** (EVO-G82, audit
+   * R232 F3). A zero-length average and an absent measurement are different
+   * facts, and this type now says so: it used to be `0`, which rendered as
+   * `0 ms` — indistinguishable from "the model really answered in 0 ms".
+   * `formatDuration` renders `undefined` as `-`, the same convention
+   * `latencyMs` already uses per row.
+   */
+  avgLatencyMs?: number
+  /** See `avgLatencyMs`: `undefined`, never `0`, when nothing was measured. */
+  firstTokenMs?: number
 }
 
 /**

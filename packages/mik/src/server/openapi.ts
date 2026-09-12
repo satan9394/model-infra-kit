@@ -224,8 +224,21 @@ function schemas(): Record<string, Schema> {
         costHighUsd: { type: "number" },
         tokens: ref("TokenUsage"),
         cacheHitRate: { type: "number" },
-        avgLatencyMs: { type: "number" },
-        firstTokenMs: { type: "number" },
+        // EVO-G82 (audit R232 F3): `null` here means **nothing in the range
+        // recorded one**, which is not the same as `0`. Letting these be plain
+        // `number` is what let a client (and the CLI) print `0 ms` for a
+        // measurement that never happened. Serialized as `null`, matching the
+        // JSON body (`JSON.stringify` drops the `undefined` either way).
+        avgLatencyMs: {
+          type: ["number", "null"],
+          description:
+            "Mean latency over the events that recorded one; `null` when none did (never `0` — a missing measurement is not an instant answer).",
+        },
+        firstTokenMs: {
+          type: ["number", "null"],
+          description:
+            "Mean time to first token over the events that recorded one; `null` when none did. The denominator is only those events, so this is not comparable across ranges with different streaming coverage.",
+        },
         // EVO-G78: the three cost fields above sum only what was **recorded**, so
         // an unpriced request adds 0 and does not widen the interval. These mark
         // that: `costLowerBoundOnly` says to read the cost as a floor, and the

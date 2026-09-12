@@ -1203,8 +1203,10 @@ describe("subcommand i18n (EVO-G13)", () => {
     "Cache write     0\n" +
     "Reasoning       0\n" +
     "Cache hit rate  0.0%\n" +
-    "Avg latency     0 ms\n" +
-    "First token     0 ms\n"
+    "Avg latency     -\n" +
+    // EVO-G82 / audit-R232 F3: an empty range measured nothing, so this is `-`.
+    // The pre-change value was `0 ms` on both lines — the defect the card fixes.
+    "First token     -\n"
   const EN_USAGE_LOGS_EMPTY =
     "Range all time (no --from/--to given) · app=default\n" +
     "Note: with no --from/--to this command covers the whole history; usage trends covers only the last 30 days by default.\n\n" +

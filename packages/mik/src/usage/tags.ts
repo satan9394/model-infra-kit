@@ -160,6 +160,39 @@ export function attributionTags(tags: Record<string, string> | undefined): Recor
 }
 
 /**
+ * The characters that may not survive to a rendered surface (EVO-G82, audit
+ * R232 F5).
+ *
+ * A tag value is arbitrary host text and *may contain a newline*. Printing it
+ * verbatim lets a caller inject a line that looks exactly like a real one — the
+ * audit measured `--by-tag` growing a forged `说明：以上统计已通过审计` row, and
+ * the CSV record for that tag spanning several physical lines. Both break the
+ * reader's unit of meaning: a human reading a table row, and any tool that
+ * treats one line as one record (`wc -l`, `Get-Content`, a naive `split`).
+ *
+ * So the display contract is: **no rendered tag may contain a character that
+ * can end a line** (CR, LF, and the Unicode separators), and no other C0/C1
+ * control either. `\r`/`\n`/`\t` become their two-character escapes (visible, so
+ * a reader can see that the value is not what it appears to be) and the rest
+ * become `?` — never dropped, because dropping text silently would make the
+ * label disagree with what is stored.
+ */
+const DISPLAY_UNSAFE = /[\p{Cc}\p{Cf}\u2028\u2029]/gu
+const NEWLINE_ESCAPES: Record<string, string> = { "\n": "\\n", "\r": "\\r", "\t": "\\t" }
+
+/**
+ * Neutralise a string so it cannot change the **line structure** of an output.
+ *
+ * Exported because it is the invariant itself, and the card's test asserts on
+ * it directly (a pure function, no process): the property is "the rendered form
+ * has the same number of lines as its clean counterpart", not "it contains no
+ * string I happened to enumerate" (R231).
+ */
+export function sanitizeTagForDisplay(value: string): string {
+  return value.replace(DISPLAY_UNSAFE, (char) => NEWLINE_ESCAPES[char] ?? "?")
+}
+
+/**
  * Redacted, attribution-only tags, for a **rendered** surface.
  *
  * Redaction happens on the write path from EVO-G75 onwards, but a row written by
@@ -171,9 +204,22 @@ export function attributionTags(tags: Record<string, string> | undefined): Recor
  * `UsageEvent.tags` keeps the raw value on purpose: EVO-G73 reconciliation reads
  * it and the contract for that card is that the provider's original text is
  * preserved. Redaction is applied at the edge, not to the data.
+ *
+ * EVO-G82 adds **`sanitizeTagForDisplay` to that same edge**: the two renderers
+ * below (`tagsToText` for the CSV cell, `tagLabelForDisplay` for the breakdown
+ * table) are the only consumers of this function, so normalising here is what
+ * makes "a tag can never add, remove or split a line" one invariant instead of
+ * two half-invariants. The store keeps the raw value untouched — this is a
+ * read-side transform, and `byTag()` keys are unaffected, so a tag with a
+ * newline still groups as one bucket.
  */
 export function redactTagsForDisplay(tags: Record<string, string> | undefined): Record<string, string> {
-  return redactDeep(attributionTags(tags))
+  const redacted = redactDeep(attributionTags(tags))
+  const output: Record<string, string> = {}
+  for (const [key, value] of Object.entries(redacted)) {
+    output[sanitizeTagForDisplay(key)] = sanitizeTagForDisplay(value)
+  }
+  return output
 }
 
 /**
@@ -192,7 +238,12 @@ export function tagsToText(tags: Record<string, string> | undefined): string {
  * row written before EVO-G75 must not leak through this path either. `redact()`
  * sees the whole `key=value` string, so both halves are covered (a
  * secret-looking key clears the value, and a credential-shaped value is masked).
+ *
+ * The breakdown key comes straight from `byTag()` — the **stored** text, not a
+ * value that passed through `redactTagsForDisplay` — so EVO-G82 sanitises here
+ * too: this is the table's cell, and a stored newline would otherwise become a
+ * second (forged-looking) row inside it.
  */
 export function tagLabelForDisplay(key: string): string {
-  return redact(key)
+  return sanitizeTagForDisplay(redact(key))
 }

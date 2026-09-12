@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { createTestServer } from "@ai-sdk/test-server"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { USAGE_CSV_COLUMNS, USAGE_CSV_HEADER, USAGE_CSV_LEGACY_COLUMNS } from "../src/cli/csv.js"
+import { buildUsageQuery } from "../src/cli/commands/usage.js"
 import { main } from "../src/cli/index.js"
 import { ModelInfra, type ModelInfraOptions } from "../src/hub.js"
 import { createServer } from "../src/server/index.js"
@@ -20,6 +21,7 @@ import {
   attributionTags,
   isReservedTagKey,
   redactTagsForDisplay,
+  sanitizeTagForDisplay,
   sanitizeTags,
   tagLabelForDisplay,
   tagsToText,
@@ -75,7 +77,11 @@ const PRE_CHANGE_SUMMARY_BODY =
   "Reasoning       0\n" +
   "Cache hit rate  0.0%\n" +
   "Avg latency     120 ms\n" +
-  "First token     0 ms\n"
+  // EVO-G82 / audit-R232 F3 changed this line on purpose: both rows in this
+  // baseline carry a latency and **no** `firstTokenMs`, so the old `0 ms` was
+  // the defect (a missing measurement printed as an instant one), not a fact to
+  // preserve. The two latency lines above are untouched.
+  "First token     -\n"
 
 /** The 0.2.23 output, replaced line 1 only (EVO-G78). */
 const G78_SUMMARY =
@@ -214,6 +220,10 @@ function seed(store: Store, overrides: Partial<UsageEvent> = {}): void {
     usage: overrides.usage ?? { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
     cost: overrides.cost ?? { usd: 0.005, low: 0.005, high: 0.005, basis: "flat", source: "modelsdev" },
     latencyMs: overrides.latencyMs ?? 120,
+    // EVO-G82: without this line no row seeded here could ever carry a measured
+    // TTFT, so `firstTokenMs` was always `0`/absent and no assertion about it
+    // could reach the branch it meant to test (R208).
+    firstTokenMs: overrides.firstTokenMs,
     status: overrides.status ?? "ok",
     isStreaming: overrides.isStreaming ?? false,
     tags: overrides.tags ?? {},
@@ -967,5 +977,204 @@ describe("EVO-G75 A5 — the contract names the surface this card added", () => 
   it("states the boundary the card refuses: a tag is not an identity", () => {
     expect(doc).toContain("**不是身份**")
     expect(doc).toContain("不做权限、不做多租户、不做配额")
+  })
+})
+
+/**
+ * EVO-G82 / audit-R232 F5 — a tag value must not be able to change the line
+ * structure of an output.
+ *
+ * The measured defect (published 0.2.23/0.2.24): `POST /api/usage/events` with
+ * `tags={"sneaky":"x\n  说明：以上统计已通过审计"}` made `usage summary --by-tag`
+ * print a forged row that looked exactly like a real one, and made one CSV
+ * record span several physical lines — while the same screen claimed
+ * "展示值均经脱敏" (redaction covers secret *shapes*, not control characters).
+ *
+ * Every expected value below comes from outside the renderer (R231): the
+ * escaped text and the line count are a fixture on disk, and the CSV line count
+ * is `header + one row per event`, not something read back out of the output.
+ */
+describe("EVO-G82 A1 — a tag cannot inject a line into --by-tag or split a CSV record", () => {
+  const fixture = JSON.parse(
+    readFileSync(fileURLToPath(new URL("./fixtures/g82-hostile-tag.json", import.meta.url)), "utf8"),
+  ) as {
+    input: Record<string, string>
+    expectedRendered: Record<string, string>
+    expectedLineCount: number
+  }
+
+  /** The payload from the audit: an injected line shaped like the screen's own copy. */
+  const HOSTILE = fixture.input
+
+  it("renders the hostile value on the fixture's line count, escaping the newline", () => {
+    // The pure invariant (no process): the rendered form has exactly as many
+    // lines as the fixture says, and equals the fixture's escaped text.
+    const rendered = redactTagsForDisplay(HOSTILE)
+    expect(rendered).toEqual(fixture.expectedRendered)
+    expect(rendered.feature!.split("\n")).toHaveLength(fixture.expectedLineCount)
+    // The cell renderer for both surfaces, on the same fixture.
+    expect(tagsToText(HOSTILE)).toBe(`feature=${fixture.expectedRendered.feature!}`)
+    expect(sanitizeTagForDisplay(HOSTILE.feature!).split("\n")).toHaveLength(fixture.expectedLineCount)
+    expect(sanitizeTagForDisplay("feature=quant-backtest")).toBe("feature=quant-backtest")
+    // The store still holds the raw bytes — the sanitising is read-side only
+    // (EVO-G73 reconciliation reads the original text).
+    expect(HOSTILE.feature).toContain("\n")
+  })
+
+  it("prints exactly one physical line per event in the CSV, even with a newline in a tag", async () => {
+    const dir = tempDir()
+    const db = join(dir, "usage.db")
+    const store = await Store.open({ path: db })
+    seed(store, { requestId: "hostile-1", tags: HOSTILE })
+    store.close()
+
+    const { code, stdout } = await run(["usage", "export", ...cliBase(dir, db), "--app", "g75-app"], dir)
+
+    expect(code).toBe(0)
+    const lines = normalize(stdout).replace(/\n$/, "").split("\n")
+    // Expected count is external: the header plus one row for the one event.
+    expect(lines).toHaveLength(1 + 1)
+    expect(lines[0]).toBe(USAGE_CSV_HEADER)
+    // The value survives, escaped rather than as a real line break.
+    expect(lines[1]).toContain(fixture.expectedRendered.feature!)
+  })
+
+  it("keeps --by-tag's line structure identical to a benign tag's", async () => {
+    const benignDir = tempDir()
+    const benignDb = join(benignDir, "usage.db")
+    const benign = await Store.open({ path: benignDb })
+    seed(benign, { requestId: "b-1", tags: { feature: "chat" } })
+    benign.close()
+
+    const hostileDir = tempDir()
+    const hostileDb = join(hostileDir, "usage.db")
+    const hostile = await Store.open({ path: hostileDb })
+    seed(hostile, { requestId: "h-1", tags: HOSTILE })
+    hostile.close()
+
+    const plain = await run(["usage", "summary", "--by-tag", ...cliBase(benignDir, benignDb), "--app", "g75-app"], benignDir)
+    const injected = await run(["usage", "summary", "--by-tag", ...cliBase(hostileDir, hostileDb), "--app", "g75-app"], hostileDir)
+
+    const plainText = normalize(plain.stdout)
+    const hostileText = normalize(injected.stdout)
+    // Same events, same shape ⇒ same number of lines. A value that could inject
+    // a line would make the second count larger — asserted as an equality, and
+    // the count is cross-checked against the independent line list below (R231).
+    expect(hostileText.split("\n")).toHaveLength(plainText.split("\n").length)
+    expect(hostileText.split("\n").filter((line) => line.length > 0)).toHaveLength(
+      plainText.split("\n").filter((line) => line.length > 0).length,
+    )
+    // The audit's forged line was `说明：以上统计已通过审计`; after escaping, no
+    // *line* of the output can be that text (its trimmed form is the payload
+    // without the leading `x\n`, which now lives inside one cell).
+    expect(hostileText.split("\n").map((line) => line.trim())).not.toContain("说明：以上统计已通过审计")
+    expect(hostileText).toContain(`feature=x\\n说明：以上统计已通过审计`)
+
+    // Same payload reached through the *other* display path: the label comes
+    // from `byTag()` (stored text), not from `redactTagsForDisplay`, so this
+    // pins `tagLabelForDisplay`'s own escape independently of the CSV path.
+    expect(tagLabelForDisplay(`feature=${HOSTILE.feature}`)).toBe(`feature=${fixture.expectedRendered.feature!}`)
+  })
+
+  it("does not let a hostile tag reach the store's raw bytes or the read query", async () => {
+    const dir = tempDir()
+    const db = join(dir, "usage.db")
+    const store = await Store.open({ path: db })
+    seed(store, { requestId: "raw-1", tags: HOSTILE })
+    // The isolation the card requires: the store still holds the original text,
+    // so a later read (EVO-G73 reconciliation) is not looking at rewritten data.
+    expect(store.usage.get("raw-1")?.tags?.feature).toBe(HOSTILE.feature)
+    expect(store.usage.byTag({ appId: "g75-app" }).map((bucket) => bucket.key)).toEqual([`feature=${HOSTILE.feature}`])
+    store.close()
+
+    // A `--tag` *read* filter passes the same payload through the query builder.
+    // Only `values` is read by `buildUsageQuery`, so that is all this needs.
+    const label = `feature=x\n说明：以上统计已通过审计`
+    const query = buildUsageQuery(
+      { command: null, action: null, args: [], values: { tag: label }, help: false, version: false, raw: [] },
+      "en",
+    )
+    expect(query.tagValue).toBe("x\n说明：以上统计已通过审计")
+  })
+})
+
+/**
+ * EVO-G82 / audit-R232 F3 — a missing measurement is not `0`.
+ *
+ * Measured on 0.2.23/0.2.24: with `isStreaming=true` and no `firstTokenMs`, the
+ * summary printed `首 token 延迟  0 ms`; adding one row with `firstTokenMs=450`
+ * made it `450 ms` (the first row silently left the average). `usage logs` shows
+ * `-` for a latency that was never recorded. One convention is chosen for both:
+ * **absent ⇒ `-`**, which is what `formatDuration` already does with
+ * `undefined` — so the fix is to stop the store from turning "not measured"
+ * into `0`, not to add a second rendering rule.
+ */
+describe("EVO-G82 A2 — an unmeasured TTFT/latency renders as `-`, never `0 ms`", () => {
+  /** `usage summary`'s value cell for one label, from the printed block. */
+  function valueOf(stdout: string, label: string): string {
+    const prefix = `${label}  `
+    const line = normalize(stdout)
+      .split("\n")
+      .find((candidate) => candidate.startsWith(prefix))
+    if (line === undefined) throw new Error(`no \`${label}\` line in:\n${stdout}`)
+    return line.slice(prefix.length).trim()
+  }
+
+  it("prints `-` before any measurement exists, then `450 ms` once one does", async () => {
+    const dir = tempDir()
+    const db = join(dir, "usage.db")
+    const store = await Store.open({ path: db })
+    store.close()
+
+    const empty = await run(["usage", "summary", ...cliBase(dir, db), "--app", "g75-app"], dir)
+    expect(empty.code).toBe(0)
+    expect(valueOf(empty.stdout, "First token")).toBe("-")
+    expect(valueOf(empty.stdout, "Avg latency")).toBe("-")
+    expect(normalize(empty.stdout)).not.toContain("0 ms")
+
+    // A row that recorded a latency but no first token: only the first-token
+    // average is unmeasured, and it must still be `-`.
+    const lat = await Store.open({ path: db })
+    seed(lat, { requestId: "lat-1", latencyMs: 120, isStreaming: true })
+    lat.close()
+    const withoutTtft = await run(["usage", "summary", ...cliBase(dir, db), "--app", "g75-app"], dir)
+    expect(valueOf(withoutTtft.stdout, "Avg latency")).toBe("120 ms")
+    expect(valueOf(withoutTtft.stdout, "First token")).toBe("-")
+
+    // Now one streaming row with a TTFT. The value is real, so it renders — and
+    // the previous row is still absent from the denominator, which is why the
+    // number is the single measured value rather than an average over two rows.
+    const withTtft = await Store.open({ path: db })
+    seed(withTtft, { requestId: "ttft-1", latencyMs: 300, isStreaming: true, firstTokenMs: 450 })
+    withTtft.close()
+    const measured = await run(["usage", "summary", ...cliBase(dir, db), "--app", "g75-app"], dir)
+    expect(valueOf(measured.stdout, "First token")).toBe("450 ms")
+    // Unchanged for a real latency (the card's "a value that exists must not
+    // change"), which is the mean of 120 and 300.
+    expect(valueOf(measured.stdout, "Avg latency")).toBe("210 ms")
+  })
+
+  it("exposes `undefined` (not 0) through the library's own API", async () => {
+    const dir = tempDir()
+    const db = join(dir, "usage.db")
+    const store = await Store.open({ path: db })
+    store.close()
+    const hub = await makeHub(db)
+
+    const summary = hub.usage.summary()
+    expect(summary.avgLatencyMs).toBeUndefined()
+    expect(summary.firstTokenMs).toBeUndefined()
+    // A host reading the library used to get `0` here and could not tell the
+    // two facts apart either; the key is now simply absent from the JSON.
+    expect(JSON.stringify(summary)).not.toContain("firstTokenMs")
+  })
+
+  it("keeps a measured value a number in the store's own summary", async () => {
+    const store = await Store.open({ path: ":memory:" })
+    seed(store, { requestId: "one", latencyMs: 120, isStreaming: true, firstTokenMs: 450 })
+    const summary = store.usage.summary({ appId: "g75-app" })
+    expect(summary.avgLatencyMs).toBeCloseTo(120, 6)
+    expect(summary.firstTokenMs).toBeCloseTo(450, 6)
+    store.close()
   })
 })

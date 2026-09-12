@@ -372,8 +372,12 @@ export class UsageRepository {
       costHighUsd: fromMicroUsd(total.highMicro),
       tokens: total.tokens,
       cacheHitRate: billableInput === 0 ? 0 : total.tokens.cacheRead / billableInput,
-      avgLatencyMs: total.latencyCount === 0 ? 0 : total.latencySum / total.latencyCount,
-      firstTokenMs: total.firstTokenCount === 0 ? 0 : total.firstTokenSum / total.firstTokenCount,
+      // EVO-G82 (audit R232 F3): no measurement is `undefined`, not `0`. Both of
+      // these used to fall back to `0`, which the CLI rendered as `0 ms` — the
+      // reader could not tell "instant" from "never recorded". `formatDuration`
+      // already maps `undefined` to `-`, so this is the one convention.
+      avgLatencyMs: total.latencyCount === 0 ? undefined : total.latencySum / total.latencyCount,
+      firstTokenMs: total.firstTokenCount === 0 ? undefined : total.firstTokenSum / total.firstTokenCount,
     }
   }
 
