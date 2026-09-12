@@ -9,6 +9,15 @@ export interface FlagSpec {
   short?: string
   placeholder?: string
   description: string
+  /**
+   * i18n key for `description` (EVO-G58).
+   *
+   * `description` stays the single source of English truth: `help.ts` renders
+   * `text(lang, descriptionKey, description)`, and `text()` falls back to the
+   * literal when the key is missing or empty. So `MIK_LANG=en` is byte-identical
+   * by construction, and a spec added without a key is English rather than blank.
+   */
+  descriptionKey?: string
 }
 
 export interface ActionSpec {
@@ -48,32 +57,49 @@ const FLAG_DB: FlagSpec = {
   type: "string",
   placeholder: "<path>",
   description: "SQLite database file (default ~/.model-infra-kit/usage.db)",
+  descriptionKey: "help.flag.db",
 }
 const FLAG_APP_ID: FlagSpec = {
   name: "app-id",
   type: "string",
   placeholder: "<id>",
   description: "Owning application id (default: default)",
+  descriptionKey: "help.flag.appId",
 }
 const FLAG_CONFIG: FlagSpec = {
   name: "config",
   type: "string",
   placeholder: "<path>",
   description: "CLI config file (default ./mik.config.json)",
+  descriptionKey: "help.flag.config",
 }
 const FLAG_CACHE_DIR: FlagSpec = {
   name: "cache-dir",
   type: "string",
   placeholder: "<path>",
   description: "Pricing catalogue cache directory",
+  descriptionKey: "help.flag.cacheDir",
 }
 const FLAG_OFFLINE: FlagSpec = {
   name: "offline",
   type: "boolean",
   description: "Never touch the network (skip catalogue sync and provider probes)",
+  descriptionKey: "help.flag.offline",
 }
-const FLAG_HELP: FlagSpec = { name: "help", type: "boolean", short: "h", description: "Show help" }
-const FLAG_VERSION: FlagSpec = { name: "version", type: "boolean", short: "v", description: "Show version" }
+const FLAG_HELP: FlagSpec = {
+  name: "help",
+  type: "boolean",
+  short: "h",
+  description: "Show help",
+  descriptionKey: "help.flag.help",
+}
+const FLAG_VERSION: FlagSpec = {
+  name: "version",
+  type: "boolean",
+  short: "v",
+  description: "Show version",
+  descriptionKey: "help.flag.version",
+}
 
 export const GLOBAL_FLAGS: readonly FlagSpec[] = [
   FLAG_DB,
@@ -85,14 +111,27 @@ export const GLOBAL_FLAGS: readonly FlagSpec[] = [
   FLAG_VERSION,
 ]
 
-const FLAG_PORT_SERVE: FlagSpec = { name: "port", type: "string", placeholder: "<n>", description: "Listen port (default 3211)" }
-const FLAG_HOST: FlagSpec = { name: "host", type: "string", placeholder: "<host>", description: "Bind host (default 127.0.0.1)" }
+const FLAG_PORT_SERVE: FlagSpec = {
+  name: "port",
+  type: "string",
+  placeholder: "<n>",
+  description: "Listen port (default 3211)",
+  descriptionKey: "help.flag.servePort",
+}
+const FLAG_HOST: FlagSpec = {
+  name: "host",
+  type: "string",
+  placeholder: "<host>",
+  description: "Bind host (default 127.0.0.1)",
+  descriptionKey: "help.flag.host",
+}
 const FLAG_TOKEN: FlagSpec = {
   name: "token",
   type: "string",
   placeholder: "<token>",
   description:
     "Require Authorization: Bearer <token> on write endpoints; without it (and without MIK_SERVER_TOKEN) only read endpoints are open and every write returns 401",
+  descriptionKey: "help.flag.token",
 }
 const FLAG_CORS: FlagSpec = {
   name: "cors",
@@ -100,18 +139,21 @@ const FLAG_CORS: FlagSpec = {
   placeholder: "<origin>",
   description:
     "Allow cross-origin browser access; use '*' for any origin, or a specific origin like https://app.example (default: off)",
+  descriptionKey: "help.flag.cors",
 }
 const FLAG_PORT_DASHBOARD: FlagSpec = {
   name: "port",
   type: "string",
   placeholder: "<n>",
   description: "Dashboard port (default 3210)",
+  descriptionKey: "help.flag.dashboardPort",
 }
 const FLAG_DIR: FlagSpec = {
   name: "dir",
   type: "string",
   placeholder: "<path>",
   description: "Dashboard app directory (default: auto-detected apps/dashboard)",
+  descriptionKey: "help.flag.dir",
 }
 const FLAG_PROVIDER_PRESET: FlagSpec = {
   name: "preset",
@@ -119,134 +161,173 @@ const FLAG_PROVIDER_PRESET: FlagSpec = {
   placeholder: "<presetId>",
   description:
     "Provider preset id (e.g. openai, anthropic, deepseek, openrouter; fills protocol, base URL and env var)",
+  descriptionKey: "help.flag.preset",
 }
 const FLAG_BASE_URL: FlagSpec = {
   name: "base-url",
   type: "string",
   placeholder: "<url>",
   description: "Endpoint override",
+  descriptionKey: "help.flag.baseUrl",
 }
 const FLAG_API_KEY_REF: FlagSpec = {
   name: "api-key-ref",
   type: "string",
   placeholder: "<ref>",
   description: "Credential reference: env:VAR, file:path or keychain:service (never a plaintext key)",
+  descriptionKey: "help.flag.apiKeyRef",
 }
-const FLAG_NAME: FlagSpec = { name: "name", type: "string", placeholder: "<name>", description: "Display name" }
+const FLAG_NAME: FlagSpec = {
+  name: "name",
+  type: "string",
+  placeholder: "<name>",
+  description: "Display name",
+  descriptionKey: "help.flag.name",
+}
 const FLAG_PROTOCOL: FlagSpec = {
   name: "protocol",
   type: "string",
   placeholder: "<p>",
   description: "Wire protocol (openai-compatible | openai | anthropic | google | deepseek | moonshotai | xai)",
+  descriptionKey: "help.flag.protocol",
 }
-const FLAG_YES: FlagSpec = { name: "yes", type: "boolean", short: "y", description: "Do not ask for confirmation" }
-const FLAG_FORCE: FlagSpec = { name: "force", type: "boolean", description: "Overwrite an existing config file" }
+const FLAG_YES: FlagSpec = {
+  name: "yes",
+  type: "boolean",
+  short: "y",
+  description: "Do not ask for confirmation",
+  descriptionKey: "help.flag.yes",
+}
+const FLAG_FORCE: FlagSpec = {
+  name: "force",
+  type: "boolean",
+  description: "Overwrite an existing config file",
+  descriptionKey: "help.flag.force",
+}
 const FLAG_INIT_PROVIDER: FlagSpec = {
   name: "provider",
   type: "string",
   placeholder: "<presetId>",
   description: "First provider preset to register (omit to register no provider)",
+  descriptionKey: "help.flag.initProvider",
 }
 const FLAG_INIT_FILE: FlagSpec = {
   name: "file",
   type: "string",
   placeholder: "<path>",
   description: "Config file to write (default ./mik.config.json)",
+  descriptionKey: "help.flag.initFile",
 }
 const FLAG_PROVIDER_FILTER: FlagSpec = {
   name: "provider",
   type: "string",
   placeholder: "<id>",
   description: "Only this provider",
+  descriptionKey: "help.flag.providerFilter",
 }
 const FLAG_REFRESH: FlagSpec = {
   name: "refresh",
   type: "boolean",
   description: "Re-discover models from the provider API (needs network and a key)",
+  descriptionKey: "help.flag.refresh",
 }
 const FLAG_PRICE_INPUT: FlagSpec = {
   name: "input",
   type: "string",
   placeholder: "<usd/M>",
   description: "Input price per million tokens",
+  descriptionKey: "help.flag.priceInput",
 }
 const FLAG_PRICE_OUTPUT: FlagSpec = {
   name: "output",
   type: "string",
   placeholder: "<usd/M>",
   description: "Output price per million tokens",
+  descriptionKey: "help.flag.priceOutput",
 }
 const FLAG_PRICE_CACHE_READ: FlagSpec = {
   name: "cache-read",
   type: "string",
   placeholder: "<usd/M>",
   description: "Cache-read price per million tokens",
+  descriptionKey: "help.flag.priceCacheRead",
 }
 const FLAG_PRICE_CACHE_WRITE: FlagSpec = {
   name: "cache-write",
   type: "string",
   placeholder: "<usd/M>",
   description: "Cache-write price per million tokens",
+  descriptionKey: "help.flag.priceCacheWrite",
 }
 const FLAG_DAYS: FlagSpec = {
   name: "days",
   type: "string",
   placeholder: "<n>",
   description: "Look back this many days (default 30)",
+  descriptionKey: "help.flag.days",
 }
 const FLAG_LIMIT: FlagSpec = {
   name: "limit",
   type: "string",
   placeholder: "<n>",
   description: "Maximum rows to return (default 20, max 1000)",
+  descriptionKey: "help.flag.limit",
 }
 const FLAG_OFFSET: FlagSpec = {
   name: "offset",
   type: "string",
   placeholder: "<n>",
   description: "Rows to skip",
+  descriptionKey: "help.flag.offset",
 }
 const FLAG_FORMAT: FlagSpec = {
   name: "format",
   type: "string",
   placeholder: "<fmt>",
   description: "Export format (csv)",
+  descriptionKey: "help.flag.format",
 }
 const FLAG_OUT: FlagSpec = {
   name: "out",
   type: "string",
   placeholder: "<path>",
   description: "Write to a file instead of stdout",
+  descriptionKey: "help.flag.out",
 }
 const FLAG_FROM: FlagSpec = {
   name: "from",
   type: "string",
   placeholder: "<date>",
   description: "Range start: YYYY-MM-DD, ISO timestamp or epoch ms",
+  descriptionKey: "help.flag.from",
 }
 const FLAG_TO: FlagSpec = {
   name: "to",
   type: "string",
   placeholder: "<date>",
   description: "Range end, inclusive when a plain date is given",
+  descriptionKey: "help.flag.to",
 }
 const FLAG_APP: FlagSpec = {
   name: "app",
   type: "string",
   placeholder: "<appId>",
   description: "Filter by owning application id",
+  descriptionKey: "help.flag.app",
 }
 const FLAG_MODEL: FlagSpec = {
   name: "model",
   type: "string",
   placeholder: "<id>",
   description: "Filter by model id",
+  descriptionKey: "help.flag.model",
 }
 const FLAG_STATUS: FlagSpec = {
   name: "status",
   type: "string",
   placeholder: "<ok|error>",
   description: "Filter by request status",
+  descriptionKey: "help.flag.status",
 }
 
 const QUERY_FLAGS: readonly FlagSpec[] = [FLAG_FROM, FLAG_TO, FLAG_APP, FLAG_PROVIDER_FILTER, FLAG_MODEL, FLAG_STATUS]

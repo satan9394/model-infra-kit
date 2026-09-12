@@ -266,4 +266,72 @@ export const en: Record<string, string> = {
   "context.warning.notObject": "warning: %s is not a JSON object; ignoring it.",
   "context.warning.unreadable": "warning: could not read %s (%s); ignoring it.",
   "context.warning.prefix": "warning:",
+  // EVO-G58 — `--help` option descriptions and `details` paragraphs.
+  //
+  // Every value here is byte-identical to the literal it replaces in
+  // `src/cli/args.ts`, which stays the single source of the English wording. The
+  // duplication is forced by the strict zh/en key parity gate in
+  // `test/i18n.test.ts`; `test/cli-help-options-i18n.test.ts` pins each value to
+  // its `args.ts` literal so the two copies cannot drift apart.
+  "help.flag.db": "SQLite database file (default ~/.model-infra-kit/usage.db)",
+  "help.flag.appId": "Owning application id (default: default)",
+  "help.flag.config": "CLI config file (default ./mik.config.json)",
+  "help.flag.cacheDir": "Pricing catalogue cache directory",
+  "help.flag.offline": "Never touch the network (skip catalogue sync and provider probes)",
+  "help.flag.help": "Show help",
+  "help.flag.version": "Show version",
+  "help.flag.servePort": "Listen port (default 3211)",
+  "help.flag.host": "Bind host (default 127.0.0.1)",
+  "help.flag.token":
+    "Require Authorization: Bearer <token> on write endpoints; without it (and without MIK_SERVER_TOKEN) only read endpoints are open and every write returns 401",
+  "help.flag.cors":
+    "Allow cross-origin browser access; use '*' for any origin, or a specific origin like https://app.example (default: off)",
+  "help.flag.dashboardPort": "Dashboard port (default 3210)",
+  "help.flag.dir": "Dashboard app directory (default: auto-detected apps/dashboard)",
+  "help.flag.preset":
+    "Provider preset id (e.g. openai, anthropic, deepseek, openrouter; fills protocol, base URL and env var)",
+  "help.flag.baseUrl": "Endpoint override",
+  "help.flag.apiKeyRef": "Credential reference: env:VAR, file:path or keychain:service (never a plaintext key)",
+  "help.flag.name": "Display name",
+  "help.flag.protocol": "Wire protocol (openai-compatible | openai | anthropic | google | deepseek | moonshotai | xai)",
+  "help.flag.yes": "Do not ask for confirmation",
+  "help.flag.force": "Overwrite an existing config file",
+  "help.flag.initProvider": "First provider preset to register (omit to register no provider)",
+  "help.flag.initFile": "Config file to write (default ./mik.config.json)",
+  "help.flag.providerFilter": "Only this provider",
+  "help.flag.refresh": "Re-discover models from the provider API (needs network and a key)",
+  "help.flag.priceInput": "Input price per million tokens",
+  "help.flag.priceOutput": "Output price per million tokens",
+  "help.flag.priceCacheRead": "Cache-read price per million tokens",
+  "help.flag.priceCacheWrite": "Cache-write price per million tokens",
+  "help.flag.days": "Look back this many days (default 30)",
+  "help.flag.limit": "Maximum rows to return (default 20, max 1000)",
+  "help.flag.offset": "Rows to skip",
+  "help.flag.format": "Export format (csv)",
+  "help.flag.out": "Write to a file instead of stdout",
+  "help.flag.from": "Range start: YYYY-MM-DD, ISO timestamp or epoch ms",
+  "help.flag.to": "Range end, inclusive when a plain date is given",
+  "help.flag.app": "Filter by owning application id",
+  "help.flag.model": "Filter by model id",
+  "help.flag.status": "Filter by request status",
+  // `help.details.init.2` is absent on purpose: it is the verbatim command
+  // example, which is data and must not be "translated".
+  "help.details.init.0": "Prompts when stdin is a terminal; otherwise it uses the flags and defaults.",
+  "help.details.init.1": "Without --provider no provider is registered at all; add one later with",
+  "help.details.init.3": "The first provider is registered in the database; the config only records",
+  "help.details.init.4": "the intent so a later run cannot resurrect a removed provider.",
+  "help.details.serve.0": "Refuses to start when the port is already in use.",
+  "help.details.serve.1": "Prefer the MIK_SERVER_TOKEN environment variable over --token: command-line",
+  "help.details.serve.2": "arguments are visible to other processes. The token is never printed.",
+  "help.details.serve.3": "Without --token (and without MIK_SERVER_TOKEN) the default policy stands:",
+  "help.details.serve.4": "GET endpoints stay open and every write endpoint answers 401.",
+  "help.details.serve.5": "--cors enables browser access: '*' for any origin, or a specific origin",
+  "help.details.serve.6": "(https://app.example). Off by default, so browser code must go through a",
+  "help.details.serve.7": "same-origin proxy unless --cors is given.",
+  "help.details.dashboard.0": "Refuses to start when the port is already in use.",
+  "help.details.provider.add.0": "Secrets are referenced, never stored: use --api-key-ref env:VAR or file:path.",
+  "help.details.provider.add.1": "Without --api-key-ref the provider falls back to the preset's environment",
+  "help.details.provider.add.2": "variable and the CLI says so instead of storing anything.",
+  "help.details.pricing.sync.0": "Requires network access; --offline makes this fail fast.",
+  "help.details.pricing.set.0": "At least one of --input or --output is required.",
 }

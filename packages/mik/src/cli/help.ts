@@ -12,6 +12,12 @@ import { readVersion } from "./version.js"
  *
  * Only the frame is translated: command names, flag names and the `usage:`
  * examples stay English because they are copy-pasteable literals.
+ *
+ * EVO-G58 extends that to the *descriptions*: each flag carries an optional
+ * `descriptionKey`, and a command/action `details` line is looked up as
+ * `help.details.<command>[.<action>].<index>`. Both go through `text()`, whose
+ * fallback is the `args.ts` literal — so a missing key means English (never a
+ * blank column) and English output stays byte-identical.
  */
 function text(lang: Lang, key: string, fallback: string): string {
   const translated = tr(lang, key)
@@ -34,10 +40,28 @@ function flagLine(spec: FlagSpec): string {
   return `  ${short}--${spec.name}${value}`
 }
 
-function flagBlock(flags: readonly FlagSpec[]): string[] {
+function flagBlock(flags: readonly FlagSpec[], lang: Lang): string[] {
   const lines = flags.map(flagLine)
   const width = Math.max(0, ...lines.map((line) => line.length))
-  return flags.map((spec, index) => `${(lines[index] ?? "").padEnd(width)}  ${spec.description}`)
+  // The description column is localized (EVO-G58); the column width is computed
+  // from the flag names only, so alignment cannot shift with the language.
+  return flags.map((spec, index) => {
+    const description = text(lang, spec.descriptionKey ?? "", spec.description)
+    return `${(lines[index] ?? "").padEnd(width)}  ${description}`
+  })
+}
+
+/**
+ * Localized `details` paragraph for a command (`help.details.serve.4`) or an
+ * action (`help.details.provider.add.1`).
+ *
+ * A line with no dictionary entry in either language keeps its literal: that is
+ * how the embedded command examples (`mik provider add <id> --preset …`) stay
+ * copy-pasteable instead of being translated into something unrunnable.
+ */
+function detailBlock(stem: string, details: readonly string[] | undefined, lang: Lang): string[] {
+  if (!details) return []
+  return details.map((line, index) => text(lang, `${stem}.${index}`, line))
 }
 
 export function renderRootHelp(lang: Lang = "en"): string {
@@ -57,7 +81,7 @@ export function renderRootHelp(lang: Lang = "en"): string {
     ...commands,
     "",
     text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"),
-    ...flagBlock(GLOBAL_FLAGS),
+    ...flagBlock(GLOBAL_FLAGS, lang),
     "",
     text(lang, "help.heading.examples", "EXAMPLES"),
     "  mik init --app-id my-app --provider <presetId>",
@@ -90,10 +114,10 @@ export function renderCommandHelp(command: CommandSpec, lang: Lang = "en"): stri
     }
   }
   if (command.flags && command.flags.length > 0) {
-    lines.push("", text(lang, "help.heading.options", "OPTIONS"), ...flagBlock(command.flags))
+    lines.push("", text(lang, "help.heading.options", "OPTIONS"), ...flagBlock(command.flags, lang))
   }
-  lines.push("", text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"), ...flagBlock(GLOBAL_FLAGS))
-  if (command.details) lines.push("", ...command.details)
+  lines.push("", text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"), ...flagBlock(GLOBAL_FLAGS, lang))
+  if (command.details) lines.push("", ...detailBlock(`help.details.${command.name}`, command.details, lang))
   return lines.join("\n")
 }
 
@@ -105,10 +129,12 @@ export function renderActionHelp(command: CommandSpec, action: ActionSpec, lang:
     `  ${action.usage}`,
   ]
   if (action.flags && action.flags.length > 0) {
-    lines.push("", text(lang, "help.heading.options", "OPTIONS"), ...flagBlock(action.flags))
+    lines.push("", text(lang, "help.heading.options", "OPTIONS"), ...flagBlock(action.flags, lang))
   }
-  lines.push("", text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"), ...flagBlock(GLOBAL_FLAGS))
-  if (action.details) lines.push("", ...action.details)
+  lines.push("", text(lang, "help.heading.globalOptions", "GLOBAL OPTIONS"), ...flagBlock(GLOBAL_FLAGS, lang))
+  if (action.details) {
+    lines.push("", ...detailBlock(`help.details.${command.name}.${action.name}`, action.details, lang))
+  }
   return lines.join("\n")
 }
 
