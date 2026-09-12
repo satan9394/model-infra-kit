@@ -41,7 +41,7 @@ export const zh: Record<string, string> = {
   "init.providerRegisterFailed": "警告：无法注册供应商「%s」：%s",
   "init.stepSetEnvKey": "  1. 设置 %s（或使用 --api-key-ref file:~/.model-infra-kit/secrets/%s-api-key）",
   "init.stepAddProvider": "  1. %s：mik provider add %s --api-key-ref env:VAR",
-  "init.stepAddDeepseek": "  1. %s：mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY",
+  "init.stepAddFirstProvider": "  1. %s：mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR>（预设：%s）",
   "wizard.appId": "应用 id [%s]: ",
   "wizard.db": "SQLite 数据库路径 [%s]: ",
   "wizard.provider": "首个供应商预设（留空跳过）[%s]: ",
@@ -50,7 +50,11 @@ export const zh: Record<string, string> = {
   "wizard.stepSetProvider": "设置供应商密钥后再继续",
   "wizard.stepTest": "测试连接 mik provider test <id>",
   "wizard.stepModels": "拉取模型目录 mik models --provider <id> --refresh",
-  "wizard.stepServe": "起服务 mik serve（OpenAI 兼容端点 127.0.0.1:3211）",
+  "wizard.stepServe": "2. 起服务（带上 token，写端点才会开启）：mik serve --token <token>（OpenAI 兼容端点 127.0.0.1:3211）",
+  "wizard.stepFirstCall": "3. 发出第一次调用（先跑 mik models --refresh 拉取目录，再从 GET /v1/models 读 <provider>:<model> 的模型 id）：",
+  "wizard.stepFirstCallCmd":
+    "     curl -s http://127.0.0.1:3211/v1/chat/completions -H \"Authorization: Bearer <token>\" " +
+    "-H \"Content-Type: application/json\" -d '{\"model\":\"<provider>:<model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}'",
   "wizard.stepDashboard": "开看板 mik dashboard（3210）",
   "wizard.stepRepl": "或直接运行 mik 进入交互模式（斜杠命令 /help）",
   // 框架级 CLI 面（EVO-G12）：`--help` 框架与 hub 打开前（拿不到 cli.lang）的用法错误。
@@ -118,6 +122,7 @@ export const zh: Record<string, string> = {
   "provider.add.noPreset": "未指定预设",
   "provider.add.hintCommand": "提示：mik provider add %s --preset <presetId> --api-key-ref %s",
   "provider.add.hintWriteSecret": "      （把密钥写入该文件后重新运行；明文密钥永远不会被当作引用接受）",
+  "provider.add.missingPackage": "  提示：该协议需要 %s，但当前无法解析。安装后写端点即可调用：npm i %s",
   "provider.error.badKeyRef":
     "--api-key-ref 必须是凭据引用，而不是密钥本身。明文密钥永远不会被存储。\n" +
     "  使用 env:VAR、file:path 或 keychain:service，例如 --api-key-ref env:DEEPSEEK_API_KEY\n" +
@@ -207,6 +212,7 @@ export const zh: Record<string, string> = {
   "serve.baseUrl": "OpenAI 兼容基址：%s",
   "serve.tokenRequired": "需要 Bearer token（不显示值）。",
   "serve.writeDisabled": "写端点已禁用：设置 --token 或 MIK_SERVER_TOKEN 启用。",
+  "serve.warn.missingPackage": "警告：缺少协议包 %s —— 写端点会返回 502。安装：npm i %s",
   "serve.corsOrigin": "已允许 CORS：%s",
   "serve.corsAny": "已允许任意来源的 CORS。",
   "serve.pressCtrlC": "按 Ctrl+C 停止。",

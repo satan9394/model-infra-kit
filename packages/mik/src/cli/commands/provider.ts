@@ -7,6 +7,7 @@ import { contextLang, invocationLang, requireArg, withContext, type RunOptions }
 import { CliRuntimeError, CliUsageError } from "../errors.js"
 import { formatTable, formatTimestamp } from "../format.js"
 import { tr, type Lang } from "../i18n.js"
+import { missingPackageForProtocol } from "../packages.js"
 import { isAffirmative, isInteractive, prompt } from "../prompt.js"
 
 const REF_PATTERN = /^(env|file|keychain):.+/i
@@ -136,6 +137,15 @@ async function runAdd(parsed: ParsedCli, options: RunOptions): Promise<number> {
     if (!apiKeyRef) {
       io.out("")
       io.out(tr(lang, "provider.add.verifyWith", record.id))
+    }
+    // EVO-G15 (G54): the `@ai-sdk/*` implementation is an optional peer, so a
+    // provider can be configured successfully and still 502 on its first call.
+    // Say so here, with the copy-pasteable install command, instead of letting
+    // the user discover it from a failed request. Silent when the package resolves.
+    const missingPackage = missingPackageForProtocol(record.protocol)
+    if (missingPackage) {
+      io.out("")
+      io.out(tr(lang, "provider.add.missingPackage", missingPackage, missingPackage))
     }
     return 0
   })

@@ -23,11 +23,14 @@ GLOBAL OPTIONS
   -v, --version           Show version
 
 EXAMPLES
-  mik init --app-id my-app --provider deepseek
-  mik provider add deepseek --preset deepseek --api-key-ref env:DEEPSEEK_API_KEY
-  mik provider test deepseek
-  mik models --provider deepseek --refresh
-  mik pricing set deepseek-chat --input 0.27 --output 1.10
+  mik init --app-id my-app --provider <presetId>
+  mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR>
+  mik provider test <id>
+  mik serve --token $MIK_SERVER_TOKEN
+  curl -s http://127.0.0.1:3211/v1/models   # after "mik models --refresh": ids for "<provider>:<model>"
+  curl -s http://127.0.0.1:3211/v1/chat/completions -H "Authorization: Bearer $MIK_SERVER_TOKEN" -H "Content-Type: application/json" -d '{"model":"<provider>:<model>","messages":[{"role":"user","content":"hi"}]}'
+  mik models --provider <id> --refresh
+  mik pricing set <modelId> --input 0.27 --output 1.10
   mik usage summary --from 2026-09-01
   mik usage export --format csv --out usage.csv
 

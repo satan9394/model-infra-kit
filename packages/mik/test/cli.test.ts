@@ -5,7 +5,7 @@ import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, s
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { afterAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { COMMANDS, parseCliArgs } from "../src/cli/args.js"
 import { openContext, offlineFetch } from "../src/cli/context.js"
 import { USAGE_CSV_HEADER, usageCsv, usageCsvRow } from "../src/cli/csv.js"
@@ -15,6 +15,8 @@ import { netstatShowsPort, portInUse } from "../src/cli/ports.js"
 import { CliUsageError } from "../src/cli/errors.js"
 import { findDashboardDir, findPnpmScript, missingDashboardError, walkUpFor } from "../src/cli/commands/dashboard.js"
 import { loadServerModule, resolveCorsFlag, resolveServerModuleUrl, serverModuleCandidates } from "../src/cli/commands/serve.js"
+import { setPackageResolver } from "../src/cli/packages.js"
+import { ModelInfra } from "../src/hub.js"
 import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
 import type { UsageEvent } from "../src/types.js"
@@ -1446,5 +1448,247 @@ describe("remaining CLI surface i18n (EVO-G14)", () => {
     expect(zh.code).toBe(0)
     expect(zh.stderr).toContain("警告：")
     expect(zh.stderr).not.toContain("warning: ")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EVO-G15 — the first successful call path (G54 / G55 / G56 / G59 / G62)
+// ---------------------------------------------------------------------------
+
+describe("first-call path (EVO-G15)", () => {
+  const ZH = { MIK_LANG: "zh" }
+  const EN = { MIK_LANG: "en" }
+
+  afterEach(() => {
+    setPackageResolver(null)
+  })
+
+  /** The "optional peer is absent" world, without uninstalling anything. */
+  const nothingInstalled = (): void => setPackageResolver(() => false)
+  /** The "everything is installed" world, so the notice is provably silent. */
+  const everythingInstalled = (): void => setPackageResolver(() => true)
+
+  it("G54 — `provider add` names the exact install command when the protocol package is missing", async () => {
+    const { dir, base } = sandbox()
+    nothingInstalled()
+    const result = await run(
+      ["provider", "add", "gw", "--base-url", "http://127.0.0.1:9/v1", "--api-key-ref", "env:GW_KEY", ...base],
+      dir,
+      EN,
+    )
+    expect(result.code).toBe(0)
+    // The package name comes from the single mapping in registry/presets.ts.
+    expect(result.stdout).toContain("@ai-sdk/openai-compatible")
+    expect(result.stdout).toContain("npm i @ai-sdk/openai-compatible")
+  })
+
+  it("G54 — prints the notice only when the package is missing (no banner noise)", async () => {
+    // Positive control in the same test: without it the negative half would be
+    // vacuously true and could never fail (G43).
+    const missing = sandbox()
+    nothingInstalled()
+    const warned = await run(
+      ["provider", "add", "gw", "--base-url", "http://127.0.0.1:9/v1", "--api-key-ref", "env:GW_KEY", ...missing.base],
+      missing.dir,
+      EN,
+    )
+    expect(warned.stdout).toContain("npm i @ai-sdk/openai-compatible")
+
+    const present = sandbox()
+    everythingInstalled()
+    const quiet = await run(
+      ["provider", "add", "gw", "--base-url", "http://127.0.0.1:9/v1", "--api-key-ref", "env:GW_KEY", ...present.base],
+      present.dir,
+      EN,
+    )
+    expect(quiet.code).toBe(0)
+    expect(quiet.stdout).toContain('Added provider "gw".')
+    expect(quiet.stdout).not.toContain("npm i @ai-sdk/")
+  })
+
+  it("G55 — `serve --help` describes the real default (no token → writes 401)", async () => {
+    const { dir } = sandbox()
+    const en = await run(["serve", "--help"], dir, EN)
+    expect(en.code).toBe(0)
+    expect(en.stdout).toContain("write endpoints")
+    expect(en.stdout).toContain("401")
+    expect(en.stdout).not.toContain("Require Authorization: Bearer <token> on the HTTP API\n")
+  })
+
+  it("G59 — `init --help` says that omitting --provider registers no provider", async () => {
+    const { dir } = sandbox()
+    const en = await run(["init", "--help"], dir, EN)
+    expect(en.code).toBe(0)
+    expect(en.stdout).toContain("Without --provider no provider is registered")
+  })
+
+  it("G59 — `init --yes` prints a numbered 1/2/3 path whose last step is a real call", async () => {
+    const { dir, base } = sandbox()
+    const result = await run(["init", "--yes", "--app-id", "g15", "--provider", "deepseek", ...base], dir, EN)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("  1. set DEEPSEEK_API_KEY")
+    expect(result.stdout).toContain("  2. start the service")
+    expect(result.stdout).toContain("  3. make the first call")
+    expect(result.stdout).toContain("/v1/chat/completions")
+    expect(result.stdout).toContain("GET /v1/models")
+  })
+
+  it("G59/G62 — the no-provider guide uses a placeholder plus the preset candidates, not a hardcoded deepseek", async () => {
+    const { dir, base } = sandbox()
+    const result = await run(
+      ["init", "--yes", "--app-id", "g15", "--file", join(dir, "other.json"), ...base],
+      dir,
+      EN,
+    )
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("mik provider add <id> --preset <presetId> --api-key-ref env:<ENV_VAR>")
+    expect(result.stdout).toContain("(presets: ")
+    expect(result.stdout).not.toContain("--preset deepseek")
+  })
+
+  it("G62 — the `--help` examples carry a copy-pasteable /v1/chat/completions call", async () => {
+    const { dir } = sandbox()
+    const en = await run(["--help"], dir, EN)
+    expect(en.code).toBe(0)
+    expect(en.stdout).toContain("/v1/chat/completions")
+    expect(en.stdout).toContain("mik serve --token")
+    expect(en.stdout).toContain("/v1/models")
+    // The hardcoded `deepseek` examples are gone (G59/G62).
+    expect(en.stdout).not.toContain("--preset deepseek")
+  })
+
+  it("G56 — the bare-model 400 points at `<provider>:<model>` and GET /v1/models", async () => {
+    const { dir, db } = sandbox()
+    const hub = await ModelInfra.init({
+      appId: "g15",
+      db,
+      pricingFetch: offlineFetch,
+      providers: [
+        { id: "gw", presetId: "custom-openai-compatible", baseUrl: "http://127.0.0.1:9/v1", apiKeyRef: "env:GW_KEY" },
+      ],
+    })
+    try {
+      // No default model is configured, so the bare name cannot be routed.
+      expect(() => hub.resolveModel("gpt-4o")).toThrowError(/<provider>:<model>/)
+      expect(() => hub.resolveModel("gpt-4o")).toThrowError(/GET \/v1\/models/)
+      expect(() => hub.resolveModel(undefined)).toThrowError(/GET \/v1\/models/)
+      // The library-layer wording stays English (G50 boundary).
+      expect(() => hub.resolveModel("gpt-4o")).toThrowError(/No default provider is configured/)
+    } finally {
+      await hub.close()
+    }
+  })
+
+  it("A3 — `provider list` prints the configured default model", async () => {
+    const { dir, db, base } = sandbox()
+    const hub = await ModelInfra.init({
+      appId: "g15",
+      db,
+      pricingFetch: offlineFetch,
+      providers: [
+        { id: "gw", presetId: "custom-openai-compatible", baseUrl: "http://127.0.0.1:9/v1", apiKeyRef: "env:GW_KEY" },
+      ],
+    })
+    hub.providers.setDefaultModel("gw:gpt-4o")
+    await hub.close()
+    const listed = await run(["provider", "list", ...base], dir, EN)
+    expect(listed.code).toBe(0)
+    expect(listed.stdout).toContain("Default model: gw:gpt-4o")
+  })
+
+  /** A free loopback port, so parallel runs cannot collide. */
+  async function freePort(): Promise<number> {
+    const probe = createServer()
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve))
+    const { port } = probe.address() as AddressInfo
+    await new Promise<void>((resolve) => probe.close(() => resolve()))
+    return port
+  }
+
+  /**
+   * Run `mik serve` until its banner is complete, then stop it with the signal
+   * `waitForShutdown` listens for.
+   *
+   * Vitest installs its own SIGINT handler, so those listeners are parked for
+   * the duration and restored afterwards — a manual `process.emit("SIGINT")`
+   * would otherwise reach them and tear down the worker. The loop also waits
+   * for the CLI's own listener to appear before emitting, because emitting with
+   * *no* listener would run Node's default action and kill the worker.
+   */
+  async function serveBanner(args: readonly string[], dir: string): Promise<Captured> {
+    const out: string[] = []
+    const err: string[] = []
+    const parked = process.listeners("SIGINT")
+    process.removeAllListeners("SIGINT")
+    try {
+      const done = main(args, {
+        io: { out: (text) => out.push(text), err: (text) => err.push(text) },
+        cwd: dir,
+        env: { ...process.env, MIK_LANG: "en" },
+        interactive: false,
+      })
+      const deadline = Date.now() + 20_000
+      const ready = (): boolean =>
+        out.some((line) => line.includes("Press Ctrl+C")) && process.listeners("SIGINT").length > 0
+      while (!ready() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      expect(ready(), "serve never reached its banner").toBe(true)
+      process.emit("SIGINT")
+      const code = await done
+      return { code, stdout: out.join("\n"), stderr: err.join("\n") }
+    } finally {
+      for (const listener of parked) process.on("SIGINT", listener)
+    }
+  }
+
+  it("G55 — the no-token banner says write endpoints are disabled and the server keeps running", async () => {
+    const { dir, base } = sandbox()
+    everythingInstalled()
+    const port = await freePort()
+    const result = await serveBanner(["serve", "--port", String(port), ...base], dir)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Listening on")
+    expect(result.stdout).toContain("Write endpoints disabled: set --token or MIK_SERVER_TOKEN to enable them.")
+  })
+
+  it("G54 — the serve banner warns about a missing provider package without blocking startup", async () => {
+    const { dir, base } = sandbox()
+    everythingInstalled()
+    await run(
+      ["provider", "add", "gw", "--base-url", "http://127.0.0.1:9/v1", "--api-key-ref", "env:GW_KEY", ...base],
+      dir,
+      EN,
+    )
+    const port = await freePort()
+    nothingInstalled()
+    const result = await serveBanner(["serve", "--port", String(port), ...base], dir)
+    // Startup is not blocked: the banner is complete and the exit code is a clean 0.
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("Listening on")
+    expect(result.stdout).toContain(
+      "warning: the provider package @ai-sdk/openai-compatible is missing — write endpoints will return 502. Install it with: npm i @ai-sdk/openai-compatible",
+    )
+  })
+
+  it("A5 — the new G15 notices localize, and the install command stays literal", async () => {
+    const { dir, base } = sandbox()
+    nothingInstalled()
+    const zh = await run(
+      ["provider", "add", "gw", "--base-url", "http://127.0.0.1:9/v1", "--api-key-ref", "env:GW_KEY", ...base],
+      dir,
+      ZH,
+    )
+    expect(zh.code).toBe(0)
+    expect(zh.stdout).toContain("提示：该协议需要 @ai-sdk/openai-compatible")
+    expect(zh.stdout).toContain("npm i @ai-sdk/openai-compatible")
+    expect(zh.stdout).not.toContain("hint: this protocol needs")
+
+    const { dir: dir2, base: base2 } = sandbox()
+    nothingInstalled()
+    const zhInit = await run(["init", "--yes", "--app-id", "g15", "--provider", "deepseek", ...base2], dir2, ZH)
+    expect(zhInit.code).toBe(0)
+    expect(zhInit.stdout).toContain("2. 起服务")
+    expect(zhInit.stdout).toContain("3. 发出第一次调用")
   })
 })

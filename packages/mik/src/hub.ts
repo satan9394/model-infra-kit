@@ -475,8 +475,8 @@ export class ModelInfra {
     if (!fallback) {
       throw new ModelInfraError(
         asked
-          ? `No default provider is configured, so the bare model "${asked}" cannot be routed. Set a default with providers.setDefaultModel("provider:model").`
-          : 'No model was requested and no default model is configured. Pass model as "provider:model" or set a default.',
+          ? `No default provider is configured, so the bare model "${asked}" cannot be routed. Set a default with providers.setDefaultModel("provider:model"), or pass the model as "<provider>:<model>" (list ids with GET /v1/models).`
+          : 'No model was requested and no default model is configured. Pass model as "<provider>:<model>" (list ids with GET /v1/models) or set a default.',
         { code: "INVALID_REQUEST", model: asked || undefined },
       )
     }
