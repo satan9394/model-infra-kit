@@ -241,16 +241,24 @@ const hasBuild = existsSync(cliPath)
  * false on a Git Bash runner and carried an 8.3 short name on top; CI caught it
  * on windows-latest and macos-latest, ubuntu passed).
  *
- * | mode               | shell equivalent            | what the parent does                    |
- * |--------------------|-----------------------------|-----------------------------------------|
- * | `first-line`       | `cli \| head -1`            | destroy stdout after the first newline  |
- * | `ten-bytes`        | `cli \| head -c 10`         | destroy stdout after 10 bytes           |
- * | `pattern`          | `cli \| grep -q Requests`   | destroy stdout once the pattern appears |
- * | `both-ends-closed` | `cli 2>&1 \| head -1`       | same, and destroy stderr too            |
- * | `never-reads`      | reader gone before output   | destroy both immediately after spawn    |
- * | `full`             | `cli > file` (reads all)    | drain stdout to completion              |
+ * | mode               | shell equivalent            | what the parent does                                     |
+ * |--------------------|-----------------------------|----------------------------------------------------------|
+ * | `first-line`       | `cli \| head -1`            | destroy stdout once the buffer holds its first newline   |
+ * | `first-line-slow`  | `head -1` after a stall     | wait for **two** lines (or 1 s), then destroy            |
+ * | `ten-bytes`        | `cli \| head -c 10`         | destroy stdout once 10 bytes have arrived                |
+ * | `pattern`          | `cli \| grep -q Requests`   | destroy stdout once the pattern appears                  |
+ * | `both-ends-closed` | `cli 2>&1 \| head -1`       | same, and destroy stderr too                             |
+ * | `never-reads`      | reader gone before output   | destroy both immediately after spawn                     |
+ * | `full`             | `cli > file` (reads all)    | drain stdout to completion                               |
+ *
+ * **Every threshold is measured on the accumulated buffer, never on a single
+ * `data` chunk**: a chunk boundary is the kernel's business and differs per
+ * platform (ubuntu delivered the whole 19-line summary in one chunk, which made
+ * an earlier version read "the first chunk" as "the first line" and fail only
+ * there). Line extraction goes through {@link firstLine}, which splits on
+ * newlines.
  */
-type ReaderMode = "first-line" | "ten-bytes" | "pattern" | "both-ends-closed" | "never-reads" | "full"
+type ReaderMode = "first-line" | "first-line-slow" | "ten-bytes" | "pattern" | "both-ends-closed" | "never-reads" | "full"
 
 interface PipelineCase {
   name: string
@@ -262,8 +270,18 @@ interface PipelineCase {
 interface PipelineResult {
   /** The child's real exit code (`null` when it was signalled). */
   code: number | null
-  /** Bytes the reader received before it closed — "the fix must not print nothing". */
+  /** Everything the reader had received when it closed (or at child exit). */
   received: string
+}
+
+/**
+ * The first line of a byte stream — by **newline**, not by chunk.
+ *
+ * `\r\n` is normalised first so a CRLF platform cannot smuggle a `\r` into the
+ * comparison; a buffer that has no newline yet is its own first line.
+ */
+function firstLine(text: string): string {
+  return text.replace(/\r\n/g, "\n").split("\n", 1)[0]?.trimEnd() ?? ""
 }
 
 /**
@@ -306,9 +324,11 @@ function runPipelineCase(dir: string, testCase: PipelineCase): Promise<PipelineR
     })
     let received = ""
     let closed = false
+    let slowTimer: NodeJS.Timeout | undefined
     const closeReadEnd = (both: boolean): void => {
       if (closed) return
       closed = true
+      if (slowTimer) clearTimeout(slowTimer)
       child.stdout?.destroy()
       if (both) child.stderr?.destroy()
     }
@@ -321,11 +341,21 @@ function runPipelineCase(dir: string, testCase: PipelineCase): Promise<PipelineR
     child.stderr?.on("error", () => {})
 
     child.stdout?.on("data", (chunk: string) => {
+      // Only the accumulated buffer is inspected: chunk boundaries are not
+      // meaningful (see the mode table above).
       received += chunk
-      if (testCase.mode === "first-line" && received.includes("\n")) closeReadEnd(false)
-      else if (testCase.mode === "ten-bytes" && received.length >= 10) closeReadEnd(false)
+      const newlines = countNewlines(received)
+      if (testCase.mode === "first-line" && newlines >= 1) closeReadEnd(false)
+      else if (testCase.mode === "first-line-slow") {
+        // Deliberately let the buffer grow well past the first line before
+        // closing, so "first line" is extracted from a buffer that definitely
+        // holds several lines — even on a platform that delivers the whole
+        // output in a single chunk (which is what ubuntu CI did).
+        if (newlines >= 5) closeReadEnd(false)
+        else if (!slowTimer) slowTimer = setTimeout(() => closeReadEnd(false), 1_000)
+      } else if (testCase.mode === "ten-bytes" && received.length >= 10) closeReadEnd(false)
       else if (testCase.mode === "pattern" && received.includes("Requests")) closeReadEnd(false)
-      else if (testCase.mode === "both-ends-closed" && received.includes("\n")) closeReadEnd(true)
+      else if (testCase.mode === "both-ends-closed" && newlines >= 1) closeReadEnd(true)
     })
     child.stdout?.on("error", () => {})
 
@@ -335,9 +365,15 @@ function runPipelineCase(dir: string, testCase: PipelineCase): Promise<PipelineR
     // `close` (not `exit`) so the result is reported after the stdio streams are
     // done with; the exit code is available either way.
     child.on("close", (code) => {
+      if (slowTimer) clearTimeout(slowTimer)
       resolve({ code, received })
     })
   })
+}
+
+/** Lines seen so far, counting a trailing unterminated fragment as a line. */
+function countNewlines(text: string): number {
+  return text.split("\n").length - 1
 }
 
 /** Run every case concurrently and index the results by name. */
@@ -359,6 +395,7 @@ const pipelineCases: readonly PipelineCase[] = [
   { name: "summary-2to1", args: ["usage", "summary"], mode: "both-ends-closed" },
   { name: "summary-grep", args: ["usage", "summary"], mode: "pattern" },
   { name: "summary-closed", args: ["usage", "summary"], mode: "never-reads" },
+  { name: "summary-stalled", args: ["usage", "summary"], mode: "first-line-slow" },
   { name: "full-read", args: ["usage", "summary"], mode: "full" },
 ]
 
@@ -386,11 +423,32 @@ describe.skipIf(!hasBuild)("real `cli | head -1` pipeline around the built bin (
     }
   }, 120_000)
 
+  it("takes the first line by newline, not by chunk boundary", () => {
+    // The shape ubuntu CI actually delivered: several lines in a single chunk.
+    // An implementation that treats one chunk as one line returns the whole block.
+    const oneChunk = "Range - → - · app=default\n\nRequests        0\nSuccesses       0\n"
+    expect(firstLine(oneChunk)).toBe("Range - → - · app=default")
+    // CRLF must not leak a `\r` into the comparison.
+    expect(firstLine("first\r\nsecond\r\n")).toBe("first")
+    // A buffer without a newline yet is its own (only) line.
+    expect(firstLine("still arriving")).toBe("still arriving")
+    expect(firstLine("")).toBe("")
+  }, 120_000)
+
   it("keeps the first line of a closed pipe identical to a full read", () => {
-    const first = results.get("summary")?.received.trimEnd()
     // `full-read` mirrors the shell `cli > file` shape: the reader takes everything.
-    const fullFirstLine = results.get("full-read")?.received.split("\n")[0]?.trimEnd()
-    expect(first).toBe(fullFirstLine)
+    const expected = firstLine(results.get("full-read")?.received ?? "")
+    expect(expected.length, "the full read produced a first line").toBeGreaterThan(0)
+    // `summary` closes as soon as one newline has arrived; `summary-stalled` waits
+    // for five lines (or 1 s) first, so on every platform its buffer holds several
+    // lines at close time. Both must yield the same first line — that is the
+    // chunk-independence this assertion is for.
+    const stalledLines = countNewlines(results.get("summary-stalled")?.received ?? "") + 1
+    expect(firstLine(results.get("summary")?.received ?? ""), "first-line reader").toBe(expected)
+    expect(
+      firstLine(results.get("summary-stalled")?.received ?? ""),
+      `stalled reader (buffer held ${stalledLines} lines before closing)`,
+    ).toBe(expected)
   }, 120_000)
 
   it("closes the read end on a real pipe, so the child really is writing into a closed pipe", () => {
