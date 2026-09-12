@@ -99,7 +99,21 @@ printf '%s' "$BODY" | grep -q '"usage"' && pass "chat" || fail "chat" "$BODY"
 # and the CLI died with EPIPE — which hid the defect behind the workaround.
 # Since the CLI now tolerates a closed reader, the plain pipeline is back and
 # this step detects the regression again under `set -o pipefail`.
-node packages/mik/dist/cli.mjs usage summary | grep -q "Requests" && pass "summary" || fail "summary" "no Requests line"
+#
+# EVO-G72: the pipeline stays — redirecting the CLI to a file would remove the
+# reader that closes the pipe early and with it the EPIPE regression this step
+# exists to catch (R182). What was degraded is only the *diagnosis*: `a && b || c`
+# reported both failure modes as "no Requests line", so a non-zero CLI was silently
+# mislabelled. `PIPESTATUS` carries the CLI's own exit code, so the two modes are
+# now named separately. Assertion strictness is unchanged (the output must still
+# contain a "Requests" line) and so is the exit semantics (either mode fails).
+set +e
+node packages/mik/dist/cli.mjs usage summary | grep -q "Requests"
+SUMMARY_STATUS=("${PIPESTATUS[@]}")
+set -e
+if [ "${SUMMARY_STATUS[0]}" -ne 0 ]; then fail "summary" "cli exit non-zero (${SUMMARY_STATUS[0]})"; fi
+if [ "${SUMMARY_STATUS[1]}" -ne 0 ]; then fail "summary" "no Requests line"; fi
+pass "summary"
 CSV="$ROOT/.tmp/usage-$NAME.csv"
 if command -v cygpath >/dev/null 2>&1; then CSV=$(cygpath -w "$CSV"); fi
 node packages/mik/dist/cli.mjs usage export --format csv --out "$CSV" >/dev/null 2>&1 || { echo "STEP csv fail"; echo "FAIL[$NAME] csv export"; exit 1; }

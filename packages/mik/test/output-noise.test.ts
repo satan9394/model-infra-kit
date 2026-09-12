@@ -6,6 +6,7 @@ import { join } from "node:path"
 import type { AddressInfo } from "node:net"
 import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
+import { CredentialStore } from "../src/credential/store.js"
 import { parseCliArgs } from "../src/cli/args.js"
 import { providerTestMessage } from "../src/cli/commands/provider.js"
 import { openContext, formatWarning } from "../src/cli/context.js"
@@ -47,6 +48,27 @@ interface Captured {
 
 /** The real library sentence for a missing credential ref (see `credential/store.ts`). */
 const MISSING_KEY = "Environment variable NO_SUCH_VAR_X is not set for this provider's API key."
+
+/**
+ * EVO-G72 — the *real* "credential missing" sentence, produced by the library
+ * itself rather than copied into this file.
+ *
+ * `MISSING_KEY` above is the drift hazard this helper removes: it is a literal, so
+ * a reworded `src/credential/store.ts` (or a classifier regex that stops matching
+ * it) leaves every assertion above green while the CLI labels the failure wrongly.
+ * The value here comes from the same call the CLI's own path makes —
+ * `CredentialStore.resolve` on an `env:` ref whose variable is not set — so it
+ * tracks the library by construction.
+ */
+function realMissingCredentialMessage(varName: string): string {
+  delete process.env[varName]
+  try {
+    new CredentialStore().resolve(`env:${varName}`)
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  throw new Error(`expected CredentialStore.resolve to reject the unset variable ${varName}`)
+}
 
 async function run(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv = {}): Promise<Captured> {
   const out: string[] = []
@@ -183,6 +205,48 @@ describe("EVO-G70 — A1: zh table message column is localized", () => {
 })
 
 // ---------------------------------------------------------------------------
+// EVO-G72 — drift guard: the classifier is pinned to the *library's* sentence
+// ---------------------------------------------------------------------------
+
+describe("EVO-G72 — the zh short label is pinned against library-side drift", () => {
+  /** The classifier's shape contract, restated for the real text (see `providerTestMessage`). */
+  const CREDENTIAL_SHAPE = /Environment variable \S+ is not set for this provider's API key/
+
+  it("classifies the real `credential/store.ts` sentence instead of passing it through", () => {
+    const varName = "MIK_G72_MISSING_KEY_GUARD"
+    const real = realMissingCredentialMessage(varName)
+
+    // 1. The input the classifier must recognise is the sentence the library
+    //    actually emits. Rewording the library (or narrowing the regex) breaks this.
+    expect(real, "library sentence changed shape").toMatch(CREDENTIAL_SHAPE)
+    expect(real).toContain(varName)
+
+    // 2. On that real text the classifier produces the localized one-liner — the
+    //    pass-through fallback would leave the English sentence in the zh table.
+    const zh = providerTestMessage(real, "zh")
+    expect(zh).not.toBe(real)
+    expect(zh).toBe(`凭据缺失：环境变量 ${varName} 未设置。`)
+    // The data (the variable name) survives verbatim; only the shape is localized.
+    expect(zh).toContain(varName)
+
+    // 3. `en` stays byte-identical for the very same real text.
+    expect(providerTestMessage(real, "en")).toBe(real)
+  })
+
+  it("is decidable: a sentence that only resembles the real one falls through", () => {
+    // G43 self-check — the assertions above are not vacuous. Take the *real*
+    // sentence and reword only the classifier's anchor the way a library edit
+    // would; the shape assertion and the localization both have to flip.
+    const drifted = realMissingCredentialMessage("MIK_G72_MISSING_KEY_GUARD").replace(
+      "Environment variable",
+      "Env var",
+    )
+    expect(drifted).not.toMatch(CREDENTIAL_SHAPE)
+    expect(providerTestMessage(drifted, "zh")).toBe(drifted)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // A2 — the reverse case: a cause that adds information must survive
 // ---------------------------------------------------------------------------
 
@@ -201,6 +265,26 @@ describe("EVO-G70 — A2: a cause that is not already in the body still prints",
     expect(formatWarning("zh", `Provider check failed: ${MISSING_KEY}`, new Error(MISSING_KEY))).not.toContain("(")
     // No cause at all: unchanged from before this card.
     expect(formatWarning("zh", "solo")).toBe("警告： solo")
+  })
+
+  it("keeps the parenthesis only for a cause the body does not contain", () => {
+    // EVO-G72 pin for the *substring* branch of G60's rule. `formatWarning` drops
+    // the parenthesis on containment (`body.includes(cause)`), not on "is the same
+    // sentence", so a cause that merely happens to be a substring loses its
+    // parentheses even when it reads as a separate clause. Judgment: this is the
+    // behaviour to keep — the cause's text is demonstrably already on the line
+    // (that is exactly what containment means), so no *information* is lost, while
+    // the production shape G60 had to fix is `body = message + ": " + cause`, i.e.
+    // the cause is a verbatim substring of the body by construction. Tightening
+    // containment to an equality or word-boundary test would re-open G60 (the
+    // regression this branch exists to prevent) to buy back only the framing of a
+    // clause the user can already read.
+    expect(formatWarning("zh", "a and b", new Error("a"))).toBe("警告： a and b")
+    // The same containment spelled the way the library spells it.
+    const body = "Provider check failed: DNS lookup failed"
+    expect(formatWarning("zh", body, new Error("DNS lookup failed"))).toBe(`警告： ${body}`)
+    // …and the complement still holds, so the pin above is not "always drops".
+    expect(formatWarning("zh", "a and b", new Error("c"))).toBe("警告： a and b (c)")
   })
 
   it("reaches the real onWarn closure through `openContext` + `hub.ai.test`", async () => {
