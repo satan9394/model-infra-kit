@@ -105,13 +105,18 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 - **升版后必须重跑全量测试**（R99，我自己的流程失误）：CLI 的 `--help` 横幅含版本号，冻结类快照测试会因版本号变化而变红。R99 我改完 `package.json` 只跑了 `build` 就提交，导致 **CI 三 OS 全红**（本地「绿」是因为跑测试时版本还是旧的）。**`npm version` / 改 `package.json` 之后，必须重跑全量测试再提交**。
 - **文件级 fixture 必须处理跨平台换行**（R99）：`.txt` 快照被 Git for Windows（`core.autocrlf=true`）检出为 **CRLF**，而 CLI 输出是 LF → **只有 `windows-latest` 全红、ubuntu/macos 全绿**。双保险：① 测试内比较前把 `\r\n` 归一化为 `\n`；② 仓库加 `.gitattributes` 固定 `*.txt text eol=lf`。**只做其一都不够**（归一化防未来，gitattributes 防当前 checkout）。
 - **新增测试的「首秀」在 CI**（R99）：G47 新建的冻结面测试**本地 5/5 绿**，却让 CI 连红两轮（先版本号、后换行符）。教训：**新测试的绿色不能只在本地取**——推 CI 后必须看结果；这也再次证明「本地全绿对平台相关改动毫无证明力」。
+- **验收工具的「范围标签」不是证据**（R113，代价：一次过度宣称）：G14 我宣称「CLI 双语已收口」，但独立 UX 审计实测发现**各子命令 `--help` 的选项说明仍是大片英文**。根因在验收环节：实现者的探针把子命令帮助标成 `OUT-OF-SCOPE (pre-existing G12 boundary, not this card)`，**我接受了那个标签而没有独立判断标签本身对不对**。
+  → **工具可以把任何东西标成 out-of-scope，从而让「清零」永远成立**——这是 G43「恒真断言」的变体：**范围界定本身可以变成恒真**。做法：看到 `OUT-OF-SCOPE`/`SKIP`/`pre-existing` 之类标签时，**必须独立核对「它凭什么不在范围内」**，而不是把它计入通过。
+- **派子代理做任何安装前必须核对工作目录**（R113，真实事故）：UX 审计员的第 2 条命令因 `cd` 未在同一调用内生效，`npm i model-infra-kit@0.2.10` **实际在 `C:\Users\Satanchen` 执行**，npm 按 package.json 对账后 **prune 掉该目录 266 个包**（含 64 个 `@deepseek-ai/dsh-*` 本地副本，无法自动还原）。事后核实全局 `dsh`/`claude-code`/`npm` 均正常，仓库未受影响。
+  → 做法：**子代理简报里必须写「任何 `npm i` / `pnpm add` / 写文件前，先用绝对路径确认 cwd，并只在你自建的临时目录里操作」**；编排者收到子代理产物时，**先看它有没有声明副作用**。
 
-## 当前状态（R99）
+## 当前状态（R113）
 
-- **版本 v0.2.9**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
-- **测试基线 466 例**（`pnpm --filter model-infra-kit test`，21 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。
-- **已验收发布的切片**：G01–G13（`0.1.7` → `0.2.9`）。产品演进全貌、GAP_MAP、技术债 G15–G50、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节的摘要更新更快）。
-- **CLI 双语完成度**：入门面（`--help`/用法/未知命令，G12）+ `provider`/`usage` 输出（G13）已本地化；**剩余 18 处**（`models` 5 / `serve` 5 / `pricing` 4 / `context` 3 的 **`warning:` 前缀** / `dashboard` 1）→ 下一片 G14。库层 11 处错误文案（`registry`/`credential`/`ai`/`server`）**不在** G14 范围，需先定「CLI 是否统一包装库层错误」策略。
+- **版本 v0.2.10**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
+- **测试基线 472 例**（`pnpm --filter model-infra-kit test`，21 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。
+- **已验收发布的切片**：G01–G14（`0.1.7` → `0.2.10`）。产品演进全貌、GAP_MAP（G01–G65）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，比本节摘要更新更快）。
+- **CLI 双语完成度（R113 更正）**：入门面（G12）+ `provider`/`usage`（G13）+ `models`/`serve`/`pricing`/`dashboard`/错误类/`warning:` 前缀（G14）已本地化。**但「已收口」是 R109 的过度宣称**：独立 UX 审计（R113）实测发现**各子命令 `--help` 的选项说明仍是大片英文**（`init`/`provider add`/`serve` 等）→ 已立 **G58（P2）**。
+- **独立 UX 审计（R113）结论**：新用户**「有条件能」**完成第一次成功使用（用 mock 供应商真跑通 200 + 计量入账），但**照官方帮助/`init` 引导的字面路径走不到**，需在 3 处自我纠偏。产出 11 条发现 + 编排者 3 条机械发现，已综合为 **G54–G65** 并定出下一片 **G15＝族 A「首次成功路径可达」**。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
 - **英文冻结面**：`packages/mik/test/cli-english-surface.test.ts` + `test/fixtures/*.txt`（5 类错误形状，受版本控制、CI 可见）。比较前会归一化**版本号与换行符**，只断言文案与退出码。
 - 每轮收尾铁律：机械门禁（**两种 locale**）→ 独立 Evaluator 验收 → 提交（只 add 自己的文件）+ 升版 patch → **重跑全量** → `npm publish` → `gh release create` → **CI 三 OS 绿** → **G36 发布产物验证** → 更新 `docs/product-evolution.md`。
