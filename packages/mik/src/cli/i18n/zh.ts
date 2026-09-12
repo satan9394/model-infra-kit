@@ -173,6 +173,12 @@ export const zh: Record<string, string> = {
   "usage.summary.unpriced.header.tokens": "token",
   "usage.summary.unpriced.fix": "修法：mik pricing set %s --input <usd/M> --output <usd/M>",
   "usage.summary.unpriced.rollupNote": "说明：另有 %s 条请求已折叠为按天汇总，不含价格来源，无法计入未定价统计。",
+  "usage.summary.tags.title": "按标签归属的成本",
+  "usage.summary.tags.empty": "该区间没有带标签的用量。",
+  "usage.summary.tags.header.tag": "标签",
+  "usage.summary.tags.header.requests": "请求数",
+  "usage.summary.tags.header.cost": "成本 USD",
+  "usage.summary.tags.note": "说明：一行带多个标签时，该行成本会计入每个标签，故各行之和大于总额；未带标签的调用不出现在下表；机器写入的键（%s，以及 _mik_ 前缀）已排除，且展示值均经脱敏；明细见 usage export 的 tags 列。",
   "usage.empty": "该区间没有用量记录。",
   "usage.trends.header.date": "日期",
   "usage.trends.header.requests": "请求数",
@@ -202,6 +208,7 @@ export const zh: Record<string, string> = {
   "usage.error.badLimit": "--limit 必须是 1 到 1000 之间的整数，实际为 %s。",
   "usage.error.badOffset": "--offset 必须是 0 或更大的整数，实际为 %s。",
   "usage.error.badFormat": "暂不支持 --format \"%s\"；目前只有 csv 可用。",
+  "usage.error.badTag": "--tag 需要 <键> 或 <键>=<值>，实际为 \"%s\"。",
   "usage.error.unknownAction": "未知 usage 操作「%s」。",
   // 收尾切片（EVO-G14）：`models` / `serve` / `pricing` / `dashboard` 的输出与
   // `context.ts` 的框架警告。规则与 G13 相同——**说明性文案**本地化，**数据值**
@@ -317,6 +324,8 @@ export const zh: Record<string, string> = {
   "help.flag.app": "按所属应用 id 过滤",
   "help.flag.model": "按模型 id 过滤",
   "help.flag.status": "按请求状态过滤",
+  "help.flag.tag": "只显示带该归属标签的调用（宿主自定义，如 feature=quant-backtest）",
+  "help.flag.byTag": "汇总按归属标签拆分（而不是只给一个合计）",
   // `help.details.init.2` is deliberately absent: that line is the verbatim
   // `mik provider add …` example, i.e. data, and falls back to the literal.
   "help.details.init.0": "stdin 是终端时会交互提问；否则直接使用选项与默认值。",

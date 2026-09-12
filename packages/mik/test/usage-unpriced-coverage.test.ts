@@ -98,7 +98,7 @@ const APP = ["--app-id", "cli-app"]
 
 /**
  * The pre-change CSV header, byte-for-byte, captured from the 0.2.14 `dist`
- * build before this card touched anything (`.tmp/g74-baseline/export-header.txt`).
+ * build before the G74 card touched anything (`.tmp/g74-baseline/export-header.txt`).
  *
  * It is deliberately a **literal** rather than `USAGE_CSV_HEADER`: comparing the
  * command output against the very constant the command prints would pass no
@@ -106,6 +106,13 @@ const APP = ["--app-id", "cli-app"]
  */
 const PRE_CHANGE_CSV_HEADER =
   "ts,app_id,provider,model,status,input,output,cache_read,cache_write,reasoning,cost_usd,pricing_source,pricing_basis,latency_ms"
+
+/**
+ * EVO-G75 appended `tags` as a 15th column, so this card's contract is the old
+ * header **plus one appended field** — asserted as the literal above prefixed to
+ * `,tags`, never as `USAGE_CSV_HEADER` compared with itself.
+ */
+const G75_CSV_HEADER = `${PRE_CHANGE_CSV_HEADER},tags`
 
 /**
  * The pre-change `usage summary` on an empty database, byte-for-byte
@@ -283,7 +290,7 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).not.toContain("Unpriced")
   })
 
-  it("A5 — both dictionaries define the new keys (286 → 294 → 299 → 300) with equal key sets", async () => {
+  it("A5 — both dictionaries define the new keys (286 → 294 → 299 → 300 → 306) with equal key sets", async () => {
     const NEW_KEYS = [
       "usage.summary.unpriced.title",
       "usage.summary.unpriced.requests",
@@ -294,6 +301,13 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       "usage.summary.unpriced.header.tokens",
       "usage.summary.unpriced.fix",
       "usage.summary.unpriced.rollupNote",
+      // EVO-G75 — the attribution-tag breakdown.
+      "usage.summary.tags.title",
+      "usage.summary.tags.empty",
+      "usage.summary.tags.header.tag",
+      "usage.summary.tags.header.requests",
+      "usage.summary.tags.header.cost",
+      "usage.summary.tags.note",
     ]
     for (const key of NEW_KEYS) {
       expect(Object.prototype.hasOwnProperty.call(zh, key), `zh missing ${key}`).toBe(true)
@@ -302,20 +316,22 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       expect(tr("en", key), key).not.toBe("")
     }
     // EVO-G70/G60 added five `provider.test.failure.*` keys on both sides, so the
-    // baseline moved 294 → 299; EVO-G77 added the rollup caveat → 300. Parity
+    // baseline moved 294 → 299; EVO-G77 added the rollup caveat → 300; EVO-G75
+    // added six attribution-tag keys and two help descriptions → 309. Parity
     // (the line below) is the real invariant.
-    expect(Object.keys(zh)).toHaveLength(300)
-    expect(Object.keys(en)).toHaveLength(300)
+    expect(Object.keys(zh)).toHaveLength(309)
+    expect(Object.keys(en)).toHaveLength(309)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(300)
+    expect(i18nKeys()).toHaveLength(309)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })
 
-  it("A4 — the CSV header is byte-identical to the pre-change header", async () => {
-    // The literal is the pre-change header, so this cannot pass by comparing the
-    // output against the constant that produced it.
-    expect(USAGE_CSV_HEADER).toBe(PRE_CHANGE_CSV_HEADER)
+  it("A4 — the CSV header is the pre-change header with only `tags` appended", async () => {
+    // Both sides are literals: the frozen prefix is the pre-change header, and
+    // the whole header is that prefix plus exactly one appended column.
+    expect(USAGE_CSV_HEADER).toBe(G75_CSV_HEADER)
+    expect(USAGE_CSV_HEADER.startsWith(PRE_CHANGE_CSV_HEADER)).toBe(true)
 
     const { dir, db, base } = sandbox()
     await seed(db, MIXED)
@@ -323,15 +339,15 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     const zhRun = await run(["usage", "export", "--format", "csv", ...base, ...APP], dir, { MIK_LANG: "zh" })
     expect(en.code).toBe(0)
     expect(zhRun.code).toBe(0)
-    expect(en.stdout.split("\n")[0]).toBe(PRE_CHANGE_CSV_HEADER)
-    expect(zhRun.stdout.split("\n")[0]).toBe(PRE_CHANGE_CSV_HEADER)
+    expect(en.stdout.split("\n")[0]).toBe(G75_CSV_HEADER)
+    expect(zhRun.stdout.split("\n")[0]).toBe(G75_CSV_HEADER)
     expect(zhRun.stdout).toBe(en.stdout)
     expect(en.stdout.trimEnd().split("\n")).toHaveLength(MIXED.length + 1)
 
     const target = join(dir, "out", "usage.csv")
     const wrote = await run(["usage", "export", "--format", "csv", "--out", target, ...base, ...APP], dir)
     expect(wrote.code).toBe(0)
-    expect(readFileSync(target, "utf8").split("\n")[0]).toBe(PRE_CHANGE_CSV_HEADER)
+    expect(readFileSync(target, "utf8").split("\n")[0]).toBe(G75_CSV_HEADER)
   })
 
   it("EVO-G77 — a rolled-up range says so instead of staying silent", async () => {

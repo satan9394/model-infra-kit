@@ -29,6 +29,7 @@ import type {
   UsageEvent,
 } from "./types.js"
 import { UsageService, budgetBaseMicros, isUsableBudget, type BudgetDeps } from "./usage/service.js"
+import { sanitizeTags } from "./usage/tags.js"
 import { redact } from "./util/redact.js"
 
 const DEFAULT_APP_ID = "default"
@@ -1049,12 +1050,23 @@ export class ModelInfra {
 
   private record(input: UsageRecordInput): void {
     const diagnostic = input.diagnosticTags
-    // The host's own tags are untouched when nothing was reported: the same
-    // object (undefined included) reaches the store as before this feature.
-    const tags =
-      diagnostic && Object.keys(diagnostic).length > 0
-        ? { ...input.request?.tags, ...diagnostic }
-        : input.request?.tags
+    /**
+     * EVO-G75: the host's tags are **sanitised and redacted** here, on the one
+     * path every call takes. The HTTP report path already redacted its own
+     * (`server/api.ts:readReportedTags`); the embedded library path had no such
+     * guard, and a tag is exactly where a host accidentally puts a token —
+     * "api_key": "sk-live-…" — which would then land in SQLite and in
+     * `usage export`.
+     *
+     * The whole function never throws (rule 6): a malformed `tags` degrades to
+     * "no tags" instead of failing an otherwise successful call.
+     *
+     * Result identity is preserved when nothing is reported and no tags were
+     * passed: `sanitizeTags(undefined)` is `undefined`, and the store writes the
+     * same `'{}'` default it always did.
+     */
+    const hostTags = sanitizeTags(input.request?.tags)
+    const merged = diagnostic && Object.keys(diagnostic).length > 0 ? { ...hostTags, ...diagnostic } : hostTags
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,
       ts: input.at,
@@ -1071,7 +1083,7 @@ export class ModelInfra {
       errorCode: input.errorCode,
       isStreaming: input.isStreaming,
       sessionId: input.request?.sessionId,
-      tags,
+      tags: merged,
     }
     // Metering must never turn a successful call into a failure.
     safely(() => this.usage.record(event), this.warn)

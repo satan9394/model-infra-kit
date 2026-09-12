@@ -11,6 +11,10 @@ ModelInfo, ModelCapabilities, ModelPricing, ModelSource
 TokenUsage { input; output; cacheRead; cacheWrite; reasoning }
 CostInfo { usd; low; high; basis; source; pricingModel?; providerId? }
 ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; signal? }
+  // EVO-G75：`tags?: Record<string, string>` 是宿主自定义的**归属标签**（如
+  // `{ feature: "quant-backtest" }`）。值入库前经 `sanitizeTags()` 归一化 + `redactDeep()`
+  // 脱敏；非对象/异常值一律按既定策略处理，**绝不抛错**（见「EVO-G75」节）。
+  // 它是成本归属维度，**不是身份**：不做权限、配额、多租户、访问控制。
 ModelResponse { text; toolCalls; finishReason; usage; cost; provider; model{requested,actual}; latencyMs; firstTokenMs?; steps? }
 StreamEvent（text_delta | tool_call_delta | tool_call_complete | step_finish | usage | finish | error）
 UsageEvent, UsageSummary, UsageBucket, UsageTrendPoint, UsageQuery, UsagePage
@@ -138,6 +142,15 @@ export class UsageService {
   trends(query?: UsageQuery, bucket?: "day" | "hour"): UsageTrendPoint[]
   byProvider(query?: UsageQuery): UsageBucket[]
   byModel(query?: UsageQuery): UsageBucket[]
+  /**
+   * G75 追加：按**宿主归属标签**切分成本（一桶 = 一个 `key=value` 对，按成本降序）。
+   * 明细行 + 已折叠的 `usage_tag_rollups`（按天汇总的标签维度，随明细同一事务写入）。
+   * 机器写入的键不计入桶：G73 的两个真实对账键 `provider_cost_raw` /
+   * `provider_cost_status`（**没有前缀**）与预留的 `_mik_` 前缀约定
+   * （`RESERVED_TAG_KEYS` / `isReservedTagKey`）。**只读展示**，不改任何既有数字。
+   * 语义见「EVO-G75」节；它**不是**身份，绝不用于权限/配额/隔离判断。
+   */
+  byTag(query?: UsageQuery): UsageBucket[]
   query(filter?: UsageQuery): UsagePage
   /**
    * F03 收紧：默认只返回本实例 appId 的事件（多 app 共库时不得互相读到明细）；
@@ -581,5 +594,79 @@ export type PriceSource =
 - 失败的调用**永不**按回传值计费（与「失败不按价目表计费」同一不变式）。
 - **公共签名同步**（规则 5）：`ForwardedCall` 新增可选 `providerCost?: ProviderCostReading`；`readOpenAiUsage()` 的返回新增可选 `cost`。`ProviderCostReading` 是宿主可直接命名的公共类型，已由 `src/index.ts` re-export（纯类型导出，运行时导出集合不变），签名见上文「稳定 — fetch 适配器」节。
 - 口径可见：`usage export` 的 `pricing_source` 列、`usage logs` 的 `SOURCE`（zh：价格来源）列、HTTP 的 `cost_source` 都会显示 `provider`。
+
+## EVO-G75 — 宿主归属标签（按业务维度切分成本）
+
+宿主在同一进程里往往有多套业务共用一套模型层。本卡让宿主给每次调用打**自己的字符串标签**，并据此切分成本。标签只是**字符串归属**，**不是身份**：本模块不做权限、不做多租户、不做配额，**任何基于标签的访问控制都超出契约**。
+
+### 请求面（库 + HTTP）
+
+```ts
+// 库：ModelRequest.tags（自 T01 起就存在，本卡首次给它定义语义并接上脱敏）
+generate(request: { ..., tags?: Record<string, string> }): Promise<ModelResponse>
+stream(request:   { ..., tags?: Record<string, string> }): AsyncIterable<StreamEvent>
+// HTTP：POST /api/usage/events 的 body.tags?: Record<string, string>（F19，值经 redactDeep 入库）
+```
+
+- **完全可选**：不传 `tags`（或传 `undefined` / `{}` / 非对象）时，既有行为**逐字不变**——`usage_events.tags_json` 仍是 `'{}'`，`usage summary` / `usage logs` / `usage export` 的既有行与列一字不动。
+- **不解释语义**：键值均由宿主定义，本模块不校验、不枚举、不映射。键名与既有列（`app_id`、`session_id` 等）**不冲突**：它们是 JSON 内的一层，不参与 SQL 列名解析。
+- **入库前脱敏（规则 4 的延伸）**：宿主完全可能把 token 放进标签，而标签会进 CSV。库路径在 `ModelInfra.record()` 统一经 `sanitizeTags()` 处理，`redactDeep()` 是最后一步——`Bearer sk-live-…` → `Bearer [REDACTED]`，`api_key`/`authorization` 这类键的**值整体置为 `[REDACTED]`**，`sk-` 前缀值 → `sk-****`。HTTP 的 `POST /api/usage/events` 仍由 `readReportedTags()` 脱敏（F19，行为不变）。
+- **异常值绝不抛错（规则 6，不阻塞宿主）**，归一化策略固定如下：
+
+| 宿主传入 | 落库为 |
+|---|---|
+| `string` | 原值，超过 **256 个码点**截断 |
+| `null` / `undefined` | `""`（显式的空值） |
+| `number` / `boolean` / `bigint` | `String(value)`（`3` → `"3"`、`NaN` → `"NaN"`、`10n` → `"10"`） |
+| 对象 / 数组 | `JSON.stringify`，超 **512 字符**截断；循环引用或 `toJSON` 抛错 → `"[unserializable]"` |
+| 函数 / symbol | `""` |
+| 键为空串、去掉首尾空白后为空、超过 **64 字符**，或为 `__proto__` | 整个键值对**丢弃**（长键不截断，避免两个不同长键截断后合并成一个成本桶） |
+| `tags` 本身不是普通对象（字符串 / 数组 / `null`） | 视为**没有标签** |
+
+- **机器写入的键不出现在任何归属渲染面，但照旧落库、照旧可读**。判据是**两个**（`RESERVED_TAG_KEYS` / `isReservedTagKey`，键名从属主模块 `pricing/reported-cost.ts` 取，**不在别处重打一遍字面量**）：
+  - **EVO-G73 的两个真实键**：`provider_cost_raw`（单次调用的回传原值文本，逐调用变值）与 `provider_cost_status`（`"accepted"` / `"rejected: <原因>"`）——**它们没有 `_mik_` 前缀**；
+  - `_mik_` **前缀**：本模块给将来的机器键预留的约定，**目前没有任何代码写它**。
+
+  > 只判前缀等于**什么都没排除**（`provider_cost_raw` 匹配不上 `_mik_`）。本卡第一版正是这个错误：`byTag()` 会给每次上游回传成本的调用产出一个逐调用变值的 `provider_cost_raw=` 垃圾桶。已修正，并由「真实常量」用例（正反各一条）锁住。
+
+  它们的**可见范围**（与代码一致，三句都是可核对的）：
+  - **保留在** `usage_events.tags_json`，并由 `UsageEvent.tags` 与 HTTP 的 `usage` 响应返回（HTTP 只脱敏值、**不删键**），G73 对账因此照旧可查；
+  - **不出现**在 `byTag()` 的桶里，也不出现在 `usage summary --by-tag` 的表里；
+  - **不出现**在 `usage export` 的 `tags` 列里——该列经 `redactTagsForDisplay()` 渲染，它先做 `attributionTags()`（按 `isReservedTagKey` 滤键）再做 `redactDeep()`。**「CSV 从不丢列」说的是表头，不是这两个键**；键本身仍然可从 API 读到。
+- **脱敏在写入与渲染两侧都做**：写入路径（本模块的 `generate`/`stream`/`fetch`）经 `sanitizeTags()` → `redactDeep()`；**渲染路径**（`usage export` 的 `tags` 列、`usage summary --by-tag` 的表）另经 `redactTagsForDisplay()` / `tagLabelForDisplay()` 再脱敏一次。后者不是多余动作：**旧版本写下的行没有脱敏**，而这两个面是本卡新开的通道，不能让它们把明文 token 打印出来。因此读取**不重写任何已存字节、不新增迁移**，`UsageEvent.tags` 仍返回原值（G73 对账依赖原始文本）。
+- **HTTP 出口的脱敏（本卡补齐一处漏洞）**：`GET /api/usage/logs` 与 `GET /api/usage/logs/:id` 早已走 `api.ts` 的 `sanitize()`（= `redactDeep`），故标签值在响应里已脱敏、键保留；`GET /api/usage/summary|trends|by-provider|by-model` 只回聚合，**不含标签**（本卡**没有**新增 `by-tag` 路由）。唯一没被覆盖的是 `GET /api/events` 的 SSE 帧——它原样广播调用方交给 `UsageService.record()` 的事件，而宿主**直接调用**该方法时其标签不过写入侧脱敏。现已在该出口套用同一个 `sanitize()`（`api.ts` 的订阅回调），**键保留、只遮蔽值**。看板 `logs` 抽屉渲染的 `event.tags` 来自 `GET /api/usage/logs`（`apps/dashboard/lib/server-data.ts` → 代理 → `mik serve`），因此拿到的是已脱敏数据。
+
+### 查询面
+
+```ts
+// src/types.ts —— UsageQuery 新增两个可选字段（纯追加，既有调用零变化）
+interface UsageQuery {
+  tag?: string        // 只保留带该键的行（明细行；折叠日无标签，不参与）
+  tagValue?: string   // 且该键的值精确等于它；不给则只要键存在即可
+}
+// UsageService（与 UsageRepository 同名方法）
+byTag(query?: UsageQuery): UsageBucket[]   // 见上文 T04 块；key 形如 "feature=quant-backtest"
+```
+
+`byTag()` 的桶是**同一笔钱的分解而非切分**：一次调用带 3 个标签，其全部成本计入 3 个桶，故各桶之和可大于总额。按成本降序，成本相同再按请求数、最后按 `key` 字典序。
+
+### 存储与迁移（向后兼容）
+
+- `usage_events.tags_json TEXT NOT NULL DEFAULT '{}'` 自 T01 就在 v1 建表语句里，**本卡不加列**。
+- 迁移新增 **v2**：① 仅当 `PRAGMA table_info(usage_events)` 里没有 `tags_json` 时才 `ALTER TABLE … ADD COLUMN`（SQLite 没有 `ADD COLUMN IF NOT EXISTS`；对既有库是补列，对 T01 建的库是 no-op）；② 新建 `usage_tag_rollups(date, app_id, tag_key, tag_value, request_count, cost_microusd)`，主键 `(date, app_id, tag_key, tag_value)`。
+- **旧库升级不丢数据**：v2 只做「补列 + 建新表」，不改写任何既有行。实测：用改前 schema 建库（含单条明细）→ `Store.open()` 升级 → 迁移版本变 `[1, 2]`、旧行按原值读出（`tags` 为空）、新行可写可查（`test/attribution-tags.test.ts` A4）。
+- `usage_daily_rollups` 承载不了标签（一行的维度是 日/app/source/provider/model），而 `rollup()` 在**同一事务内**先插汇总再删明细；因此 v2 另建 `usage_tag_rollups`，`rollup()` 在同一事务里把该区间的标签成本也折进去——否则折叠过的日子会从标签切分里**静默消失**，而 `summary()` 仍在数它（G74/G77 同款「不该沉默时沉默」）。
+- `usage_tag_rollups` 存**标签原文**而不是哈希：写入前已脱敏（渲染时再脱敏一次），故它不构成第二处泄露；哈希会让按值查询与人工核对都得先反查明细。
+
+### CLI
+
+```
+mik usage summary [--from <date>] [--to <date>] [--app <appId>] [--tag <key[=value]>] [--by-tag]
+mik usage export  --format csv [...]        # 表头追加第 15 列 tags
+```
+
+- `--tag <键>` / `--tag <键>=<值>`：只统计带该标签的调用（在 `usage summary|trends|logs|export` 全部可用，属 `QUERY_FLAGS`）。只按**第一个** `=` 切分，标签值本身可含 `=`。
+- `--by-tag`：**opt-in**，在 `usage summary` 末尾追加「按标签归属的成本」表（最多 10 行，单元格 48 码点后加 `…`；**只裁剪展示，CSV 与 API 保留全文**）+ 一行说明（多标签行会计入每个标签；未打标签的调用不在表内；机器写入的键已排除；展示值均已脱敏）。**不加这个 flag 时输出与改前逐字一致**。
+- `usage export` 的 CSV 表头：**既有 14 列的名字与顺序一字不变**，`tags` **追加在最后**（第 15 列，值为按字典序稳定的 `键=值` 空格连接；值内含逗号/引号时按 RFC 4180 加引号）。机器写入的键（G73 的两个真实键与 `_mik_` 前缀）**不出现**在该列——它们仍可从 `UsageEvent.tags` / HTTP 响应读到。宿主脚本按列名或前 14 个索引读取均不受影响。
 
 
