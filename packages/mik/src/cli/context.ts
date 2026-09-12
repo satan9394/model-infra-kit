@@ -28,6 +28,12 @@ export interface CliConfigFile {
   appId?: string
   db?: string
   /**
+   * Pricing catalogue cache directory (EVO-G84/F11). `mik init --cache-dir <dir>` writes
+   * it, and `openContext` folds it into the same chain as `appId`/`db`
+   * (flag → env → file). Before this field existed the flag was accepted and dropped.
+   */
+  cacheDir?: string
+  /**
    * Consumed by `mik init` only. Keeping it out of the regular command path is
    * deliberate: a config file that re-seeded providers on every run would
    * resurrect a provider the user had just removed.
@@ -57,6 +63,13 @@ export interface CliContext {
   dbDefaulted: boolean
   configPath: string
   config: CliConfigFile
+  /**
+   * The pricing cache directory this invocation resolved (EVO-G84/F11): flag →
+   * `MIK_CACHE_DIR` → `mik.config.json` → the library default. Exposed for the same
+   * reason as `dbPath` — it is the value handed to `ModelInfra.init`, so a test can
+   * pin the resolution chain without re-deriving it.
+   */
+  cacheDir?: string
   /** Settles once the hub's store is closed; always await it. */
   close: () => Promise<void>
 }
@@ -151,6 +164,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     const config: CliConfigFile = {}
     if (typeof record.appId === "string" && record.appId) config.appId = record.appId
     if (typeof record.db === "string" && record.db) config.db = record.db
+    if (typeof record.cacheDir === "string" && record.cacheDir) config.cacheDir = record.cacheDir
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     return config
   } catch (error) {
@@ -230,7 +244,9 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   // the call site would duplicate the chain and could drift from it.
   const dbDefaulted = !dbFlag && !env.MIK_DB && !config.db
   const appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? config.appId ?? "default"
-  const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR
+  // Same chain as `db`/`appId`, plus the EVO-G84/F11 file entry so a `mik init
+  // --cache-dir` actually survives into the next command.
+  const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR ?? config.cacheDir
   const offline = flagBool(parsed.values, "offline") || env.MIK_OFFLINE === "1"
 
   const hub = await ModelInfra.init({
@@ -260,6 +276,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     dbDefaulted,
     configPath,
     config,
+    cacheDir,
     close: () => hub.close(),
   }
 }

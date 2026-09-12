@@ -50,7 +50,7 @@ export const en: Record<string, string> = {
   "wizard.stepFirstCallCmd":
     "     curl -s http://127.0.0.1:3211/v1/chat/completions -H \"Authorization: Bearer <token>\" " +
     "-H \"Content-Type: application/json\" -d '{\"model\":\"<provider>:<model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}'",
-  "wizard.stepDashboard": "open the dashboard: mik dashboard (3210)",
+  "wizard.stepUsage": "see usage and cost: mik usage summary",
   "wizard.stepRepl": "or just run mik to enter interactive mode (/help)",
   // Framework-level CLI surface (EVO-G12): the `--help` frame and the usage
   // errors raised before the hub (and therefore `cli.lang`) exists. Command

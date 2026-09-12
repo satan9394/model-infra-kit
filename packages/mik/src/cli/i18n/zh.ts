@@ -54,7 +54,7 @@ export const zh: Record<string, string> = {
   "wizard.stepFirstCallCmd":
     "     curl -s http://127.0.0.1:3211/v1/chat/completions -H \"Authorization: Bearer <token>\" " +
     "-H \"Content-Type: application/json\" -d '{\"model\":\"<provider>:<model>\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}'",
-  "wizard.stepDashboard": "开看板 mik dashboard（3210）",
+  "wizard.stepUsage": "看用量与成本 mik usage summary",
   "wizard.stepRepl": "或直接运行 mik 进入交互模式（斜杠命令 /help）",
   // 框架级 CLI 面（EVO-G12）：`--help` 框架与 hub 打开前（拿不到 cli.lang）的用法错误。
   // 命令名、选项名与 usage 示例刻意不译——它们是可复制的字面量。
