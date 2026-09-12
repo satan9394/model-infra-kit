@@ -214,7 +214,7 @@ pnpm --filter model-infra-kit build       # tsdown 打包
 
 - **版本 v0.2.29**，npm 与 GitHub Release 均已发布；`main` 分支 CI（ubuntu/macos/windows 三 OS）全绿。
 - **测试基线 680 例**（`pnpm --filter model-infra-kit test`，37 个文件），`tsc --noEmit` 0 错误，`node scripts/e2e/run.mjs` exit 0，`node scripts/check-envs.mjs` 三环境 PASS，字典 **324/324**。**locale 相关改动请在 `LC_ALL=en_US.UTF-8` 下复跑一遍**，本机 zh-CN 会掩盖 en 侧缺陷。**改 `package.json` 版本后必须重跑全量**（R99）。**涉及平台/分块/外部命令的测试必须以 CI 为准**（R187/R193）。
-- **已验收发布的切片**：**G01–G87 + G64 + G72b**（`0.1.7` → `0.2.29`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
+- **已验收发布的切片**：**G01–G86 + G64 + G72b**（`0.1.7` → `0.2.29`）。产品演进全貌、GAP_MAP（**G01–G77**）、每轮验收留痕，见 **`docs/product-evolution.md`**（编排者维护的唯一权威状态文件，**比本节更新更快，冲突时以它为准**）。
 - **CLI 双语完成度（R113 更正）**：入门面（G12）+ `provider`/`usage`（G13）+ `models`/`serve`/`pricing`/`dashboard`/错误类/`warning:` 前缀（G14）已本地化。**但「已收口」是 R109 的过度宣称**：独立 UX 审计（R113）实测发现**各子命令 `--help` 的选项说明仍是大片英文**（`init`/`provider add`/`serve` 等）→ 已立 **G58（P2）**。
 - **独立 UX 审计（R113）结论**：新用户**「有条件能」**完成第一次成功使用（用 mock 供应商真跑通 200 + 计量入账），但**照官方帮助/`init` 引导的字面路径走不到**，需在 3 处自我纠偏。产出 11 条发现 + 编排者 3 条机械发现，已综合为 **G54–G65** 并定出下一片 **G15＝族 A「首次成功路径可达」**。
 - **结构守卫**：`packages/mik/test/module-graph.test.ts` 递归扫描 `src/**` 断言无环 + 相对说明符必须可解析。**已知边界（G41）**：`import("./" + n)`、`import(path.join(a, b))` 这类动态表达式对它不可见；`import{a}from"…"` 也漏检。新增此类写法时请手工确认。
