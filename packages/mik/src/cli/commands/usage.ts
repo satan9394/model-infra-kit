@@ -177,6 +177,33 @@ function unpricedLines(coverage: UnpricedCoverage, lang: Lang): string[] {
   return lines
 }
 
+/**
+ * The rollup caveat (EVO-G77) that follows the unpriced block.
+ *
+ * `unpricedCoverage()` is measured over `usage_events` because that is the only
+ * table that records a `pricing_source`. `usage_daily_rollups` does not, so
+ * every day `rollupAndPrune()` folded away is **unmeasurable**: it is excluded
+ * from the block's numerator *and* denominator (correct — it must not be
+ * guessed at), while `UsageSummary.requests` still counts it.
+ *
+ * That gap is silent by construction, which is the exact failure mode the G74
+ * block exists to kill: `Cost 0.0000` plus no unpriced segment reads as "cheap
+ * and healthy" even when a folded history was never priced at all. So whenever
+ * `summary().requests` exceeds the detail rows the block could see, say so, and
+ * say how many requests are affected.
+ *
+ * It is **not** the unpriced segment: it reports measurement scope, not
+ * unpriced work, so it also fires when every retained row is priced (the case
+ * where the blind spot would otherwise be completely invisible). It stays
+ * silent when there is no gap at all, which keeps the output of a database that
+ * never rolled up byte-for-byte identical to the pre-change build.
+ */
+function rollupGapLines(summaryRequests: number, detailRequests: number, lang: Lang): string[] {
+  const folded = summaryRequests - detailRequests
+  if (folded <= 0) return []
+  return [tr(lang, "usage.summary.unpriced.rollupNote", formatTokens(folded))]
+}
+
 async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<number> {
   // Flag validation happens before the hub opens, so it uses the invocation
   // environment; the rendered output uses the hub-level language below.
@@ -206,7 +233,12 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
       ]),
     )
     // Appended last: every pre-existing line keeps its content and its order.
-    const extra = unpricedLines(unpriced, lang)
+    const extra = [
+      ...unpricedLines(unpriced, lang),
+      // After the block: the caveat qualifies the block's scope, and it also
+      // has to appear when the block itself is silent (EVO-G77).
+      ...rollupGapLines(summary.requests, unpriced.totalRequests, lang),
+    ]
     if (extra.length > 0) {
       context.io.out("")
       context.io.out(extra.join("\n"))

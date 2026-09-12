@@ -175,6 +175,8 @@ export const en: Record<string, string> = {
   "usage.summary.unpriced.header.requests": "REQUESTS",
   "usage.summary.unpriced.header.tokens": "TOKENS",
   "usage.summary.unpriced.fix": "Fix: mik pricing set %s --input <usd/M> --output <usd/M>",
+  "usage.summary.unpriced.rollupNote":
+    "Note: %s request(s) were folded into daily rollups; those rows record no pricing source, so they are outside the unpriced statistics.",
   "usage.empty": "No usage recorded in this range.",
   "usage.trends.header.date": "DATE",
   "usage.trends.header.requests": "REQUESTS",

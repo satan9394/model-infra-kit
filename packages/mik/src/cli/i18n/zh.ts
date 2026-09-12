@@ -172,6 +172,7 @@ export const zh: Record<string, string> = {
   "usage.summary.unpriced.header.requests": "请求数",
   "usage.summary.unpriced.header.tokens": "token",
   "usage.summary.unpriced.fix": "修法：mik pricing set %s --input <usd/M> --output <usd/M>",
+  "usage.summary.unpriced.rollupNote": "说明：另有 %s 条请求已折叠为按天汇总，不含价格来源，无法计入未定价统计。",
   "usage.empty": "该区间没有用量记录。",
   "usage.trends.header.date": "日期",
   "usage.trends.header.requests": "请求数",
