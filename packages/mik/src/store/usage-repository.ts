@@ -470,6 +470,37 @@ export class UsageRepository {
     return [...buckets.values()].sort((a, b) => b.costUsd - a.costUsd)
   }
 
+  /**
+   * Every `app_id` that has usage rows in this database, ascending (EVO-G64).
+   *
+   * **Deliberately unfiltered.** Every other reader here takes a `UsageQuery`
+   * and inherits its `app_id = ?` scope; this one must not, because its whole
+   * question is "who else writes into this file" — a filter would erase the
+   * answer.
+   *
+   * Both tables are read: `rollupAndPrune()` deletes detail rows and keeps
+   * `usage_daily_rollups`, so an app whose entire history has been folded away
+   * would otherwise disappear from the list even though its money is still
+   * summed into this database.
+   *
+   * The stored value is returned untouched — no trimming, no dropping of an
+   * empty id — so the caller can count exactly what is on disk.
+   */
+  apps(): string[] {
+    const ids: string[] = []
+    for (const row of this.driver
+      .prepare(
+        `SELECT app_id FROM usage_events
+         UNION
+         SELECT app_id FROM usage_daily_rollups
+         ORDER BY app_id`,
+      )
+      .all()) {
+      ids.push(asString(row.app_id))
+    }
+    return ids
+  }
+
   byProvider(query: UsageQuery = {}): UsageBucket[] {
     return this.groupBy(query, { events: "provider_id", rollups: "provider_id" })
   }

@@ -184,6 +184,10 @@ export const en: Record<string, string> = {
   "usage.summary.tags.header.cost": "COST (USD)",
   "usage.summary.tags.note":
     "Note: a call with several tags counts its whole cost under each of them, so these rows sum to more than the total; a call with no tag is not listed at all; machine-written keys (%s, and the _mik_ prefix) are excluded; values are redacted for display. Raw detail: the tags column of usage export.",
+  "usage.summary.sharedDb":
+    "Note: this database holds usage from %s applications (%s); use --app <id> to see just one of them.",
+  "usage.summary.implicitDb":
+    "Note: no --db was given, so this reads the default shared database %s; another project using the same default settings writes into the same file (pass --db <your own path> to keep usage separate).",
   "usage.empty": "No usage recorded in this range.",
   "usage.trends.header.date": "DATE",
   "usage.trends.header.requests": "REQUESTS",

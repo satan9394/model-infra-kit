@@ -43,6 +43,18 @@ export interface CliContext {
   offline: boolean
   appId: string
   dbPath: string
+  /**
+   * True when nothing chose the database — no `--db`, no `MIK_DB`, no config
+   * entry — so `dbPath` is the built-in default `~/.model-infra-kit/usage.db`
+   * (EVO-G64).
+   *
+   * This is a fact about **how the path was resolved**, not about the file: it
+   * says "you are on the machine-wide default", which is what lets a reader
+   * warn that another project with the same defaults shares it. An explicit
+   * `--db` (or `MIK_DB`, or `config.db`) means the caller picked the file and
+   * already knows what it is sharing.
+   */
+  dbDefaulted: boolean
   configPath: string
   config: CliConfigFile
   /** Settles once the hub's store is closed; always await it. */
@@ -211,7 +223,12 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   const configPath = configPathFor(parsed, options)
   const config = loadConfig(configPath, io, options, lang)
 
-  const dbPath = flagString(parsed.values, "db") ?? env.MIK_DB ?? config.db ?? defaultDbPath()
+  const dbFlag = flagString(parsed.values, "db")
+  const dbPath = dbFlag ?? env.MIK_DB ?? config.db ?? defaultDbPath()
+  // Nothing named a database, so the path below is the machine-wide default
+  // (EVO-G64). Kept next to the resolution chain on purpose: re-deriving it at
+  // the call site would duplicate the chain and could drift from it.
+  const dbDefaulted = !dbFlag && !env.MIK_DB && !config.db
   const appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? config.appId ?? "default"
   const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR
   const offline = flagBool(parsed.values, "offline") || env.MIK_OFFLINE === "1"
@@ -240,6 +257,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     offline,
     appId,
     dbPath,
+    dbDefaulted,
     configPath,
     config,
     close: () => hub.close(),

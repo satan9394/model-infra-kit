@@ -179,6 +179,8 @@ export const zh: Record<string, string> = {
   "usage.summary.tags.header.requests": "请求数",
   "usage.summary.tags.header.cost": "成本 USD",
   "usage.summary.tags.note": "说明：一行带多个标签时，该行成本会计入每个标签，故各行之和大于总额；未带标签的调用不出现在下表；机器写入的键（%s，以及 _mik_ 前缀）已排除，且展示值均经脱敏；明细见 usage export 的 tags 列。",
+  "usage.summary.sharedDb": "说明：该库共有 %s 个应用在记录用量（%s）；用 --app <id> 只看其中一个。",
+  "usage.summary.implicitDb": "说明：未指定 --db，本次读取的是默认共享库 %s；同机其它项目若也用默认设置，会写进同一个文件（要隔离请用 --db <自有库路径>）。",
   "usage.empty": "该区间没有用量记录。",
   "usage.trends.header.date": "日期",
   "usage.trends.header.requests": "请求数",

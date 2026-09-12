@@ -29,6 +29,14 @@ const MAX_UNPRICED_MODELS = 5
 const MAX_TAG_BUCKETS = 10
 
 /**
+ * How many app ids the shared-database notice names before it elides (EVO-G64).
+ *
+ * The **count** in the same sentence is never capped, so a truncated list still
+ * tells the whole truth about how many applications share the file.
+ */
+const MAX_SHARED_APPS = 5
+
+/**
  * How many code points of a tag the breakdown prints (EVO-G75).
  *
  * A host may lawfully store a 256-character tag value, and a column sized by the
@@ -213,6 +221,61 @@ function unpricedLines(coverage: UnpricedCoverage, lang: Lang): string[] {
 }
 
 /**
+ * The two close-out notices of `usage summary` (EVO-G64), appended last.
+ *
+ * Without `--db` (and without `MIK_DB` / a config entry) every project on the
+ * machine resolves to the **same** file, `~/.model-infra-kit/usage.db`. That is
+ * a deliberate design — it is how several apps total their spend together — but
+ * nothing in the output said so, so a caller read a total with no way to learn
+ * that other applications had contributed to it.
+ *
+ * There are **two different facts** here, and they must never be merged into
+ * one sentence, because one is evidence and the other is a possibility:
+ *
+ * 1. `sharedDatabaseLines` — **known sharing**: the file holds more than one
+ *    `app_id`, so other applications demonstrably wrote into it. It reports the
+ *    count and the names, and only when that evidence exists.
+ * 2. `implicitDatabaseLines` — **possible sharing**: nothing chose the database,
+ *    so this is the machine-wide default that any other project using the same
+ *    defaults also writes into. It must not invent a count or a name: the
+ *    reported case (two projects that both keep the default `app_id`) is a
+ *    single `app_id` in the file, and there is no evidence of it anywhere, so
+ *    the honest statement is about the *path*, not about who is in it.
+ *
+ * They fire independently and can both be present; that is the one case with
+ * two lines, and neither repeats the other: the path is named **exactly once**,
+ * by the identity notice — which is precisely the notice that fires when the
+ * reader did *not* type the path and cannot know it. A caller who passed `--db`
+ * chose the file themselves, so the sharing line stays actionable without it.
+ *
+ * Both are display-only: they sum nothing, change no figure above them, and are
+ * appended last, so every pre-existing line keeps its content and its offset.
+ */
+
+/** Known sharing: `>= 2` app ids in the file (count + names). */
+function sharedDatabaseLines(apps: readonly string[], lang: Lang): string[] {
+  if (apps.length < 2) return []
+  const shown = apps.slice(0, MAX_SHARED_APPS)
+  const names = shown.join(", ") + (apps.length > shown.length ? ", …" : "")
+  return [tr(lang, "usage.summary.sharedDb", formatTokens(apps.length), names)]
+}
+
+/**
+ * Possible sharing: the caller named no database, so this is the default one.
+ *
+ * Fires for **any** app count, zero included: the risk it describes comes from
+ * the path being machine-wide, not from what happens to be in the file today.
+ * A caller who passed `--db` (or set `MIK_DB`, or a config entry) picked the
+ * file themselves and gets nothing — that is this card's "do not nag" boundary,
+ * and the reason `dbDefaulted` is carried on the context rather than guessed
+ * here from flags that would duplicate the resolution chain.
+ */
+function implicitDatabaseLines(dbPath: string, dbDefaulted: boolean, lang: Lang): string[] {
+  if (!dbDefaulted) return []
+  return [tr(lang, "usage.summary.implicitDb", dbPath)]
+}
+
+/**
  * The rollup caveat (EVO-G77) that follows the unpriced block.
  *
  * `unpricedCoverage()` is measured over `usage_events` because that is the only
@@ -326,6 +389,11 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
      * output of every existing call is byte-for-byte what it was.
      */
     const tagLines = flagBool(parsed.values, "byTag") ? tagBreakdownLines(context.hub.usage.byTag(query), lang) : []
+    /**
+     * Unscoped on purpose (EVO-G64): the notice is about the *file*, not about
+     * this query's range or `--app` filter, so it must not inherit either.
+     */
+    const apps = context.hub.usage.appsInDatabase()
     // Appended last: every pre-existing line keeps its content and its order.
     const extra = [
       ...unpricedLines(unpriced, lang),
@@ -333,6 +401,11 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
       // has to appear when the block itself is silent (EVO-G77).
       ...rollupGapLines(summary.requests, unpriced.totalRequests, lang),
       ...(tagLines.length > 0 ? ["", ...tagLines] : []),
+      // Last of all, identity first: "which file is this" is the precondition
+      // for reading the sharing line below, and it is the only place the path
+      // is named — so the two lines together never repeat it (EVO-G64).
+      ...implicitDatabaseLines(context.dbPath, context.dbDefaulted, lang),
+      ...sharedDatabaseLines(apps, lang),
     ]
     if (extra.length > 0) {
       context.io.out("")
