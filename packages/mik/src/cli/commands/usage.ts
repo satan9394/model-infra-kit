@@ -190,9 +190,26 @@ function rangeLabel(query: UsageQuery, appId: string, lang: Lang): string {
  * cannot be compared without the difference being on screen. Both stay silent
  * when the caller passed explicit bounds — the windows are then identical and
  * there is nothing to explain. Neither changes a figure above it.
+ *
+ * EVO-G88 adds the **one-sided** case: `trends --to <date>` (no `--from`, no
+ * `--days`) has a lower bound this command invented, and a header of two printed
+ * dates says nothing about which of them the user chose. It is the same defect as
+ * the all-default window, so it gets the same shape of sentence.
  */
-function scopeNoticeLines(query: UsageQuery, defaultWindowDays: number | undefined, lang: Lang): string[] {
+function scopeNoticeLines(
+  query: UsageQuery,
+  defaultWindowDays: number | undefined,
+  impliedLowerBoundDays: number | undefined,
+  lang: Lang,
+): string[] {
   if (defaultWindowDays !== undefined) return [tr(lang, "usage.note.defaultDaysScope", formatTokens(defaultWindowDays))]
+  // EVO-G88: `--to` alone. The range header then prints two concrete dates as if
+  // both had been typed, while the lower one is this command's own 30-day default
+  // — the one-sided version of the disagreement EVO-G79 fixed. Same wording shape
+  // as the line above, so the reader meets one style, not two.
+  if (impliedLowerBoundDays !== undefined) {
+    return [tr(lang, "usage.note.impliedFromScope", formatTokens(impliedLowerBoundDays))]
+  }
   if (query.from === undefined && query.to === undefined) return [tr(lang, "usage.note.allTimeScope")]
   return []
 }
@@ -450,7 +467,7 @@ async function runSummary(parsed: ParsedCli, options: RunOptions): Promise<numbe
      * costs no extra query and changes no number.
      */
     const bound = costBound(summary, unpriced)
-    context.io.out([rangeLabel(query, context.appId, lang), ...scopeNoticeLines(query, undefined, lang)].join("\n"))
+    context.io.out([rangeLabel(query, context.appId, lang), ...scopeNoticeLines(query, undefined, undefined, lang)].join("\n"))
     context.io.out("")
     context.io.out(
       formatKeyValues([
@@ -523,6 +540,18 @@ async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number
     flagString(parsed.values, "from") === undefined &&
     flagString(parsed.values, "to") === undefined &&
     flagString(parsed.values, "days") === undefined
+  /**
+   * EVO-G88: `--to <date>` with neither `--from` nor `--days` — the tool must fill
+   * the lower bound in, and before this card it did so without saying so. Derived
+   * from the flags, not from the query: after `applyDays` the invented bound and a
+   * typed one are byte-identical, which is exactly why the notice is needed.
+   */
+  const impliedLowerBoundDays =
+    !boundsDefaulted &&
+    flagString(parsed.values, "from") === undefined &&
+    flagString(parsed.values, "days") === undefined
+      ? DEFAULT_TREND_DAYS
+      : undefined
   const query = applyDays(buildUsageQuery(parsed, flagLang), parsed, flagLang)
   return withContext(parsed, options, async (context) => {
     const lang = contextLang(context, options)
@@ -530,7 +559,7 @@ async function runTrends(parsed: ParsedCli, options: RunOptions): Promise<number
     context.io.out(
       [
         rangeLabel(query, context.appId, lang),
-        ...scopeNoticeLines(query, boundsDefaulted ? DEFAULT_TREND_DAYS : undefined, lang),
+        ...scopeNoticeLines(query, boundsDefaulted ? DEFAULT_TREND_DAYS : undefined, impliedLowerBoundDays, lang),
       ].join("\n"),
     )
     context.io.out("")
@@ -641,7 +670,7 @@ async function runLogs(parsed: ParsedCli, options: RunOptions): Promise<number> 
   return withContext(parsed, options, async (context) => {
     const lang = contextLang(context, options)
     const page = context.hub.usage.query({ ...query, limit, offset })
-    context.io.out([rangeLabel(query, context.appId, lang), ...scopeNoticeLines(query, undefined, lang)].join("\n"))
+    context.io.out([rangeLabel(query, context.appId, lang), ...scopeNoticeLines(query, undefined, undefined, lang)].join("\n"))
     context.io.out("")
     if (page.events.length === 0) {
       context.io.out(tr(lang, "usage.empty"))

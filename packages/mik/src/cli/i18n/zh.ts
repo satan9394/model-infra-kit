@@ -36,6 +36,9 @@ export const zh: Record<string, string> = {
   "init.wrote": "已写入 %s",
   "init.appIdLine": "  appId  %s",
   "init.dbLine": "  db     %s",
+  // EVO-G88：init 唯一写入却不打印的字段。仅在确有取值时打印，使「沿用文件里的值」与
+  // 「本次 flag 给的值」同样可见。
+  "init.cacheDirLine": "  cache  %s",
   "init.providerRegistered": "已注册供应商「%s」（%s，%s）。",
   "init.noBaseUrl": "无 base URL",
   "init.providerRegisterFailed": "警告：无法注册供应商「%s」：%s",
@@ -157,6 +160,9 @@ export const zh: Record<string, string> = {
   // 两个方向都写明：看 summary 的人知道 trends 的默认窗，看 trends 的人知道 summary 的口径。
   "usage.note.allTimeScope": "说明：未指定 --from/--to 时本命令覆盖全部历史；usage trends 默认只覆盖最近 30 天。",
   "usage.note.defaultDaysScope": "说明：未指定 --from/--to/--days 时本命令默认只覆盖最近 %s 天；usage summary 与 usage logs 默认覆盖全部历史。",
+  // EVO-G88：单边情形——只给 --to。与上一行同形，两个窗口用同一种口吻描述；打印的天数
+  // 就是 applyDays 实际使用的那一个默认值。
+  "usage.note.impliedFromScope": "说明：未指定 --from 时本命令自行把下沿补成 --to 之前 %s 天；usage summary 与 usage logs 默认覆盖全部历史。",
   "usage.summary.requests": "请求数",
   "usage.summary.successes": "成功数",
   "usage.summary.failures": "失败数",

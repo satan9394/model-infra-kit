@@ -11,7 +11,7 @@
 import { createInterface } from "node:readline/promises"
 import type { ParsedCli } from "./args.js"
 import { messageOf, openContext, resolveEnv, resolveIo, type CliContext, type RunOptions } from "./context.js"
-import { formatMoney } from "./format.js"
+import { formatUsageMoney } from "./format.js"
 import { isLang, LANGS, LANG_LABELS, parseLangChoice, resolveCliLang, tr, trBoth, type Lang } from "./i18n.js"
 import { runCommand } from "./dispatch.js"
 import { isInteractive, prompt } from "./prompt.js"
@@ -148,7 +148,11 @@ async function chatScript(context: CliContext, options: RunOptions, lang: Lang, 
   try {
     const reply = await context.hub.generate({ messages: [{ role: "user", content }] })
     io.out(reply.text)
-    io.out(tr(lang, "repl.chatCost", formatMoney(reply.cost.usd), reply.model.actual, reply.cost.source))
+    // EVO-G88: the call's cost is a usage amount, so it uses the usage-money
+    // convention (`formatUsageMoney`, EVO-G85) like `usage summary` and `usage
+    // logs` — not the four-decimal catalogue rendering. Same charge, same digits
+    // on every surface the human reads.
+    io.out(tr(lang, "repl.chatCost", formatUsageMoney(reply.cost.usd), reply.model.actual, reply.cost.source))
   } catch (error) {
     io.err(tr(lang, "repl.chatError", redact(messageOf(error))))
   }

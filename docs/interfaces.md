@@ -802,7 +802,70 @@ mik usage logs [--limit 20] [--offset <n>] [--with-id] [...QUERY_FLAGS]
 - **未改**：CSV 的 22 列与前 15 列字面量锁、`cost_microusd` 的整数语义、`usage export` 的 6 位小数逐行渲染、`usage summary` 的行序与标签、EVO-G77/G78/G79 的三处表达；**目录价格**仍走 `formatMoney`（`mik models` / `mik pricing`，4 位小数），故帮助文案里「价格为每百万 token 的美元数（4 位小数）」仍然成立。
 - **JSON/HTTP 面未改**：`/api/usage/*` 返回的 `costUsd` 一直是精确数值，本卡未动。
 - **真相源仍是整数微美元**：禁止 `SUM(CAST(cost AS REAL))` 一类浮点求和（硬性规则 2）未变。
-- **已知未解决（不在本卡范围，登记）**：看板 `apps/dashboard` 有**自己的一套**金额渲染（`lib/format.ts` 的 `value < 1 ? 3 : 2` 位小数、`components/views/overview.tsx` 的 `toFixed(4)`），本卡未改；看板上的成本与导出行之和同样会不一致。
+- **已知未解决（不在本卡范围，登记）**：看板 `apps/dashboard` 有**自己的一套**金额渲染（`lib/format.ts` 的 `formatUsd`），本卡未改；看板上的成本与导出行之和同样会不一致。→ **已在 EVO-G88 处理**（见下节；同节的记录里「`value < 1 ? 3 : 2` / `overview.tsx` 的 `toFixed(4)`」是当时的源码描述：**前者（`formatRate`）的描述属实但属性写错，后者（`overview.tsx:74` 有 `toFixed(4)`）属实却是本卡漏改的那一处**；两处均已在下节更正）。
+
+
+## EVO-G88 —— 收口：看板/REPL 精度对齐、`init` 不再丢 `cacheDir`、`trends --to` 的下沿可见
+
+三处**同类残留**：同一件事在**两处口径不同**，或工具**静默替用户做了决定**。
+
+### A. 金额精度：CLI / REPL / 看板同一条规则（用户可见）
+
+- **规则不变，覆盖面扩大**：EVO-G85 的 `formatUsageMoney()` 规则（整数微美元没有低于 1e-4 的位 → 4 位小数；有余数 → 6 位小数；钳位为**半个微美元**）现在是**用量面金额的唯一口径**。
+- **REPL（`mik repl` 的 `/chat` 与自由文本回复）**：改前走目录价渲染 `formatMoney`（4 位、钳位 `|<0.00005|→0`），故一条 340 µ$ 的回复在终端里印 `cost 0.0003 · …`，而同一笔开销在 `usage logs` 里是 `0.000340`。改后走 `formatUsageMoney`：`cost 0.000340 · model <实际模型> · source <原始枚举>`。
+- **看板（`apps/dashboard/lib/format.ts` 的 `formatUsd`）**：**不引用 CLI 代码**，而是实现**同一条规则**——先 `Math.round(usd * 1e6)` 得到微美元，余数为 0（`micros % 100 === 0`）时 4 位小数，否则 6 位；零值钳位同样改为**半个微美元**（改前 `< 1e-4` 一律印 `<$0.0001`）。看板自己的 `$` 前缀与**尾零裁剪**保留（图表轴仍显式传 `2`，日志详情面板显式传 `6`，显式 `digits` 优先）。
+- **因此三面「位数规则一致」，但字面量不逐字相同**：CLI/REPL 印 `0.000340`，看板印 `$0.00034`（`$` + 去尾零是看板既有风格，e2e 的 DASH 检查按同一函数取期望值）。**这是刻意的**：本卡要统一的是**精度规则**，不是把 CLI 的字符串塞进看板。
+
+  | 金额（µ$） | CLI `usage summary`/`logs`/`trends` | REPL `/chat` | 看板 `formatUsd` 改前 → 改后 |
+  | --- | --- | --- | --- |
+  | 654 | `0.000654` | `0.000654` | `$0.0007` → `$0.000654` |
+  | 340 | `0.000340` | `0.000340` | `$0.0003` → `$0.00034` |
+  | 30 | `0.000030` | `0.000030` | `<$0.0001` → `$0.00003` |
+  | 1 | `0.000001` | `0.000001` | `<$0.0001` → `$0.000001` |
+  | 17 500 | `0.0175` | `0.0175` | `$0.0175`（**未改**） |
+  | 3 000 | `0.0030` | `0.0030` | `$0.003`（**未改**） |
+
+- **看板最后一处裸 `toFixed(4)` 已收口（EVO-G88b）**：`apps/dashboard/components/views/overview.tsx:74` 的**成本区间提示**（`区间 $… ~ $…`，两个端点就是 `costLowUsd` / `costHighUsd`，`lib/types.ts:99-100` 声明为 `number`）改前是**裸的四位小数**（`区间 $${costLowUsd.toFixed(4)} ~ …`）——**没走 `formatUsd`**。于是同一笔 340 µ$ 在这里印 `$0.0003`（CLI 印 `0.000340`），且**没有半微钳位**：30 µ$ 印 `$0.0000`。**改后两个端点各走一次 `formatUsd`（默认位数 = 看板规则）**，与看板其余金额（`overview` 的总花费、`trends`、分桶表、日志表与详情面板）同一函数、同一规则。
+  - **改前 → 改后（真实输出，`.tmp/g88b/surface-probe.mjs`）**：340 µ$：`区间 $0.0003 ~ $0.0003` → `区间 $0.00034 ~ $0.00034`；30 µ$：`区间 $0.0000 ~ $0.0000` → `区间 $0.00003 ~ $0.00003`；17 500 µ$：`区间 $0.0088 ~ $0.0350` → `区间 $0.00875 ~ $0.035`。
+  - **为何不加 `digits`（保持默认位数）**：加了 `digits` 会让**每一边**都用同一个固定位数；默认规则是**每边各自**「无余数 → 4 位，有余数 → 6 位」，这正是看板其余金额用的那条规则。两端点是同一区间的两个端点，取哪个口径都自洽；选默认口径是为了与**总花费同卡同屏**的 `formatUsd(summaryData?.costUsd)` 一致。
+  - **此处是更正后的表述**：EVO-G88 节的记录里「`overview.tsx` 没有 `toFixed(4)`」**不属实**——该行改前即在、改后仍在（只是不再是 `toFixed`）。当时这处漏改由独立评审 EVO-G88 指出。
+
+- **R257 类变化必须显式列出**：这次同时改了**钳位阈值**——30 µ$ 与 1 µ$ 从「看不出来的零」（`0.0000` / `<$0.0001`）变成**非零可读值**。位数放宽与「由零变非零」是两件事，看板侧同样成立。
+- **未改**：CSV 22 列与前 15 列字面量锁、`usage logs` 默认输出、目录价（`mik models`/`mik pricing`）的 4 位小数、金额的整数微美元真相源。
+
+### B. `init` 重跑不再静默丢弃既有 `cacheDir`（用户可见）
+
+- **选择：保留既有值**（卡片推荐项）。理由：`init` 的**唯一职责**是把用户的选择**写下来**；用户没给 `--cache-dir` 时，「文件里已有的值」是**用户自己先前的选择**，而「主目录默认值」是**工具的猜测**。静默用猜测覆盖用户选择，正是 EVO-G84/F11 刚修好的同一类缺陷。另一种「明确告知」只把损失变得可发现，仍然把配置改掉了。
+- **取值顺序**：`--cache-dir` → `MIK_CACHE_DIR` → **被重写的那个配置文件里的既有 `cacheDir`** → 无。与 `openContext` 的 flag → env → file 同一顺序，故写入值就是后续命令会解析到的值。读的是 `--file` 指定的**写入目标**（不是 `--config` 的读取源）；文件缺失/JSON 损坏/非字符串一律视为「无既有值」，`init` 不因此失败。
+- **并让这个字段不再隐形**：写入后**多打一行** `  cache  <路径>`（zh 同形）——仅在该值确实生效时打印（无值时不打印）。这是 `init` 唯一被写入却从不显示的字段，也正是它丢失时无人看见的原因。
+- **改前/改后（真实产物，同一序列）**：
+
+  | | 第一次 `init --cache-dir <dir>` | 第二次 `init --force`（不带该 flag） |
+  | --- | --- | --- |
+  | 改前 | `{appId, db, cacheDir}` | `{appId, db}` ← **键消失** |
+  | 改后 | `{appId, db, cacheDir}` | `{appId, db, cacheDir}` ← 保留，并在屏幕上打印 `cache  <dir>` |
+
+- **未改**：`appId`/`db` 仍按 flag → env → 默认值重写（它们的取值**每次都会打印**），`--force`/`init.exists` 守卫、向导流程、收尾步骤文案均未动。
+
+### C. `trends` 只给 `--to` 时，被补出来的下沿可见（用户可见）
+
+- **新增一行范围说明**，沿用 EVO-G79 的**同一句式**（`Note: … ; usage summary and usage logs cover the whole history by default.` / `说明：…；usage summary 与 usage logs 默认覆盖全部历史。`）：
+  - `Note: with no --from this command fills the lower bound in itself, 30 days before --to; usage summary and usage logs cover the whole history by default.`
+  - `说明：未指定 --from 时本命令自行把下沿补成 --to 之前 30 天；usage summary 与 usage logs 默认覆盖全部历史。`
+- **触发条件**：`trends` 上**给了 `--to`、既没给 `--from` 也没给 `--days`**。`--from X --to Y`（两个边界都是用户的）与 `--days N`（跨度是用户选的）**都不打印**；三者都没给时仍是 G79 的 `defaultDaysScope` 那一行。数字用 `%s` 传入，与 `applyDays` 实际补的天数同源。
+- **改前/改后（真实产物，`mik usage trends --to 2026-09-08`，无 `--from`）**：
+
+  ```
+  改前： Range 2026-08-10 → 2026-09-08 · app=g88-app
+        （无说明；两个日期看起来都是用户给的）
+
+  改后： Range 2026-08-10 → 2026-09-08 · app=g88-app
+        Note: with no --from this command fills the lower bound in itself, 30 days before --to; usage summary and usage logs cover the whole history by default.
+  ```
+
+- **`--days N` 现有测试**（本卡补齐，此前无覆盖）：`1`（单日窗口，3 天前的用量**不在**窗口内）；`3650`（文档上界，接受）；`3651`/`0`/`1.5`/`999999999`（拒绝，exit 2，`--days must be an integer between 1 and 3650, got <值>.`）；`abc`（更早的解析层：`--days expects a number, got "abc".`）；`--days -3` 需写成 `--days=-3` 才到得了范围检查（`--days -3` 被选项解析器先吃掉，报 `argument is ambiguous`，两者都 exit 2）。
+- **未改**：表头、行序、合计、金额渲染、`DEFAULT_TREND_DAYS = 30` 本身。
+
 
 
 

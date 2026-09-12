@@ -1,10 +1,29 @@
 /** Presentation helpers. Pure functions, safe in both server and client code. */
 
-export function formatUsd(value: number | undefined | null, digits = 4): string {
+/**
+ * USD for the dashboard's cost surfaces.
+ *
+ * `digits` is the caller's own precision **when it names one** — the chart axes
+ * ask for two, the log detail panel for six. The default follows the CLI's usage
+ * money convention (`formatUsageMoney`, EVO-G85/G88): every amount comes from
+ * integer micro-USD, so a value with nothing below 1e-4 keeps the four decimals
+ * it always had, while a remainder is rendered at six — the micro unit itself.
+ * Before this the same charge read `0.000654` in `mik usage summary` and
+ * `$0.0007` here, which is one number the reader cannot reconcile.
+ *
+ * The clamp is half a **micro**, not 1e-4: 30 µ$ is a real amount and used to be
+ * printed `<0.0001`, i.e. "smaller than the smallest thing you can see" for a
+ * value the CLI shows exactly (R257 — the threshold, not just the digit count).
+ * The dashboard keeps its own `$` and trailing-zero trimming; the *rule* is what
+ * is shared with the CLI, not the literal string.
+ */
+export function formatUsd(value: number | undefined | null, digits?: number): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—"
-  if (value === 0) return "$0"
-  if (Math.abs(value) < 0.0001) return "<$0.0001"
-  const fixed = value.toFixed(digits)
+  const micros = Math.round(value * 1_000_000)
+  // Also covers `-0` from a tiny negative: there is no "-$0".
+  if (micros === 0) return "$0"
+  const places = digits ?? (micros % 100 === 0 ? 4 : 6)
+  const fixed = (micros / 1_000_000).toFixed(places)
   // Trim the noise a fixed-point rendering adds, keeping at least two decimals.
   const trimmed = fixed.replace(/(\.\d{2}\d*?)0+$/, "$1")
   return `$${trimmed}`
