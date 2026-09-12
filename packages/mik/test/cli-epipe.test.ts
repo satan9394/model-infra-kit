@@ -1,7 +1,7 @@
-import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync, spawn } from "node:child_process"
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, dirname, join } from "node:path"
+import { join } from "node:path"
 import { Writable } from "node:stream"
 import { pathToFileURL } from "node:url"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
@@ -230,138 +230,178 @@ describe("EPIPE tolerance at the single CLI output chokepoint", () => {
   })
 })
 
-function toPosixPath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_match, drive: string) => `/mnt/${drive.toLowerCase()}`)
-}
-
-/**
- * The long-form POSIX path of a Windows path.
- *
- * `mkdtempSync(tmpdir(), ...)` returns the 8.3 form (`C:\Users\SATANC~1\...`)
- * on this host, which WSL cannot resolve, so the existing directory is resolved
- * and a not-yet-created file is appended by name.
- */
-function posixPath(path: string): string {
-  return toPosixPath(join(dirname(path), basename(path)))
-}
-
 const distDir = join(import.meta.dirname, "..", "dist")
 const cliPath = join(distDir, "cli.mjs")
 const hasBuild = existsSync(cliPath)
-const shellAvailable = spawnSync("bash", ["-c", "echo ok"], { encoding: "utf8" }).stdout?.trim() === "ok"
 
 /**
- * Every pipeline case runs inside **one** POSIX-shell invocation, and the cases
- * run **concurrently** inside it (`&` + `wait`).
+ * How the "downstream reader" behaves — the shell shapes from the card,
+ * expressed in Node so no `bash`/`head` binary and **no path translation** is
+ * involved (an earlier version shelled out with WSL-style `/mnt/c/...`, which is
+ * false on a Git Bash runner and carried an 8.3 short name on top; CI caught it
+ * on windows-latest and macos-latest, ubuntu passed).
  *
- * Why, precisely: each case is a real `node dist/cli.mjs` cold start. Under WSL
- * that costs ~2.5–4 s per process, so six sequential spawns took ~20 s and the
- * 30 s `testTimeout` was being blown whenever the other 26 files saturated the
- * machine (observed: `Test timed out in 30000ms` in a full run while the file
- * passed alone — R99's "green only on my machine" in a new shape). Running them
- * in parallel collapses the wall time to roughly one cold start, and a single
- * shell launch removes five redundant `bash` starts.
- *
- * `pipefail` is what makes the producer's exit code observable: a plain `a | b`
- * reports `b`'s status, which is 0 no matter how `mik` died. Each subshell
- * captures `$?` of its own pipeline right after it, into its own `.res` file.
+ * | mode               | shell equivalent            | what the parent does                    |
+ * |--------------------|-----------------------------|-----------------------------------------|
+ * | `first-line`       | `cli \| head -1`            | destroy stdout after the first newline  |
+ * | `ten-bytes`        | `cli \| head -c 10`         | destroy stdout after 10 bytes           |
+ * | `pattern`          | `cli \| grep -q Requests`   | destroy stdout once the pattern appears |
+ * | `both-ends-closed` | `cli 2>&1 \| head -1`       | same, and destroy stderr too            |
+ * | `never-reads`      | reader gone before output   | destroy both immediately after spawn    |
+ * | `full`             | `cli > file` (reads all)    | drain stdout to completion              |
  */
+type ReaderMode = "first-line" | "ten-bytes" | "pattern" | "both-ends-closed" | "never-reads" | "full"
+
 interface PipelineCase {
   name: string
-  /** The producer, with its output fed to `reader`. */
-  command: (argv: string[]) => string
-  reader: string
+  /** CLI arguments, without the per-case store flags appended by the runner. */
+  args: readonly string[]
+  mode: ReaderMode
 }
 
-function runPipelineCases(cases: readonly PipelineCase[]): { codes: Map<string, number>; bytes: Map<string, number>; dir: string } {
-  const dir = tempDir()
-  const scriptFile = join(dir, "epipe-cases.sh")
-  const lines = ["set -u", "set -o pipefail", `cd "${posixPath(dir)}"`]
-  for (const testCase of cases) {
-    // Per-case store paths: the cases now overlap, and pointing seven concurrent
+interface PipelineResult {
+  /** The child's real exit code (`null` when it was signalled). */
+  code: number | null
+  /** Bytes the reader received before it closed — "the fix must not print nothing". */
+  received: string
+}
+
+/**
+ * Run one case as a **real process writing into a real pipe**.
+ *
+ * `spawn(process.execPath, [cliEntry, ...args])` is the whole point: a closed
+ * pipe is an OS-level condition, and the defect is an asynchronous `EPIPE` that
+ * only exists in a separate process. `stdout`/`stderr` are pipes (fd 1/2 owned by
+ * this parent), and destroying our read end is exactly what `head` exiting does —
+ * the child's next write then fails with `EPIPE`.
+ *
+ * Nothing here depends on a shell, so the same code runs on ubuntu, macos and
+ * windows runners.
+ */
+/**
+ * Every child the pipeline block launches, recorded so the self-check can prove
+ * the cases stay shell-free (see the last `describe`).
+ */
+const spawnedCommands: { file: string; args: readonly string[] }[] = []
+
+function runPipelineCase(dir: string, testCase: PipelineCase): Promise<PipelineResult> {
+  const args = [
+    cliPath,
+    ...testCase.args,
+    // Per-case store paths: the cases overlap, and pointing several concurrent
     // processes at one SQLite file would trade a timeout for "database is locked".
-    const argv = [
-      "--offline",
-      "--db",
-      join(dir, `${testCase.name}.db`),
-      "--cache-dir",
-      join(dir, `cache-${testCase.name}`),
-      "--config",
-      join(dir, `config-${testCase.name}.json`),
-    ]
-    const errFile = join(dir, `${testCase.name}.err`)
-    const outFile = join(dir, `${testCase.name}.out`)
-    const resFile = join(dir, `${testCase.name}.res`)
-    const pipeline = `node "${posixPath(cliPath)}" ${testCase.command(argv)} 2>"${posixPath(errFile)}" | ${testCase.reader} > "${posixPath(outFile)}"`
-    // Subshell + `&`: the cases are independent, so they overlap. The result must
-    // be written to a file, because `echo` from a background job would otherwise
-    // interleave with its siblings on the shared stdout.
-    lines.push(
-      `( ${pipeline}; echo "CASE ${testCase.name} rc=$? bytes=$(wc -c < "${posixPath(outFile)}")" > "${posixPath(resFile)}" ) &`,
-    )
-  }
-  lines.push("wait")
-  for (const testCase of cases) lines.push(`cat "${posixPath(join(dir, `${testCase.name}.res`))}"`)
-  writeFileSync(scriptFile, `${lines.join("\n")}\n`, "utf8")
-  const stdout = execFileSync("bash", [posixPath(scriptFile)], { encoding: "utf8", env: { ...process.env, MIK_LANG: "en" } })
-  const codes = new Map<string, number>()
-  const bytes = new Map<string, number>()
-  for (const match of stdout.matchAll(/^CASE (\S+) rc=(\d+) bytes=(\d+)$/gm)) {
-    const [, name, rc, received] = match
-    if (!name || rc === undefined || received === undefined) continue
-    codes.set(name, Number(rc))
-    bytes.set(name, Number(received))
-  }
-  return { codes, bytes, dir }
+    "--offline",
+    "--db",
+    join(dir, `${testCase.name}.db`),
+    "--cache-dir",
+    join(dir, `cache-${testCase.name}`),
+    "--config",
+    join(dir, `config-${testCase.name}.json`),
+  ]
+  spawnedCommands.push({ file: process.execPath, args })
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, MIK_LANG: "en" },
+    })
+    let received = ""
+    let closed = false
+    const closeReadEnd = (both: boolean): void => {
+      if (closed) return
+      closed = true
+      child.stdout?.destroy()
+      if (both) child.stderr?.destroy()
+    }
+
+    child.stdout?.setEncoding("utf8")
+    // stderr is always drained (or destroyed): an unread pipe fills up and would
+    // block the child instead of exercising EPIPE.
+    child.stderr?.setEncoding("utf8")
+    child.stderr?.on("data", () => {})
+    child.stderr?.on("error", () => {})
+
+    child.stdout?.on("data", (chunk: string) => {
+      received += chunk
+      if (testCase.mode === "first-line" && received.includes("\n")) closeReadEnd(false)
+      else if (testCase.mode === "ten-bytes" && received.length >= 10) closeReadEnd(false)
+      else if (testCase.mode === "pattern" && received.includes("Requests")) closeReadEnd(false)
+      else if (testCase.mode === "both-ends-closed" && received.includes("\n")) closeReadEnd(true)
+    })
+    child.stdout?.on("error", () => {})
+
+    if (testCase.mode === "never-reads") closeReadEnd(true)
+
+    child.on("error", reject)
+    // `close` (not `exit`) so the result is reported after the stdio streams are
+    // done with; the exit code is available either way.
+    child.on("close", (code) => {
+      resolve({ code, received })
+    })
+  })
 }
 
-describe.skipIf(!hasBuild || !shellAvailable)("real `cli | head -1` pipeline around the built bin (A1)", () => {
-  const quote = (argv: readonly string[]): string => argv.map((arg) => `"${arg}"`).join(" ")
+/** Run every case concurrently and index the results by name. */
+async function runPipelineCases(cases: readonly PipelineCase[]): Promise<Map<string, PipelineResult>> {
+  const dir = tempDir()
+  const settled = await Promise.all(cases.map((testCase) => runPipelineCase(dir, testCase)))
+  return new Map(cases.map((testCase, index) => [testCase.name, settled[index] as PipelineResult]))
+}
 
-  /**
-   * A1 plus the failure shapes from the card, in one shell run:
-   * reader closes after the first line, mid-write, with stdout and stderr
-   * sharing the pipe, the `grep -q` shape the battery uses, and a full read
-   * (the `cat` case) that the prefix assertion compares against.
-   */
-  const cases: readonly PipelineCase[] = [
-    { name: "summary", command: (argv) => `usage summary ${quote(argv)}`, reader: "head -1" },
-    { name: "logs", command: (argv) => `usage logs ${quote(argv)}`, reader: "head -1" },
-    { name: "models", command: (argv) => `models ${quote(argv)}`, reader: "head -1" },
-    { name: "summary-c10", command: (argv) => `usage summary ${quote(argv)}`, reader: "head -c 10" },
-    { name: "summary-2to1", command: (argv) => `usage summary ${quote(argv)} 2>&1`, reader: "head -1" },
-    { name: "summary-grep", command: (argv) => `usage summary ${quote(argv)}`, reader: 'grep -q "Requests"' },
-    { name: "full-read", command: (argv) => `usage summary ${quote(argv)}`, reader: "cat" },
-  ]
+/**
+ * A1 plus the failure shapes from the card — module scope, so the self-check can
+ * assert its own spawn list against it.
+ */
+const pipelineCases: readonly PipelineCase[] = [
+  { name: "summary", args: ["usage", "summary"], mode: "first-line" },
+  { name: "logs", args: ["usage", "logs"], mode: "first-line" },
+  { name: "models", args: ["models"], mode: "first-line" },
+  { name: "summary-c10", args: ["usage", "summary"], mode: "ten-bytes" },
+  { name: "summary-2to1", args: ["usage", "summary"], mode: "both-ends-closed" },
+  { name: "summary-grep", args: ["usage", "summary"], mode: "pattern" },
+  { name: "summary-closed", args: ["usage", "summary"], mode: "never-reads" },
+  { name: "full-read", args: ["usage", "summary"], mode: "full" },
+]
 
-  /** One shell launch for the whole block; both tests assert on its results. */
-  let results: { codes: Map<string, number>; bytes: Map<string, number>; dir: string }
-  beforeAll(() => {
-    results = runPipelineCases(cases)
+describe.skipIf(!hasBuild)("real `cli | head -1` pipeline around the built bin (A1)", () => {
+  /** One run for the whole block; the tests below assert on its results. */
+  let results: Map<string, PipelineResult>
+  beforeAll(async () => {
+    results = await runPipelineCases(pipelineCases)
   }, 120_000)
 
   /**
-   * These two cases are inherently slow *by design*: they must drive the shipped
-   * bin through a real pipe, because the async `EPIPE` only exists at process
-   * level (an in-process stub cannot prove the exit code). The explicit budget is
-   * a safety net for a loaded CI box **on top of** the concurrency above, not a
-   * substitute for it.
+   * These cases are inherently slow *by design*: they must drive the shipped bin
+   * as a separate process through a real pipe, because the asynchronous `EPIPE`
+   * exists only at process level (an in-process stub cannot prove the exit code).
+   * The explicit budget is a safety net for a loaded CI box **on top of** the
+   * concurrency, not a substitute for it.
    */
   it("exits 0 for `usage summary`, `usage logs` and `models` when the reader closes after one line (A1)", () => {
-    for (const testCase of cases) {
-      expect(results.codes.get(testCase.name), `pipeline exit code for ${testCase.name}`).toBe(0)
+    for (const testCase of pipelineCases) {
+      expect(results.get(testCase.name)?.code, `exit code with the reader gone (${testCase.name})`).toBe(0)
     }
     // The reader still got output — the fix must not mean "print nothing".
     for (const name of ["summary", "logs", "models", "summary-c10", "summary-2to1", "full-read"]) {
-      expect(results.bytes.get(name), `bytes the reader received for ${name}`).toBeGreaterThan(0)
-      expect(existsSync(join(results.dir, `${name}.out`))).toBe(true)
+      expect(results.get(name)?.received.length, `bytes the reader received for ${name}`).toBeGreaterThan(0)
     }
   }, 120_000)
 
-  it("keeps `head -1` a prefix of the full output, not a truncation", () => {
-    const first = readFileSync(join(results.dir, "summary.out"), "utf8").trimEnd()
-    const full = readFileSync(join(results.dir, "full-read.out"), "utf8").split("\n")[0]?.trimEnd()
-    expect(first).toBe(full)
+  it("keeps the first line of a closed pipe identical to a full read", () => {
+    const first = results.get("summary")?.received.trimEnd()
+    // `full-read` mirrors the shell `cli > file` shape: the reader takes everything.
+    const fullFirstLine = results.get("full-read")?.received.split("\n")[0]?.trimEnd()
+    expect(first).toBe(fullFirstLine)
+  }, 120_000)
+
+  it("closes the read end on a real pipe, so the child really is writing into a closed pipe", () => {
+    // Guards against a silent no-op: every case must have produced bytes, which
+    // proves the child ran and wrote, and the "closed" cases are only meaningful
+    // because the parent then destroyed its end of that same pipe.
+    expect(results.size).toBe(pipelineCases.length)
+    expect(results.get("summary")?.received.length).toBeGreaterThan(0)
+    expect(results.get("full-read")?.received.length).toBeGreaterThanOrEqual(
+      results.get("summary")?.received.length ?? 0,
+    )
   }, 120_000)
 })
 
@@ -441,10 +481,20 @@ describe.skipIf(!hasBuild)("process-level exit codes for the guard's own paths (
 })
 
 describe("spawn-level self-check", () => {
-  it("bash is available for the process-level cases (guards against a silent skip)", () => {
-    // A silent skip would turn the strongest evidence into a no-op; this fails
-    // loudly instead if the shell is missing.
-    expect(shellAvailable).toBe(true)
+  it("the pipeline cases are shell-free: every child is `process.execPath` running the CLI entry", () => {
+    // The previous version shelled out (`bash script.sh | head -1`) with a
+    // machine-specific path convention: it broke on the Git Bash runner and
+    // diverged on macOS. This guard is behavioural, not a source scan — it fails
+    // if any case is ever launched through a shell or a `head`-like binary again.
+    expect(spawnedCommands).toHaveLength(pipelineCases.length)
+    for (const command of spawnedCommands) {
+      expect(command.file).toBe(process.execPath)
+      expect(realpathSync(command.args[0] ?? "")).toBe(realpathSync(cliPath))
+    }
+    const shells = ["bash", "sh", "cmd.exe", "powershell"]
+    for (const command of spawnedCommands) {
+      expect(shells.includes(command.file), `unexpected shell: ${command.file}`).toBe(false)
+    }
   })
 
   it("the built bin is the artifact the pipeline cases run (A7: not a silent no-op)", () => {
@@ -455,3 +505,4 @@ describe("spawn-level self-check", () => {
     expect(realpathSync(distDir).length).toBeGreaterThan(0)
   })
 })
+
