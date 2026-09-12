@@ -18,9 +18,26 @@ import { isInteractive } from "./prompt.js"
 import { runRepl } from "./repl.js"
 import { installStreamGuard, stdoutPipeBroken, writeGuarded } from "../util/pipe.js"
 import { redact } from "../util/redact.js"
+import { installWarningFilter } from "./warning-filter.js"
+
+/**
+ * EVO-G70 (G61): the `node:sqlite` experimental notice is filtered out of stderr
+ * for the whole process — installed once, and *before* the hub opens, because
+ * `store/driver.ts` imports `node:sqlite` lazily on the first store access. A
+ * second `main()` call in the same process (tests, embedders) must not park the
+ * filter's own listener, hence the flag.
+ */
+let warningFilterInstalled = false
+
+function ensureWarningFilter(): void {
+  if (warningFilterInstalled) return
+  warningFilterInstalled = true
+  installWarningFilter()
+}
 
 /** Run one CLI invocation. Returns the process exit code; never calls `process.exit`. */
 export async function main(argv: readonly string[], options: RunOptions = {}): Promise<number> {
+  ensureWarningFilter()
   // EVO-G76: tolerate a downstream reader that closes early (`mik ... | head -1`).
   // `process.stdout.write` reports a closed pipe asynchronously, so without this
   // listener node turns a *successful* command into an uncaught `EPIPE` and exit

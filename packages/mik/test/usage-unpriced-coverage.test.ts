@@ -279,7 +279,7 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     expect(result.stdout).not.toContain("Unpriced")
   })
 
-  it("A5 — both dictionaries define the new keys (286 → 294) with equal key sets", async () => {
+  it("A5 — both dictionaries define the new keys (286 → 294 → 299) with equal key sets", async () => {
     const NEW_KEYS = [
       "usage.summary.unpriced.title",
       "usage.summary.unpriced.requests",
@@ -296,10 +296,12 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
       expect(tr("zh", key), key).not.toBe("")
       expect(tr("en", key), key).not.toBe("")
     }
-    expect(Object.keys(zh)).toHaveLength(294)
-    expect(Object.keys(en)).toHaveLength(294)
+    // EVO-G70/G60 added five `provider.test.failure.*` keys on both sides, so the
+    // baseline moved 294 → 299; parity (the line below) is the real invariant.
+    expect(Object.keys(zh)).toHaveLength(299)
+    expect(Object.keys(en)).toHaveLength(299)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(294)
+    expect(i18nKeys()).toHaveLength(299)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })

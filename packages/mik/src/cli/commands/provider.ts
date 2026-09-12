@@ -177,6 +177,37 @@ async function runRemove(parsed: ParsedCli, options: RunOptions): Promise<number
   })
 }
 
+/**
+ * EVO-G70 (G60) — a localized one-line failure label for `provider test`.
+ *
+ * The table's `message` column used to repeat the library's full English
+ * sentence, so a credential failure shown next to `warning: …` read as the same
+ * English text twice. The label classifies the *shape* of the failure and keeps
+ * the data verbatim: the environment variable name stays as written, and so does
+ * anything the classifier cannot name (falling back to the original message).
+ *
+ * Only `zh` gets the short label; `en` keeps the existing sentence, so the
+ * English surface stays byte-identical (card §A4).
+ */
+export function providerTestMessage(message: string, lang: Lang): string {
+  if (lang === "en") return message
+  const credential = /Environment variable\s+(\S+)\s+is not set for this provider's API key/.exec(message)
+  if (credential) return tr(lang, "provider.test.failure.credential", credential[1])
+  const missingPackage = /provider package\s+(\S+)\s+is not installed/.exec(message)
+  if (missingPackage) return tr(lang, "provider.test.failure.missingPackage", missingPackage[1], missingPackage[1])
+  if (/API key rejected by the provider/.test(message)) return tr(lang, "provider.test.failure.auth")
+  if (
+    /Could not reach the provider endpoint/.test(message) ||
+    /did not respond in time/.test(message) ||
+    /server error/i.test(message) ||
+    /rate limiting/i.test(message)
+  ) {
+    return tr(lang, "provider.test.failure.connection")
+  }
+  if (/does not recognise this model id|model.*not found/i.test(message)) return tr(lang, "provider.test.failure.model")
+  return message
+}
+
 async function runTest(parsed: ParsedCli, options: RunOptions): Promise<number> {
   const id = requireArg(parsed, 0, "<id>", options)
   return withContext(parsed, options, async (context) => {
@@ -199,11 +230,12 @@ async function runTest(parsed: ParsedCli, options: RunOptions): Promise<number> 
           [
             status.providerId,
             // `ok`/`failed` are status values consumed by scripts; the message is
-            // the provider's own (redacted) text, not CLI prose.
+            // the provider's own (redacted) text, localized into a short label
+            // where the failure shape is recognisable (EVO-G70/G60).
             status.ok ? "ok" : "failed",
             status.latencyMs === undefined ? "-" : `${status.latencyMs} ms`,
             status.modelCount === undefined ? "-" : String(status.modelCount),
-            redact(status.message),
+            redact(providerTestMessage(status.message, lang)),
           ],
         ],
       ),

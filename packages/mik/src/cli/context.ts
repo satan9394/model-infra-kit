@@ -169,6 +169,23 @@ export function needsCatalogSync(parsed: ParsedCli): boolean {
   }
 }
 
+/**
+ * The `warning:` line for one library warning (EVO-G70/G60).
+ *
+ * Extracted so the dedupe rule is directly testable: the library reports a
+ * failure by embedding its cause in the body *and* handing the cause over as the
+ * second argument (`ai/bridge.ts`), so appending the cause unconditionally
+ * printed the same sentence twice on one line. The parenthesis is only appended
+ * when the cause is **not already part of the body** — a genuinely different
+ * cause still reaches the user, and both halves go through `redact`.
+ */
+export function formatWarning(lang: Lang, message: string, error?: unknown): string {
+  const body = redact(message)
+  const cause = error === undefined ? "" : redact(messageOf(error))
+  const detail = cause && !body.includes(cause) ? ` (${cause})` : ""
+  return `${tr(lang, "context.warning.prefix")} ${body}${detail}`
+}
+
 export interface OpenContextOptions extends RunOptions {
   /** Extra hub options, e.g. an injected catalogue for tests. */
   hub?: Partial<ModelInfraOptions>
@@ -208,10 +225,10 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     // Only the `warning:` frame is localized; a warning's *message* may come from
     // a third-party library (`llm-pricing`) and is deliberately passed through
     // untranslated — see the G14 report for that known cross-layer debt.
-    onWarn: (message, error) =>
-      io.err(
-        `${tr(lang, "context.warning.prefix")} ${redact(message)}${error ? ` (${redact(messageOf(error))})` : ""}`,
-      ),
+    //
+    // EVO-G70 (G60): `formatWarning` drops the parenthetical when the cause text
+    // is already part of the body, so the same sentence stops printing twice.
+    onWarn: (message, error) => io.err(formatWarning(lang, message, error)),
     ...options.hub,
   })
 

@@ -142,6 +142,13 @@ export const zh: Record<string, string> = {
   "provider.test.header.latency": "延迟",
   "provider.test.header.models": "模型",
   "provider.test.header.message": "信息",
+  // EVO-G70（G60）：`provider test` 表格的失败短句。**数据保持原文**——环境变量名、
+  // 模型 id 一律逐字保留，短句只说明失败的形状（凭据缺失/鉴权/连接/模型不存在）。
+  "provider.test.failure.credential": "凭据缺失：环境变量 %s 未设置。",
+  "provider.test.failure.auth": "鉴权被拒：该供应商拒绝了这把凭据。",
+  "provider.test.failure.connection": "连接失败：无法稳定连到该供应商端点。",
+  "provider.test.failure.model": "模型不存在：该供应商不认识这个模型 id。",
+  "provider.test.failure.missingPackage": "缺少依赖：%s 未安装，运行 npm i %s 后重试。",
   "usage.range": "区间 %s → %s · app=%s%s",
   "usage.summary.requests": "请求数",
   "usage.summary.successes": "成功数",
