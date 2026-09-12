@@ -733,7 +733,7 @@ mik usage logs    [--limit 20] [--offset <n>] [--with-id] [...]   # --with-id �
 ### 金额列：精度与真相源
 
 - **真相源仍是整数微美元**（硬性规则 2）：每行的 `cost_microusd` 是 `Math.round(cost_usd * 1e6)`，与 SQL 的 `CAST(ROUND(cost_usd * 1000000) AS INTEGER)` 同语义；`cost_usd` 是它的 **6 位小数**渲染（`(micro / 1e6).toFixed(6)`）。
-- **对账精度声明**：CSV 的对账精度是 **微美元（1e-6）**。逐行 `cost_microusd` 求和 == `usage summary` 所用的同一批整数之和（同一个查询范围、同一批行）；把逐行 `cost_usd` 求和后按 `usage summary` 的显示精度（4 位）取整，得到的就是它打印的那个成本值（未定价存在时是它打印的**下界** `at least …`，见 EVO-G78）。
+- **对账精度声明**：CSV 的对账精度是 **微美元（1e-6）**。逐行 `cost_microusd` 求和 == `usage summary` 所用的同一批整数之和（同一个查询范围、同一批行）；逐行 `cost_usd` 求和后与 `usage summary` 打印的成本值比对，**两侧都不需要取整**——显示侧自 EVO-G85 起按微美元渲染（见下文「EVO-G85」节；未定价存在时比的是它打印的**下界** `at least …`，见 EVO-G78）。
 - **改了什么**：逐行曾是 4 位小数（`toFixed(4)`），于是 340 + 180 + 0 + 0 + 134 = **654 µ$（0.000654）** 的行和被打成 `0.0003+0.0002+0+0+0.0001 = 0.0006`，而 `usage summary` 打印 `0.0007` —— 对账必然失败（F4）。**禁止** `SUM(CAST(cost AS REAL))` 一类浮点求和仍是硬性规则。
 
 ### CSV 列（`USAGE_CSV_COLUMNS`，共 22 列）
@@ -779,6 +779,30 @@ mik usage logs [--limit 20] [--offset <n>] [--with-id] [...QUERY_FLAGS]
 - 为什么必须有一个真实标识：`TS/app/provider/model/status` 组合键**对同一毫秒的两次调用不唯一**（`test/cli-traceability.test.ts` 的 A2 用例断言这两行除 id 外**逐格相同**），CLI 又不能依赖 `mik serve`（它不是默认运行的东西）。因此「一行 CSV ↔ 一条 log」在 CLI 首选项下**需要这个开关**。
 - `usage logs` **没有** `--json` 分支（本卡未新增），故不存在 JSON 侧的一致性问题。
 - `--limit` 截断、`--offset` 分页时 id 与该行其余单元格同源渲染，不会错位。
+
+
+## EVO-G85 —— 用量面的金额精度与导出对齐（不再需要取整规则）
+
+来源：G81 的独立评审对 D1 的「有条件认同」。G81 解决了审计 F4 的**第一层**（逐行 4 位小数使行和 `0.0006` 在任何精度上都不是真值）；**第二层当时未解决**：`usage summary` 仍按 4 位小数打印 `0.0007`，而导出各行之和是 `0.000654` —— 两个数**肉眼不一致**，用户仍须自己套一条取整规则才能对上。
+
+- **规则（用户可见）**：用量面（`usage summary`、`usage logs`、`usage trends`、`usage summary --by-tag`）的**金额**改由 `formatUsageMoney()`（`src/cli/format.ts`）渲染：金额的整数微美元**没有低于 1e-4 的位**时仍是 **4 位小数**（与改前逐字相同）；**有位可显示时打印 6 位小数**（微美元单位本身）。于是 `0.000654` 与导出行之和 `0.000654` **逐字相同**——用户直接相加比对即可，**不需要取整规则**。
+- **未定价下界（EVO-G78）**：`at least …` 里的那个数走**同一个**渲染器，故下界与行和也逐字一致（例：`Cost (USD)      at least 0.000654`）。措辞、出现条件、`Cost range` 的括注**均未改**。
+- **零值钳位**：改前 `formatMoney` 把 `|usd| < 0.00005` 一律打成 `0.0000`，一个 30 µ$ 的真实合计会显示成 0 —— 这是同一处不一致的缩小版。`formatUsageMoney` 的钳位是**半个微美元**，30 µ$ 如实打印 `0.000030`。
+- **`usage trends` 的合计**：改前是逐日 `costUsd` **浮点相加**再渲染；现改为先按**整数微美元**累加（`toMicroUsd(point.costUsd)` 求和）再渲染，故合计 == 逐日金额**打印值之和**（与硬性规则 2 的口径一致）。
+- **改前/改后对照（真实产物，同一批 5 行：340/180/0/0/134 µ$）**：
+
+  | 表面 | 改前 | 改后 |
+  | --- | --- | --- |
+  | `usage summary` 的 `Cost (USD)`（存在未定价 → 下界） | `at least 0.0007` | `at least 0.000654` |
+  | `usage export` 逐行 `cost_usd` 之和 | `0.000654` | `0.000654`（未改） |
+  | `usage logs` 一行 340 µ$ | `0.0003` | `0.000340` |
+  | `usage trends` 合计 | `0.0007` | `0.000654` |
+  | 已定价且无余数（如 10 000 µ$） | `0.0100` | `0.0100`（**未改**） |
+
+- **未改**：CSV 的 22 列与前 15 列字面量锁、`cost_microusd` 的整数语义、`usage export` 的 6 位小数逐行渲染、`usage summary` 的行序与标签、EVO-G77/G78/G79 的三处表达；**目录价格**仍走 `formatMoney`（`mik models` / `mik pricing`，4 位小数），故帮助文案里「价格为每百万 token 的美元数（4 位小数）」仍然成立。
+- **JSON/HTTP 面未改**：`/api/usage/*` 返回的 `costUsd` 一直是精确数值，本卡未动。
+- **真相源仍是整数微美元**：禁止 `SUM(CAST(cost AS REAL))` 一类浮点求和（硬性规则 2）未变。
+- **已知未解决（不在本卡范围，登记）**：看板 `apps/dashboard` 有**自己的一套**金额渲染（`lib/format.ts` 的 `value < 1 ? 3 : 2` 位小数、`components/views/overview.tsx` 的 `toFixed(4)`），本卡未改；看板上的成本与导出行之和同样会不一致。
 
 
 
