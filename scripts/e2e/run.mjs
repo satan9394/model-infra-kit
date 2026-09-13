@@ -805,10 +805,48 @@ async function main() {
       })
       assert(bandRecorded, "the spread row was not recorded — the dashboard check would have no band to render")
 
+      // One **micro-remainder** row (EVO-G91). `formatUsd` keeps four decimals
+      // when the amount is a whole number of hundredths of a cent
+      // (`micros % 100 === 0`) and widens to six — the micro unit itself —
+      // otherwise (EVO-G85/G88). Every row above, including `band`, is a whole
+      // number of hundredths of a micro, so the page's six-digit branch is never
+      // reached and "the dashboard prints the amount at six digits" has no
+      // observable consequence. One micro makes both endpoints carry a remainder
+      // (`$0.034301 ~ $0.044301`) and puts the rule on the page.
+      const micro = { usd: 0.000001, low: 0.000001, high: 0.000001 }
+      const microRecorded = hub.usage.record({
+        requestId: "e2e-cost-micro",
+        ts: Date.now(),
+        source: "e2e-micro",
+        providerId: "mock",
+        modelRequested: "mock:mock-mini",
+        modelActual: "mock-mini",
+        pricingModel: "mock-mini",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+        cost: { usd: micro.usd, low: micro.low, high: micro.high, basis: "flat", source: "modelsdev" },
+        status: "ok",
+        isStreaming: false,
+        sessionId: "e2e-cost-micro",
+      })
+      assert(microRecorded, "the micro-remainder row was not recorded — the six-digit check would have nothing to see")
+
       // The expected strings come from the same helpers the pages use, applied
       // to the numbers this run actually wrote — not from literals.
       const summary = hub.usage.summary()
       assert(summary.requests >= 9, `the hub recorded only ${summary.requests} rows, the dashboard check needs the usage written above`)
+
+      // Guard, so the six-digit assertion below cannot pass on a fixture that
+      // cannot express six digits. The expected string is derived from the
+      // recorded band, so a fixture that lost its remainder would print four
+      // digits for a *fixture* reason while looking like a page regression.
+      // This pins the cause: the recorded lower endpoint really does carry a
+      // sub-hundredth-of-a-cent remainder. `band` alone (10000 µ$) and every
+      // point-priced row (`1200/300` at P1 = 1800 µ$) are whole hundredths, so
+      // this is false for every earlier revision of this fixture.
+      assert(
+        Math.round(summary.costLowUsd * 1_000_000) % 100 !== 0,
+        `the recorded band's lower endpoint is ${summary.costLowUsd} = ${Math.round(summary.costLowUsd * 1_000_000)} µ$ — a whole number of hundredths of a cent, so the page prints four digits and the six-digit assertion would be vacuous`,
+      )
       // EVO-G89: the gate reads the same endpoints the page renders. `costUsd` is
       // the deprecated point estimate and this check must not rely on it being
       // equal to them (it is, for the point-priced mock rates this run writes —
@@ -832,6 +870,14 @@ async function main() {
         expected.cost.includes("~"),
         `the run recorded no cost spread, so the band assertion would be vacuous: ${expected.cost}`,
       )
+      // The same argument for precision: the expected string is what the pages
+      // must print, so if it does not carry six digits, the cell assertions
+      // below would be checking four — i.e. asserting nothing about the
+      // micro-remainder row this run just wrote (EVO-G91).
+      assert(
+        /\$\d+\.\d{6}/.test(expected.cost),
+        `the expected band "${expected.cost}" has no six-digit amount, so the page-level precision assertion would be vacuous`,
+      )
 
       const withDashboard = async (serverUrl, body) => {
         const started = startDashboard(dashPort, serverUrl)
@@ -844,6 +890,9 @@ async function main() {
       }
 
       const live = breakDashboard ? DEAD_SERVER_URL : `http://127.0.0.1:${proxyPort}`
+
+      /** The `/trends` money cell as the live page rendered it, for the PASS line. */
+      let trendsLiveCell = null
 
       await withDashboard(live, async () => {
         const home = plainText((await getHtml(`http://127.0.0.1:${dashPort}/`)).body)
@@ -870,6 +919,41 @@ async function main() {
         assert(home.includes(APP_ID), `the overview does not name the app ${APP_ID}`)
         assert(home.includes("pricing stale"), "the overview does not show the price source badge (pricing stale)")
         assert(home.includes("mock"), "the overview does not list the mock provider bucket")
+
+        // EVO-G91: the *same* money cell on `/trends`. It is a second surface
+        // over the same window (both views resolve the default 30-day range and
+        // every row above is stamped `Date.now()`), so the string must match the
+        // overview's — a real cross-check rather than a second read of one cell.
+        // The anchor is what makes it non-vacuous: `/trends` also carries the
+        // per-day 成本 column and the 最贵的一天 tile, both of which still read
+        // the point estimate (`trends.tsx:63` / `:104`, registered, not fixed
+        // here), so a page-wide `includes` could be satisfied by a string this
+        // card does not own. `testIdText` reads the one cell this assert is about.
+        const trendsHtml = plainText((await getHtml(`http://127.0.0.1:${dashPort}/trends`)).body)
+        const trendsCell = testIdText(trendsHtml, "trends-cost-span")
+        trendsLiveCell = trendsCell
+        assert(
+          trendsCell !== null,
+          'the trends money cell has no `data-testid="trends-cost-span"` anchor — the DASH check cannot tell which cell it is reading',
+        )
+        assert(
+          trendsCell === expected.cost,
+          `the trends money cell prints "${trendsCell}", expected the recorded band "${expected.cost}"`,
+        )
+        assert(
+          trendsCell === costCell,
+          `the two money cells disagree: /trends prints "${trendsCell}", / prints "${costCell}" — both cover the same window`,
+        )
+        assert(
+          trendsCell.includes("~"),
+          `the trends money cell prints a single amount ("${trendsCell}"), not the recorded band "${expected.cost}"`,
+        )
+        // The page-level half of EVO-G91: not the helper's return value, but the
+        // digits the server-rendered HTML actually carries.
+        assert(
+          /\$\d+\.\d{6}/.test(trendsCell),
+          `the trends money cell "${trendsCell}" prints no six-digit amount, so the dashboard does not show the micro-remainder row's precision`,
+        )
 
         const logs = plainText((await getHtml(`http://127.0.0.1:${dashPort}/logs`)).body)
         assert(logs.includes(ac3RequestId), `the log page does not show the recorded request ${ac3RequestId}`)
@@ -928,6 +1012,7 @@ async function main() {
         // EVO-G89: the label matches what `expected.cost` is — the rendered band
         // from `costLowUsd`/`costHighUsd`, not the deprecated `costUsd`.
         cost: expected.cost,
+        trendsCost: trendsLiveCell,
         requests: summary.requests,
         tokens: expected.tokens,
         rowCost: expected.rowCost,
@@ -937,6 +1022,7 @@ async function main() {
       }
       pass(
         `port ${dashPort} (${dashNote}); ${buildNote}; / shows ${expected.cost} / ${expected.requests} requests / ${expected.tokens} tokens, ` +
+          `/trends shows the same band in its anchored cell (${trendsLiveCell}), ` +
           `/logs shows ${ac3RequestId} at ${expected.rowCost}, /pricing shows ${expected.inputRate}/${expected.outputRate}; unreachable upstream degrades to a banner`,
       )
     })

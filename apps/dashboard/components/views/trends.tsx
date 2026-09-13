@@ -52,9 +52,16 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
         <StatCard label="区间 token 合计" value={formatCompact(totals ? tokenTotal(totals.tokens) : undefined)} hint={`${points.length} 个有数据的天`} />
         {/* EVO-G89: the recorded band, never the deprecated point estimate
             `costUsd` (unpriced and folded requests contribute 0 to all three, so
-            the point bounds nothing). Identical while the band is a point. */}
+            the point bounds nothing). Identical while the band is a point.
+            EVO-G91: `testId` is the hook the DASH check in `scripts/e2e/run.mjs`
+            anchors on — the overview tile and this one print the same window, so
+            a page-wide `includes` could not say which cell it read, and while
+            every row is point-priced neither tile's string can distinguish the
+            band from the point estimate. Same mechanism as `overview-cost-span`;
+            the id is distinct so the cross-check between the two tiles is real. */}
         <StatCard
           label="区间成本"
+          testId="trends-cost-span"
           value={formatUsdSpan(totals?.costLowUsd, totals?.costHighUsd)}
           hint="按天聚合求和"
         />

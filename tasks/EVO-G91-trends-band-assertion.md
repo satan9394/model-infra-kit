@@ -6,11 +6,12 @@
 
 ## 状态（如实登记，**这一节是本卡最重要的部分**）
 
-**本卡是「下一轮候选」，本轮（N4）只做登记：未实现、未验证、未派活、未改动任何代码或断言。**
+**本卡已于 2026-09-13 由 Mission 2（`modelinfra-mission-02`）实现并交付：已实现、门禁全绿、独立评审 PASS（置信度 0.75），但**未 push、未升版、未发布**（发布是人类闸门）。**
 
-- 本轮**只新增这一份卡文件**，没有改代码、没有跑测试、没有跑 e2e、没有 install、没有任何 git 状态变更。
-- 之所以单独声明，是因为本项目记过教训 **R259：登记 ≠ 队列**（`docs/product-evolution.md` 的「未关闭（登记，不是待办）」原文即写明「按 R259，这些**不进待办**」）。**把本卡读成「已排期」或「已开工」都是误读**；是否开做、何时开做，由指挥/人类裁决。
-- 本卡与 G90 卡的**状态不同**：G90 卡是「已实现 + 已验收 PASS + 已提交 + 已发布」的**追溯卡**；本卡是**前瞻性的候选卡**，其验收标准全部是**草案**，**尚未有任何一个门禁被实测过**。
+- 改动：`apps/dashboard/components/views/trends.tsx`（`testId="trends-cost-span"`）+ `scripts/e2e/run.mjs`（微余数行 + 两条非空洞守卫 + `/trends` 单元格断言 + 两格交叉校验）；**`packages/mik/**` 零改动**。
+- 证据：`modelinfra-mission-02\evidence\{M2-implementation.md, M2-conductor-check.md, M2-anchor-red-run.md, M3-verdict.md}`。
+- **两次红跑**：① 把取值临时改回点估计 → `FAIL the trends money cell prints "$0.036646", expected the recorded band "$0.034301 ~ $0.044301"` + `exit 1`；② **只删锚点** → `FAIL the trends money cell has no data-testid="trends-cost-span" anchor …` + `exit 1`（第二条是 M3 建议 ① 的补证：证明锚点断言不是恒真）。两次均逐字节还原（文件与 diff 的 SHA256 一致）。
+- 状态沿革（保留痕迹）：本卡原为 **N4 登记的前瞻性候选卡**，其验收标准当时全部是草案、**未实测**；按 **R259「登记 ≠ 队列」**，它此后是否开工由指挥/人类裁决——本次即该裁决的结果。
 
 ## 一句话
 
