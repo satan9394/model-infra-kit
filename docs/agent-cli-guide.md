@@ -229,7 +229,7 @@ const code = await main(["provider", "list"], { io: { out: console.log, err: con
 | ① | **npm 依赖（推荐）** | `npm i model-infra-kit @ai-sdk/deepseek` | `npm update model-infra-kit` | 首次装需网络；之后运行可离线（注入 `pricingFetch`） | +0.3 MB（mik dist）+ `ai` 6.7 MB + `llm-pricing` 0.2 MB + peer 0.4 MB | 绝大多数宿主。版本可审计、可 tree-shake、类型完整 |
 | ② | **workspace 源码引用** | `"model-infra-kit": "workspace:*"`（同仓）/ 仓外 `file:`+先 build | 跟随仓库提交，无版本号 | 是（本地源码） | 不额外增加（就是同一份代码） | 你要改 mik 内部、或想同时调试宿主+模型层 |
 | ③ | **npx sidecar** | `npx -y model-infra-kit serve --port 3211`，宿主只打 HTTP | `npx model-infra-kit@latest` | 首次需网络；之后缓存可离线 | 宿主 **0 依赖** | 宿主是 Python/Go/Rust，或多个进程共用一份用量库 |
-| ④ | **tarball / 私有 registry** | `npm i ./model-infra-kit-0.1.0.tgz` 或 `npm i --registry <内网>` | 换 tarball 版本号 | 完全离线 | 同 ① | 内网交付、审计留档、锁定不可变制品 |
+| ④ | **tarball / 私有 registry** | `npm i ./model-infra-kit-<version>.tgz` 或 `npm i --registry <内网>` | 换 tarball 版本号 | 完全离线 | 同 ① | 内网交付、审计留档、锁定不可变制品 |
 | ⑤ | **脚手架生成** | `npx create-my-agent@latest`（内部再 `npm i`） | 重新生成 / 由脚手架升 | 模板可缓存，依赖仍需网络 | 同 ① | 新项目起步，想让「装 mik」这一步对用户完全透明 |
 | ⑥ | **git 直装** | `npm i github:<你的账号>/<仓库名>` | `npm i github:...#<新 commit>` | 需要 git + 网络 | 同 ①（前提是能装上） | 临时验证某个 commit。**现状不可直接使用**，见 §4.6 |
 | ⑦ | **宿主插件 / 配置生成** | `my-agent plugin install mik` 或 `my-agent init` | 宿主自己的升级机制 | 取决于宿主 | 宿主自带 | 宿主已有插件生态，想把 mik 藏进配置里 |
@@ -242,9 +242,9 @@ npm i @ai-sdk/deepseek                # 你实际用的协议，见下
 ```
 
 - **必须单独装 provider 包**：`@ai-sdk/*` 是**可选 peer 依赖**，`npm i model-infra-kit` 不会自动带。用哪个协议装哪个包（`openai-compatible` → `@ai-sdk/openai-compatible`，`deepseek` → `@ai-sdk/deepseek`，……）。本仓库的实测输出见 §6.1。
-- **升级**：宿主锁定 `^0.1.0`；mik 的公共面在 `docs/interfaces.md` 有契约，破坏性变更走次版本。
+- **升级**：宿主锁定 `^0.3.1`；mik 的公共面在 `docs/interfaces.md` 有契约，破坏性变更走次版本。
 - **离线**：装的时候要网络；运行时可以完全离线——注入一个抛错的 `pricingFetch`，`llm-pricing` 的内置价格档案照常计价（上面 `cost=$0.0002475 (modelsdev)` 就是离线算出来的）。
-- **体积**：`model-infra-kit` 打包后 95.1 kB / 解包 333.8 kB / 12 个文件；真正的大头是硬依赖 `ai`（6.7 MB）和 `llm-pricing`（0.2 MB），外加每个协议 peer 约 0.4 MB。宿主 CLI 一般把这些放在 dependencies（不进 bundle 的话无所谓）。
+- **体积**：`model-infra-kit` 打包后 163.7 kB / 解包 546.1 kB / 12 个文件（v0.3.1 实测；以 `npm pack` 实际输出为准）；真正的大头是硬依赖 `ai`（6.7 MB）和 `llm-pricing`（0.2 MB），外加每个协议 peer 约 0.4 MB。宿主 CLI 一般把这些放在 dependencies（不进 bundle 的话无所谓）。
 - **注意**：`model-infra-kit` **已发布到 npm**（`npm i model-infra-kit` 直接可装；`npm view model-infra-kit version` 可查当前版本）。版本演进见 §4.1「升级」与上方矩阵的升级列。
 
 ### 4.2 ② workspace 源码引用
@@ -294,7 +294,7 @@ curl.exe -s -X POST http://127.0.0.1:3211/v1/chat/completions -H "content-type: 
 
 - 宿主侧只改 `base_url`（示例见 `examples/python-host/host.py`）；请求体里的 `provider:model` 决定路由，宿主的认证头会被剥离并由 mik 按协议附上配置好的凭据。
 - `GET /api/health` 可以探活；`--token` / `MIK_SERVER_TOKEN` 一旦设置，除健康检查外都要 `Authorization: Bearer <token>`。
-- **升级**：`npx model-infra-kit@latest` 或宿主里写死版本号；注意 npx 缓存，生产建议固定 `@0.1.0`。
+- **升级**：`npx model-infra-kit@latest` 或宿主里写死版本号；注意 npx 缓存，生产建议固定 `@0.3.1`。
 - **离线**：npx 首次要网络（之后走本地缓存）；已装好的机器可以完全离线运行。
 - **体积**：宿主 0 依赖，代价是多一个进程 + 一个本地端口（默认 3211；本机禁用的端口是 3080/3001/3111/8899，起服务前先 `netstat -ano | findstr :3211` 确认）。
 - **什么时候选**：宿主不是 Node、或多个 Agent 进程要共用一份用量库、或想让 mik 独立升级。
@@ -303,9 +303,9 @@ curl.exe -s -X POST http://127.0.0.1:3211/v1/chat/completions -H "content-type: 
 
 ```bash
 # 产出制品（仓库内）
-cd packages/mik && npm pack          # → model-infra-kit-0.1.0.tgz（95.1 kB，12 个文件）
+cd packages/mik && npm pack          # → model-infra-kit-<version>.tgz（v0.3.1 实测 163.7 kB，12 个文件）
 # 宿主侧
-npm i ./artifacts/model-infra-kit-0.1.0.tgz
+npm i ./artifacts/model-infra-kit-<version>.tgz
 # 或内网 registry
 npm i model-infra-kit --registry https://npm.internal.example/
 ```
@@ -322,7 +322,7 @@ npx create-my-agent@latest my-agent      # 内部：写 package.json → npm i m
 ```
 
 - 价值在于把 §3.1 的四步压成一步，并且**替用户选好 peer 包**（这是新手最容易漏的坑）。
-- **升级**：脚手架升级 / 用户重新生成；mik 版本由模板里的 `^0.1.0` 决定。
+- **升级**：脚手架升级 / 用户重新生成；mik 版本由模板里的 `^0.3.1` 决定。
 - **离线**：模板可以本地缓存，但依赖安装仍需源。
 - **体积**：同 ①。
 - **什么时候选**：面向外部开发者发布宿主 CLI 时，作为「第一次装」的入口。
@@ -385,22 +385,22 @@ my-agent config init --provider deepseek --api-key-ref env:DEEPSEEK_API_KEY
 
 ```console
 $ cd packages/mik && npm pack --dry-run
-npm notice package: model-infra-kit@0.1.0
+npm notice package: model-infra-kit@0.3.1
 npm notice Tarball Contents
 npm notice 1.1kB LICENSE
-npm notice 14.4kB README.md
-npm notice 7.6kB dist/cli.d.mts
-npm notice 64.0kB dist/cli.mjs
-npm notice 31.9kB dist/hub-BJAyRxVY.d.mts
-npm notice 110.2kB dist/hub-Da7maM2z.mjs
-npm notice 10.2kB dist/index.d.mts
+npm notice 16.8kB README.md
+npm notice 10.7kB dist/cli.d.mts
+npm notice 184.6kB dist/cli.mjs
+npm notice 48.2kB dist/hub-B2T71BbR.d.mts
+npm notice 152.0kB dist/hub-pAFPd8Yk.mjs
+npm notice 11.4kB dist/index.d.mts
 npm notice 1.2kB dist/index.mjs
-npm notice 17.2kB dist/registry-Banrud7y.mjs
+npm notice 28.4kB dist/service-gvvrBaJN.mjs
 npm notice 6.6kB dist/server.d.mts
-npm notice 67.5kB dist/server.mjs
-npm notice 1.9kB package.json
-npm notice package size: 95.1 kB
-npm notice unpacked size: 333.8 kB
+npm notice 83.2kB dist/server.mjs
+npm notice 2.1kB package.json
+npm notice package size: 163.7 kB
+npm notice unpacked size: 546.1 kB
 npm notice total files: 12
 ```
 
