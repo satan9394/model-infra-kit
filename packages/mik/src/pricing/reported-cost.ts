@@ -84,7 +84,11 @@ function rawText(value: unknown): string {
   }
 }
 
-const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/
+// `\d+(?:\.\d*)?` rather than `\d+\.?\d*`: the latter lets `\d+` and `\d*`
+// split the same digit run, so a long digit string that fails the overall match
+// backtracks quadratically (CodeQL js/polynomial-redos). The grouped form only
+// allows the trailing `\d*` after a literal dot, so backtracking is linear.
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/
 
 /**
  * Normalise one raw reported value to integer micro-USD (rule 2), keeping the

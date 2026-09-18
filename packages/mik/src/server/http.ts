@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { HttpError } from "./context.js"
+import { ModelInfraError } from "../errors.js"
 import type { UsageQuery } from "../types.js"
 import { redact } from "../util/redact.js"
 
@@ -18,20 +19,37 @@ export interface CorsOptions {
 
 const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "accept"]
 
-/** Normalise the `cors` option; `undefined`/`false` means "no CORS headers". */
+/**
+ * Normalise the `cors` option; `undefined`/`false` means "no CORS headers".
+ *
+ * `credentials: true` with a wildcard origin would let any site read
+ * authenticated responses, so that combination fails closed at configuration
+ * time instead of being emitted. A wildcard origin may still be used without
+ * credentials.
+ */
 export function resolveCors(value: boolean | CorsOptions | undefined): CorsOptions | null {
   if (!value) return null
   if (value === true) return { origin: "*" }
-  return { ...value, origin: value.origin ?? "*" }
+  const origin = value.origin ?? "*"
+  if (value.credentials && origin === "*") {
+    throw new ModelInfraError(
+      'CORS: "credentials: true" cannot be combined with a wildcard origin. Set an explicit "origin" instead.',
+      { code: "INVALID_REQUEST" },
+    )
+  }
+  return { ...value, origin }
 }
 
 export function writeCors(res: ServerResponse, cors: CorsOptions): void {
-  res.setHeader("access-control-allow-origin", cors.origin ?? "*")
+  const origin = cors.origin ?? "*"
+  res.setHeader("access-control-allow-origin", origin)
   res.setHeader("access-control-allow-methods", (cors.allowMethods ?? ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]).join(", "))
   res.setHeader("access-control-allow-headers", (cors.allowHeaders ?? DEFAULT_CORS_HEADERS).join(", "))
   res.setHeader("access-control-max-age", String(cors.maxAge ?? 600))
-  if (cors.credentials) res.setHeader("access-control-allow-credentials", "true")
-  if ((cors.origin ?? "*") !== "*") res.setHeader("vary", "Origin")
+  // Never pair a wildcard origin with credentials, even if a caller builds the
+  // options by hand and skips `resolveCors()`.
+  if (cors.credentials && origin !== "*") res.setHeader("access-control-allow-credentials", "true")
+  if (origin !== "*") res.setHeader("vary", "Origin")
 }
 
 /** Path segments, percent-decoded. A malformed escape is a client error. */
