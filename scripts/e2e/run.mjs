@@ -181,10 +181,13 @@ async function getHtml(url, timeoutMs = 30_000) {
 
 /**
  * React separates interpolated text with `<!-- -->`, so `pricing {status}`
- * arrives as `pricing <!-- -->stale`. Strip the markers before matching.
+ * arrives as `pricing <!-- -->stale`. Strip that exact marker before matching.
+ * It is removed as a literal string, not by an HTML-comment regex: the regex
+ * form cannot match every comment shape (and CodeQL flags it as an incomplete
+ * sanitiser), while React only ever emits this one marker between text nodes.
  */
 function plainText(html) {
-  return html.replace(/<!--.*?-->/g, "").replace(/\s+/g, " ")
+  return html.replaceAll("<!-- -->", "").replace(/\s+/g, " ")
 }
 
 /**

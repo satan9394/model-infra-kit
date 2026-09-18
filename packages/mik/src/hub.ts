@@ -222,8 +222,13 @@ function toProviderError(error: unknown, context: { providerId?: string; model?:
 }
 
 function normalizeBaseUrl(url: string): string {
-  const trimmed = url.trim().replace(/\/+$/, "")
-  return trimmed || DEFAULT_BASE_URL
+  // Strip trailing slashes without `/\/+$/`: on a long run of slashes followed
+  // by any other character the regex backtracks at every start position, which
+  // is quadratic. A single scan from the end is linear (CodeQL js/polynomial-redos).
+  const base = url.trim()
+  let end = base.length
+  while (end > 0 && base[end - 1] === "/") end -= 1
+  return base.slice(0, end) || DEFAULT_BASE_URL
 }
 
 /**
