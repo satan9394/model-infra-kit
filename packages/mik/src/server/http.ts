@@ -20,15 +20,17 @@ export interface CorsOptions {
 const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "accept"]
 
 /**
- * Normalise the `cors` option; `undefined`/`false` means "no CORS headers".
+ * Normalise the `cors` option; `undefined`/`false` means "no CORS headers"
+ * (returned as `undefined`, not `null`, so no nullish value can reach the
+ * `access-control-allow-origin` header through the call chain).
  *
  * `credentials: true` with a wildcard origin would let any site read
  * authenticated responses, so that combination fails closed at configuration
  * time instead of being emitted. A wildcard origin may still be used without
  * credentials.
  */
-export function resolveCors(value: boolean | CorsOptions | undefined): CorsOptions | null {
-  if (!value) return null
+export function resolveCors(value: boolean | CorsOptions | undefined): CorsOptions | undefined {
+  if (!value) return undefined
   if (value === true) return { origin: "*" }
   const origin = value.origin ?? "*"
   if (value.credentials && origin === "*") {
