@@ -1,9 +1,11 @@
 import { mkdtempSync } from "node:fs"
+import type { ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createTestServer } from "@ai-sdk/test-server"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { ModelInfra, type ModelInfraOptions, type ProviderConfig } from "../src/index.js"
+import { resolveCors, writeCors } from "../src/server/http.js"
 import {
   createServer,
   DEFAULT_HEARTBEAT_MS,
@@ -386,6 +388,44 @@ describe("createServer", () => {
     } finally {
       await corsHandle.close()
     }
+  })
+
+  it("fails closed when credentials are combined with a wildcard origin", async () => {
+    // A wildcard origin plus `allow-credentials` lets any site read authenticated
+    // responses, so the combination is rejected at configuration time instead of
+    // being emitted. Both the implicit wildcard (no `origin`) and the explicit
+    // one must throw.
+    expect(() => resolveCors({ credentials: true })).toThrow(/credentials.*wildcard|wildcard.*credentials/i)
+    expect(() => resolveCors({ origin: "*", credentials: true })).toThrow(/credentials/i)
+    await expect(createServer({ hub, port: 0, cors: { credentials: true }, heartbeatMs: 0 })).rejects.toThrow(
+      /credentials.*wildcard|wildcard.*credentials/i,
+    )
+
+    // An explicit origin may still carry credentials.
+    const corsHandle = await createServer({
+      hub,
+      port: 0,
+      cors: { origin: "https://app.example", credentials: true },
+      heartbeatMs: 0,
+    })
+    try {
+      const get = await fetch(`${corsHandle.url}/api/health`)
+      expect(get.headers.get("access-control-allow-origin")).toBe("https://app.example")
+      expect(get.headers.get("access-control-allow-credentials")).toBe("true")
+      expect(get.headers.get("vary")).toContain("Origin")
+    } finally {
+      await corsHandle.close()
+    }
+  })
+
+  it("never writes allow-credentials for a wildcard origin", () => {
+    // `resolveCors` already refuses this pair; this guards a caller that builds
+    // the options by hand and calls `writeCors` directly.
+    const headers = new Map<string, string>()
+    const res = { setHeader: (name: string, value: string) => headers.set(name, value) } as unknown as ServerResponse
+    writeCors(res, { origin: "*", credentials: true })
+    expect(headers.get("access-control-allow-origin")).toBe("*")
+    expect(headers.has("access-control-allow-credentials")).toBe(false)
   })
 })
 
