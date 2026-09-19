@@ -292,7 +292,7 @@ describe("createAiBridge", () => {
       expect(models[0]!.modelId).toBe("claude-mock")
       expect(models[0]!.displayName).toBe("Claude Mock")
 
-      const call = server.calls.find((entry) => entry.requestUrl.startsWith("https://mock-anthropic.test"))
+      const call = server.calls.find((entry) => new URL(entry.requestUrl).hostname === "mock-anthropic.test")
       expect(call!.requestHeaders["x-api-key"]).toBe(TEST_KEY)
       expect(call!.requestHeaders["anthropic-version"]).toBe("2023-06-01")
     })
@@ -304,7 +304,7 @@ describe("createAiBridge", () => {
       expect(models[0]!.maxOutputTokens).toBe(8_192)
       expect(models[1]!.capabilities.text).toBe(false)
 
-      const call = server.calls.find((entry) => entry.requestUrl.startsWith("https://mock-google.test"))
+      const call = server.calls.find((entry) => new URL(entry.requestUrl).hostname === "mock-google.test")
       expect(call!.requestHeaders["x-goog-api-key"]).toBe(TEST_KEY)
     })
 
