@@ -8,9 +8,13 @@
 ## 一、进度如何（Current Progress）
 
 ### 1. 当前版本与代码状态
-- **Git HEAD**：`041a55d`（分支 `main`）
+- **Git HEAD**：`4be12a1`（代码交付 `041a55d`，文档与交接索引收口）
 - **发布状态**：**本地已提交、未 push、未发布 npm**（严格遵循人类发布闸门铁律，待功能充分稳定后由用户裁决发布 `v1.1.0`）。
 - **工作区代码**：干净（Clean），所有大熔炉核心代码已入库。
+- **开发与演进日志**：
+  - 详细开发日志见 [`DEV_LOG.md`](DEV_LOG.md)（按日期记录详细交付与实测）。
+  - 版本发布日志见 [`CHANGELOG.md`](CHANGELOG.md)（版本与里程碑演变）。
+  - 产品演进编排留痕见 [`docs/product-evolution.md`](docs/product-evolution.md)。
 
 ### 2. 最近完成的里程碑（G92 ~ G96 大熔炉演进全量交付）
 吸收 models.dev、LiteLLM、New-API、Portkey、Langfuse、Vercel AI SDK 等开源基建能力，完成五大能力切片闭环：
