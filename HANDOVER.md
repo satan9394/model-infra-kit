@@ -34,15 +34,20 @@
    - 交付 `/traces` 页面与任务调用链路视图；
    - 编写 OpenAI SDK、Python 与 LangChain 适配示例（`examples/langchain-python/`）。
 
-### 3. 当前运行中的服务（持续监听中）
-- **API 代理服务**：`http://127.0.0.1:3211`（Node PID 31420）
-  - OpenAI 兼容调用：`POST http://127.0.0.1:3211/v1/chat/completions`
-  - 模型目录查询：`GET http://127.0.0.1:3211/api/catalog`
-  - Trace 链路查询：`GET http://127.0.0.1:3211/api/usage/traces`
-- **Web 可视化看板**：`http://localhost:3210`（Next.js PID 14912）
-  - 总览视图：`http://localhost:3210/`
-  - 模型机架：`http://localhost:3210/models`
-  - 任务链路：`http://localhost:3210/traces`
+### 3. 服务状态与一键启动指令（已休眠关停，随时可拉起）
+- **当前状态**：后台进程已优雅终止，端口 3210 与 3211 已释放归还系统。
+- **后续用 agy 或终端启动服务的命令**：
+  - **API 代理服务（端口 3211）**：
+    ```powershell
+    node packages/mik/dist/cli.mjs serve --port 3211 --db :memory:
+    ```
+    （提供 `/v1/chat/completions`、`/api/catalog`、`/api/usage/traces` 等端点）
+  - **Web 可视化看板（端口 3210）**：
+    ```powershell
+    pnpm --filter @mik/dashboard dev
+    ```
+    （启动 Next.js 开发服务器，访问 `http://localhost:3210`）
+  - **开发服务免挂起验证**：在未起服务时，执行 `node scripts/e2e/run.mjs` 会自动管理临时端口与进程生命周期，不受服务关闭影响。
 
 ### 4. 门禁验证现状（全部 100% 通过）
 - **类型检查**：
