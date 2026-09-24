@@ -12,3 +12,6 @@ coverage/
 *.db
 *.db-shm
 *.db-wal
+
+.agent-state/
+RUN_STATE.md
