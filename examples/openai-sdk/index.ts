@@ -2,9 +2,9 @@
  * Example host: an existing codebase that already talks to the OpenAI SDK.
  *
  * `docs/SPEC.md` §2.2 — the "fetch adapter" surface. The point of this file is
- * how little it contains: the business code below is byte-for-byte what it was
- * before model-infra-kit existed. Only the client construction changed, and only
- * two options: `baseURL` and `fetch`.
+ * how little it contains: client construction changes only `baseURL` and
+ * `fetch`. A standard OpenAI `user` attributes the session, and one per-call
+ * `X-Mik-Trace-Id` header groups this Agent run's model calls.
  *
  *   const client = new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })
  *
@@ -16,6 +16,7 @@
  *   pnpm --filter @mik/example-openai-sdk start -- --model local:mock-mini
  */
 import { parseArgs } from "node:util"
+import { randomUUID } from "node:crypto"
 import OpenAI from "openai"
 import { ModelInfra } from "model-infra-kit"
 
@@ -68,30 +69,34 @@ if (!model) {
   process.exit(2)
 }
 
-// ───────────────────────── the only two changed lines ─────────────────────────
+// ─────────────────────── local routing and metering ──────────────────────────
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? "managed-by-model-infra-kit",
   baseURL: mik.baseUrl,
   fetch: mik.fetch,
 })
-// ────────────────────────────── untouched business code ───────────────────────
+// ────────────────────────── Agent call with attribution ──────────────────────
+const sessionId = "openai-sdk-agent"
+const traceId = randomUUID()
 const completion = await client.chat.completions.create({
   model,
+  user: sessionId,
   messages: [
     { role: "system", content: "You are a helpful assistant." },
     { role: "user", content: "Explain why the sky is blue in one sentence." },
   ],
-})
+}, { headers: { "X-Mik-Trace-Id": traceId } })
 
 const answer = completion.choices[0]?.message?.content ?? ""
 process.stdout.write(`answer: ${JSON.stringify(answer.slice(0, 120))}\n`)
 process.stdout.write(`model:  ${completion.model}\n`)
 process.stdout.write(`usage:  ${JSON.stringify(completion.usage)}\n`)
+process.stdout.write(`trace:  ${traceId}\n`)
 
 // ─────────────────────────── the metering proof ───────────────────────────────
 const events = mik.usage.query({ limit: 10 }).events
 const metered = events.filter((event) => event.source === "fetch")
-const latest = metered[0]
+const latest = metered.find((event) => event.traceId === traceId)
 process.stdout.write(`metered rows (source=fetch): ${metered.length}\n`)
 if (latest) {
   process.stdout.write(
@@ -105,8 +110,8 @@ const summary = mik.usage.summary()
 process.stdout.write(`summary: requests=${summary.requests} costUsd=${summary.costUsd} tokens=${JSON.stringify(summary.tokens)}\n`)
 
 mik.close()
-if (metered.length === 0) {
-  process.stderr.write("FAIL: the call was not metered\n")
+if (!latest || latest.sessionId !== sessionId) {
+  process.stderr.write("FAIL: the call was not metered with its session and trace ids\n")
   process.exit(1)
 }
 process.stdout.write("OK\n")

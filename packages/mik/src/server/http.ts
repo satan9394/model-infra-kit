@@ -167,7 +167,7 @@ function intParam(url: URL, name: string): number | undefined {
  * `appId`. There is deliberately no `appId` parameter: the HTTP surface must not
  * be a way around the per-app isolation of `UsageService.get()`.
  */
-export function parseUsageQuery(url: URL): UsageQuery {
+export function parseUsageQuery(url: URL, options: { traceId?: boolean } = {}): UsageQuery {
   const query: UsageQuery = {}
   const from = timeParam(url, "from")
   const to = timeParam(url, "to")
@@ -175,6 +175,7 @@ export function parseUsageQuery(url: URL): UsageQuery {
   const model = url.searchParams.get("model")
   const status = url.searchParams.get("status")
   const sessionId = url.searchParams.get("sessionId") ?? url.searchParams.get("session")
+  const traceId = options.traceId ? url.searchParams.get("traceId") ?? url.searchParams.get("trace") : null
   const limit = intParam(url, "limit")
   const offset = intParam(url, "offset")
 
@@ -183,6 +184,7 @@ export function parseUsageQuery(url: URL): UsageQuery {
   if (provider) query.providerId = provider
   if (model) query.model = model
   if (sessionId) query.sessionId = sessionId
+  if (traceId) query.traceId = traceId
   if (limit !== undefined) query.limit = limit
   if (offset !== undefined) query.offset = offset
   if (status) {

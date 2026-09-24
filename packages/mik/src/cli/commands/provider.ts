@@ -14,7 +14,7 @@ const REF_PATTERN = /^(env|file|keychain):.+/i
 
 /** What `provider list` shows for a provider's key: the reference, never a secret. */
 function keyRefLabel(record: ProviderRecord): string {
-  if (record.apiKeyRef) return redact(record.apiKeyRef)
+  if (record.apiKeyRef) return redact(Array.isArray(record.apiKeyRef) ? record.apiKeyRef.join(", ") : record.apiKeyRef)
   const preset = record.presetId ? getPreset(record.presetId) : undefined
   return preset?.envKey ? `env:${preset.envKey}` : "-"
 }

@@ -3,7 +3,7 @@ import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { Card, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
-import { formatCompact, formatInt, formatUsd, formatUsdSpan, tokenTotal } from "@/lib/format"
+import { formatCompact, formatInt, formatUsdSpan, tokenTotal } from "@/lib/format"
 import { readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
@@ -26,8 +26,15 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
 
   const points = trends.ok ? trends.data.points : []
   const totals = summary.ok ? summary.data.summary : null
-  const busiest = points.reduce<{ date: string; costUsd: number } | null>(
-    (best, point) => (best === null || point.costUsd > best.costUsd ? { date: point.date, costUsd: point.costUsd } : best),
+  // "Most expensive" means the highest recorded floor; use the upper endpoint
+  // only to break ties, so a point estimate never decides the selected day.
+  const busiest = points.reduce<{ date: string; costLowUsd: number; costHighUsd: number } | null>(
+    (best, point) =>
+      best === null ||
+      point.costLowUsd > best.costLowUsd ||
+      (point.costLowUsd === best.costLowUsd && point.costHighUsd > best.costHighUsd)
+        ? { date: point.date, costLowUsd: point.costLowUsd, costHighUsd: point.costHighUsd }
+        : best,
     null,
   )
 
@@ -67,7 +74,7 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
         />
         <StatCard
           label="最贵的一天"
-          value={busiest ? formatUsd(busiest.costUsd) : "—"}
+          value={busiest ? formatUsdSpan(busiest.costLowUsd, busiest.costHighUsd) : "—"}
           hint={busiest ? busiest.date : "该区间没有数据"}
         />
         <StatCard label="请求数" value={formatInt(totals?.requests)} hint="含失败请求" />
@@ -108,7 +115,9 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.output)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.cacheRead)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.cacheWrite)}</Td>
-                    <Td className="text-right font-mono tabular-nums">{formatUsd(point.costUsd)}</Td>
+                    <Td className="text-right font-mono tabular-nums">
+                      {formatUsdSpan(point.costLowUsd, point.costHighUsd)}
+                    </Td>
                   </tr>
                 ))}
               </tbody>

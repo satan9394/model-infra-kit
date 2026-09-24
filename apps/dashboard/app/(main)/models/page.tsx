@@ -2,27 +2,33 @@ import { LiveRefresh } from "@/components/live-refresh"
 import { ModelsClient } from "@/components/models-client"
 import { PageHeader } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
-import { loadModelsWithPricing, loadShell } from "@/lib/server-data"
+import { loadModelCatalog, loadModelsWithPricing, loadShell } from "@/lib/server-data"
 
 export const dynamic = "force-dynamic"
 
 export default async function ModelsPage() {
   // Prices are only attached by `GET /api/models/:ref`, so the catalogue is
   // enriched here rather than in `loadShell` (which every page would pay for).
-  const [shell, catalog] = await Promise.all([loadShell(), loadModelsWithPricing()])
+  const [shell, catalog, modelCatalog] = await Promise.all([loadShell(), loadModelsWithPricing(), loadModelCatalog()])
 
   const errors = [...shell.errors]
   if (!catalog.ok) errors.push(catalog.error)
+  if (!modelCatalog.ok) errors.push(modelCatalog.error)
 
   return (
     <>
       <PageHeader
         title="模型目录"
-        description="能力位、上下文窗口、价格与来源，全部来自 mik 的目录同步结果"
+        description="标准模型事实与供应商实际端点分开呈现；下方另列供应商已发现模型与价格"
         actions={<LiveRefresh topics={["catalog.updated", "pricing.updated"]} />}
       />
       <UpstreamNotice message={errors[0]} />
-      <ModelsClient models={catalog.ok ? catalog.data.models : shell.models} providers={shell.providers} />
+      <ModelsClient
+        models={catalog.ok ? catalog.data.models : shell.models}
+        providers={shell.providers}
+        catalogModels={modelCatalog.ok ? modelCatalog.data.models : []}
+        catalogBindings={modelCatalog.ok ? modelCatalog.data.bindings : []}
+      />
     </>
   )
 }

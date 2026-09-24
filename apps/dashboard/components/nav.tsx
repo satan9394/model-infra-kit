@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 const LINKS: ReadonlyArray<{ href: string; label: string; hint: string }> = [
   { href: "/", label: "概览", hint: "成本 / 请求 / token" },
   { href: "/trends", label: "趋势", hint: "按天堆叠与成本" },
+  { href: "/traces", label: "Agent 任务", hint: "Session / Trace 成本链路" },
   { href: "/providers", label: "供应商", hint: "连接与模型" },
   { href: "/models", label: "模型目录", hint: "能力与价格" },
   { href: "/pricing", label: "价格表", hint: "手动价与同步" },

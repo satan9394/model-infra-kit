@@ -131,6 +131,48 @@ function schemas(): Record<string, Schema> {
         syncedAt: { type: "integer" },
       },
     },
+    CatalogModelCapabilities: {
+      type: "object",
+      required: ["reasoning", "vision", "tools", "structuredOutputs"],
+      properties: {
+        reasoning: { type: "boolean" },
+        reasoningEffortLevels: {
+          type: "array",
+          items: { type: "string", enum: ["none", "low", "medium", "high", "xhigh", "max"] },
+        },
+        vision: { type: "boolean" },
+        audio: { type: "boolean" },
+        tools: { type: "boolean" },
+        structuredOutputs: { type: "boolean" },
+      },
+    },
+    ModelMetadata: {
+      type: "object",
+      required: ["id", "family", "name", "contextWindow", "capabilities", "source", "sourceUrl"],
+      properties: {
+        id: { type: "string" },
+        family: { type: "string" },
+        name: { type: "string" },
+        contextWindow: { type: "integer" },
+        maxOutputTokens: { type: "integer" },
+        knowledgeCutoff: { type: "string" },
+        capabilities: ref("CatalogModelCapabilities"),
+        source: { type: "string" },
+        sourceUrl: { type: "string", format: "uri" },
+        sourceProviderId: { type: "string" },
+      },
+    },
+    ProviderModelBinding: {
+      type: "object",
+      required: ["providerId", "protocol", "modelId", "upstreamModelName", "status"],
+      properties: {
+        providerId: { type: "string" },
+        protocol: { type: "string", enum: ["openai-compatible", "openai", "anthropic", "google", "deepseek", "moonshotai", "xai"] },
+        modelId: { type: "string" },
+        upstreamModelName: { type: "string" },
+        status: { type: "string", enum: ["available", "deprecated", "preview"] },
+      },
+    },
     ModelPricing: {
       type: "object",
       properties: {
@@ -154,7 +196,13 @@ function schemas(): Record<string, Schema> {
         name: { type: "string" },
         protocol: { type: "string" },
         baseUrl: { type: "string" },
-        apiKeyRef: { type: "string", description: "A reference such as `env:DEEPSEEK_API_KEY`, never a secret." },
+        apiKeyRef: {
+          description: "Credential references only; secrets are never stored.",
+          anyOf: [
+            { type: "string", description: "A single reference or comma-separated references." },
+            { type: "array", items: { type: "string" } },
+          ],
+        },
         npmPackage: { type: "string" },
         headers: { type: "object", additionalProperties: { type: "string" } },
         enabled: { type: "boolean" },
@@ -172,7 +220,10 @@ function schemas(): Record<string, Schema> {
         name: { type: "string" },
         protocol: { type: "string" },
         baseUrl: { type: "string" },
-        apiKeyRef: { type: "string" },
+        apiKeyRef: {
+          description: "Credential references only; secrets are never stored.",
+          anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+        },
         npmPackage: { type: "string" },
         headers: { type: "object", additionalProperties: { type: "string" } },
         enabled: { type: "boolean" },
@@ -262,20 +313,51 @@ function schemas(): Record<string, Schema> {
     },
     UsageTrendPoint: {
       type: "object",
+      required: ["costLowUsd", "costHighUsd"],
       properties: {
         date: { type: "string" },
         requests: { type: "integer" },
         costUsd: { type: "number" },
+        costLowUsd: { type: "number", description: "Recorded lower endpoint, aggregated as integer micro-USD." },
+        costHighUsd: { type: "number", description: "Recorded upper endpoint, aggregated as integer micro-USD." },
         tokens: ref("TokenUsage"),
       },
     },
     UsageBucket: {
       type: "object",
+      required: ["costLowUsd", "costHighUsd"],
       properties: {
         key: { type: "string" },
         requests: { type: "integer" },
         costUsd: { type: "number" },
+        costLowUsd: { type: "number", description: "Recorded lower endpoint, aggregated as integer micro-USD." },
+        costHighUsd: { type: "number", description: "Recorded upper endpoint, aggregated as integer micro-USD." },
         tokens: ref("TokenUsage"),
+      },
+    },
+    UsageTraceGroup: {
+      type: "object",
+      required: [
+        "id", "groupBy", "requests", "successes", "failures", "costLowUsd", "costHighUsd",
+        "tokens", "startedAt", "endedAt", "durationMs", "archivedRequests",
+      ],
+      properties: {
+        id: { type: "string" },
+        groupBy: { type: "string", enum: ["session", "trace"] },
+        sessionId: { type: "string" },
+        traceId: { type: "string" },
+        requests: { type: "integer" },
+        successes: { type: "integer" },
+        failures: { type: "integer" },
+        costLowUsd: { type: "number", description: "Recorded lower endpoint, aggregated as integer micro-USD." },
+        costHighUsd: { type: "number", description: "Recorded upper endpoint, aggregated as integer micro-USD." },
+        tokens: ref("TokenUsage"),
+        startedAt: { type: "integer" },
+        endedAt: { type: "integer" },
+        durationMs: { type: "integer" },
+        avgLatencyMs: { type: "number" },
+        avgFirstTokenMs: { type: "number" },
+        archivedRequests: { type: "integer", description: "Requests retained as daily aggregates without individual detail rows." },
       },
     },
     UsageEvent: {
@@ -296,6 +378,7 @@ function schemas(): Record<string, Schema> {
         status: { type: "string", enum: ["ok", "error"] },
         errorCode: { type: "string" },
         isStreaming: { type: "boolean" },
+        traceId: { type: "string" },
         sessionId: { type: "string" },
         tags: { type: "object", additionalProperties: { type: "string" } },
       },
@@ -330,6 +413,7 @@ function schemas(): Record<string, Schema> {
         status: { type: "string", enum: ["ok", "error"], default: "ok" },
         errorCode: { type: "string" },
         isStreaming: { type: "boolean" },
+        traceId: { type: "string" },
         sessionId: { type: "string" },
         appId: { type: "string", description: "Defaults to the server's app id." },
         tags: { type: "object", additionalProperties: { type: "string" }, description: "Values are redacted before storage." },
@@ -373,6 +457,11 @@ function schemas(): Record<string, Schema> {
         max_tokens: { type: "integer" },
         max_completion_tokens: { type: "integer" },
         user: { type: "string", description: "Recorded as the usage event's sessionId." },
+        session_id: { type: "string", description: "Alternative session attribution; `X-Mik-Session-Id` is also accepted." },
+        trace_id: { type: "string", description: "Agent trace attribution; `X-Mik-Trace-Id` is also accepted." },
+        metadata: { type: "object", additionalProperties: { type: "string" }, description: "`metadata.trace_id`, when present, is recorded as the Agent trace id." },
+        fallback_chain: { type: "array", items: { type: "string" }, description: "Ordered provider:model references used after retryable failures." },
+        reasoning_timeout_ms: { type: "integer", minimum: 1, description: "First-output timeout for streams; also a call timeout for non-stream requests." },
       },
     },
     ChatCompletionResponse: {
@@ -571,6 +660,23 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           responses: { "200": ok("The models.", { type: "object", properties: { models: { type: "array", items: ref("ModelInfo") } } }) },
         },
       },
+      "/api/catalog": {
+        get: {
+          tags: ["models"],
+          summary: "Canonical model facts and provider endpoint bindings from the bundled snapshot.",
+          responses: {
+            "200": ok("The static model catalog.", {
+              type: "object",
+              required: ["source", "models", "bindings"],
+              properties: {
+                source: { type: "string" },
+                models: { type: "array", items: ref("ModelMetadata") },
+                bindings: { type: "array", items: ref("ProviderModelBinding") },
+              },
+            }),
+          },
+        },
+      },
       "/api/models/{ref}": {
         get: {
           tags: ["models"],
@@ -675,7 +781,7 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
         get: {
           tags: ["usage"],
           summary: "Request detail, newest first.",
-          parameters: USAGE_PARAMS,
+          parameters: [...USAGE_PARAMS, param("traceId", { type: "string" })],
           responses: {
             "200": ok("One page of events.", {
               type: "object",
@@ -686,6 +792,28 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
                 events: { type: "array", items: ref("UsageEvent") },
               },
             }),
+          },
+        },
+      },
+      "/api/usage/traces": {
+        get: {
+          tags: ["usage"],
+          summary: "Agent activity aggregated by session or trace, with integer-micro-USD cost totals.",
+          parameters: [
+            ...USAGE_PARAMS,
+            param("traceId", { type: "string" }, "Filter to one trace; useful when viewing a session containing multiple traces."),
+            param("groupBy", { type: "string", enum: ["trace", "session"], default: "trace" }),
+          ],
+          responses: {
+            "200": ok("Session or trace aggregates.", {
+              type: "object",
+              required: ["groupBy", "groups"],
+              properties: {
+                groupBy: { type: "string", enum: ["trace", "session"] },
+                groups: { type: "array", items: ref("UsageTraceGroup") },
+              },
+            }),
+            "400": error('"groupBy" must be "trace" or "session."'),
           },
         },
       },

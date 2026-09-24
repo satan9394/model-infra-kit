@@ -36,6 +36,8 @@ export interface CommandSpec {
   usage: string
   flags?: readonly FlagSpec[]
   actions?: readonly ActionSpec[]
+  /** Permit the command's existing top-level behavior when no action is named. */
+  allowNoAction?: boolean
   details?: readonly string[]
 }
 
@@ -85,6 +87,12 @@ const FLAG_OFFLINE: FlagSpec = {
   type: "boolean",
   description: "Never touch the network (skip catalogue sync and provider probes)",
   descriptionKey: "help.flag.offline",
+}
+const FLAG_DRY_RUN: FlagSpec = {
+  name: "dry-run",
+  type: "boolean",
+  description: "Report tier changes without writing them to the SQLite pricing cache",
+  descriptionKey: "help.flag.dryRun",
 }
 const FLAG_HELP: FlagSpec = {
   name: "help",
@@ -230,6 +238,12 @@ const FLAG_REFRESH: FlagSpec = {
   type: "boolean",
   description: "Re-discover models from the provider API (needs network and a key)",
   descriptionKey: "help.flag.refresh",
+}
+const FLAG_JSON: FlagSpec = {
+  name: "json",
+  type: "boolean",
+  description: "Print the static catalog and endpoint bindings as JSON",
+  descriptionKey: "help.flag.json",
 }
 const FLAG_PRICE_INPUT: FlagSpec = {
   name: "input",
@@ -443,8 +457,18 @@ export const COMMANDS: readonly CommandSpec[] = [
   {
     name: "models",
     summary: "List the model catalogue, optionally refreshing it from the provider",
-    usage: "mik models [--provider <id>] [--refresh]",
+    usage: "mik models [list] [--provider <id>] [--refresh] | mik models catalog [--json]",
     flags: [FLAG_PROVIDER_FILTER, FLAG_REFRESH],
+    allowNoAction: true,
+    actions: [
+      { name: "list", summary: "List discovered provider models", usage: "mik models [list] [--provider <id>] [--refresh]" },
+      {
+        name: "catalog",
+        summary: "List provider-independent model facts and endpoint bindings",
+        usage: "mik models catalog [--json]",
+        flags: [FLAG_JSON],
+      },
+    ],
   },
   {
     name: "pricing",
@@ -455,8 +479,9 @@ export const COMMANDS: readonly CommandSpec[] = [
       {
         name: "sync",
         summary: "Refresh the price catalogue from the network",
-        usage: "mik pricing sync",
-        details: ["Requires network access; --offline makes this fail fast."],
+        usage: "mik pricing sync [--dry-run]",
+        flags: [FLAG_DRY_RUN],
+        details: ["Requires network access; --offline makes this fail fast. --dry-run skips SQLite tier writes."],
       },
       {
         name: "set",
@@ -597,27 +622,33 @@ export function parseCliArgs(argv: readonly string[], lang: Lang = "en"): Parsed
   if (command.actions) {
     const actionName = positionals[1]
     if (actionName === undefined) {
-      if (help) return { command, action: null, args: [], values: camelValues(rawValues), help, version, raw: argv }
-      throw new CliUsageError(
-        tr(lang, "cli.missingAction", `mik ${command.name}`, command.actions.map((item) => item.name).join(", ")),
-        command.usage,
-      )
+      if (!command.allowNoAction && help) {
+        return { command, action: null, args: [], values: camelValues(rawValues), help, version, raw: argv }
+      }
+      if (!command.allowNoAction) {
+        throw new CliUsageError(
+          tr(lang, "cli.missingAction", `mik ${command.name}`, command.actions.map((item) => item.name).join(", ")),
+          command.usage,
+        )
+      }
+      args = positionals.slice(1)
+    } else {
+      const found = command.actions.find((item) => item.name === actionName)
+      if (!found) {
+        if (help) return { command, action: null, args: [], values: camelValues(rawValues), help, version, raw: argv }
+        throw new CliUsageError(
+          tr(
+            lang,
+            "cli.unknownAction",
+            `${command.name} ${actionName}`,
+            command.actions.map((item) => item.name).join(", "),
+          ),
+          command.usage,
+        )
+      }
+      action = found
+      args = positionals.slice(2)
     }
-    const found = command.actions.find((item) => item.name === actionName)
-    if (!found) {
-      if (help) return { command, action: null, args: [], values: camelValues(rawValues), help, version, raw: argv }
-      throw new CliUsageError(
-        tr(
-          lang,
-          "cli.unknownAction",
-          `${command.name} ${actionName}`,
-          command.actions.map((item) => item.name).join(", "),
-        ),
-        command.usage,
-      )
-    }
-    action = found
-    args = positionals.slice(2)
   } else {
     args = positionals.slice(1)
   }

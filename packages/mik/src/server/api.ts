@@ -74,6 +74,9 @@ function readProviderFields(body: Record<string, unknown>): Partial<ProviderConf
   if (typeof body.name === "string") fields.name = body.name
   if (typeof body.baseUrl === "string") fields.baseUrl = body.baseUrl
   if (typeof body.apiKeyRef === "string") fields.apiKeyRef = body.apiKeyRef
+  else if (Array.isArray(body.apiKeyRef) && body.apiKeyRef.every((item) => typeof item === "string")) {
+    fields.apiKeyRef = body.apiKeyRef as string[]
+  }
   if (typeof body.npmPackage === "string") fields.npmPackage = body.npmPackage
   if (typeof body.presetId === "string") fields.presetId = body.presetId
   if (typeof body.enabled === "boolean") fields.enabled = body.enabled
@@ -259,6 +262,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
     status,
     errorCode: optionalText(body.errorCode, "errorCode"),
     isStreaming: optionalFlag(body.isStreaming, "isStreaming", false),
+    traceId: optionalText(body.traceId, "traceId"),
     sessionId: optionalText(body.sessionId, "sessionId"),
     tags: readReportedTags(body.tags),
     pricingBasis: cost.basis,
@@ -341,6 +345,14 @@ export function registerApiRoutes(router: Router): void {
       // `ModelCatalog.refresh` is tapped in `events.ts`, so this also emits
       // `catalog.updated` on /api/events.
       sendJson(ctx.res, 200, { models: await ctx.hub.models.refresh(id) })
+    })
+
+    .add("GET", "/api/catalog", (ctx) => {
+      sendJson(ctx.res, 200, {
+        source: "bundled static snapshot",
+        models: ctx.hub.catalog.list(),
+        bindings: ctx.hub.catalog.listBindings(),
+      })
     })
 
     .add("GET", "/api/models", (ctx) => {
@@ -440,8 +452,17 @@ export function registerApiRoutes(router: Router): void {
       sendJson(ctx.res, 200, { buckets: ctx.hub.usage.byModel(parseUsageQuery(ctx.url)) })
     })
 
+    .add("GET", "/api/usage/traces", (ctx) => {
+      const raw = ctx.url.searchParams.get("groupBy")
+      if (raw !== null && raw !== "trace" && raw !== "session") {
+        throw new HttpError(400, '"groupBy" must be "trace" or "session".', "INVALID_REQUEST")
+      }
+      const groupBy = raw === "session" ? "session" : "trace"
+      sendJson(ctx.res, 200, { groupBy, groups: ctx.hub.usage.traces(parseUsageQuery(ctx.url, { traceId: true }), groupBy) })
+    })
+
     .add("GET", "/api/usage/logs", (ctx) => {
-      const query = parseUsageQuery(ctx.url)
+      const query = parseUsageQuery(ctx.url, { traceId: true })
       const page = ctx.hub.usage.query(query)
       sendJson(ctx.res, 200, {
         total: page.total,

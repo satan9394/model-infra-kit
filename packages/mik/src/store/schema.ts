@@ -161,6 +161,67 @@ export const MIGRATIONS: Migration[] = [
       )`,
     ],
   },
+  {
+    // EVO-G94 — normalized provider/model rate tiers. SQLite is the durable
+    // source of truth for the most recent validated dynamic tier; secrets are
+    // never part of the rate payload.
+    version: 3,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS pricing_cache (
+        provider_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        rates_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (provider_id, model_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_pricing_cache_model_updated ON pricing_cache(model_id, updated_at DESC)`,
+    ],
+  },
+  {
+    // EVO-G96 — retain Agent session/trace attribution through usage rollups.
+    // Existing event rows upgrade additively; the trace table is a purpose-built
+    // aggregate and never stores credentials or request payloads.
+    version: 4,
+    statements: [
+      (driver) => {
+        const columns = driver.prepare("PRAGMA table_info(usage_events)").all()
+        const present = columns.some((row) => String(row.name) === "trace_id")
+        if (!present) driver.exec("ALTER TABLE usage_events ADD COLUMN trace_id TEXT")
+      },
+      `CREATE INDEX IF NOT EXISTS idx_usage_trace_ts ON usage_events(trace_id, ts) WHERE trace_id IS NOT NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_usage_session_ts ON usage_events(session_id, ts) WHERE session_id IS NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS usage_trace_rollups (
+        date TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        dimension TEXT NOT NULL CHECK (dimension IN ('session', 'trace')),
+        group_id TEXT NOT NULL,
+        session_id TEXT NOT NULL DEFAULT '',
+        trace_id TEXT NOT NULL DEFAULT '',
+        provider_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        request_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_low_microusd INTEGER NOT NULL DEFAULT 0,
+        cost_high_microusd INTEGER NOT NULL DEFAULT 0,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER NOT NULL,
+        latency_sum_ms INTEGER NOT NULL DEFAULT 0,
+        latency_count INTEGER NOT NULL DEFAULT 0,
+        first_token_sum_ms INTEGER NOT NULL DEFAULT 0,
+        first_token_count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (date, app_id, dimension, group_id, session_id, trace_id, provider_id, model, status)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_usage_trace_rollups_group_date ON usage_trace_rollups(app_id, dimension, group_id, date)`,
+    ],
+  },
 ]
 
 export function migrate(driver: SqlDriver): number {

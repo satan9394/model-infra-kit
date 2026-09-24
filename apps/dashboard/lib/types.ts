@@ -90,6 +90,42 @@ export interface ModelInfo {
   syncedAt?: number
 }
 
+export interface CatalogModelCapabilities {
+  reasoning: boolean
+  reasoningEffortLevels?: Array<"none" | "low" | "medium" | "high" | "xhigh" | "max">
+  vision: boolean
+  audio?: boolean
+  tools: boolean
+  structuredOutputs: boolean
+}
+
+export interface CatalogModelMetadata {
+  id: string
+  family: string
+  name: string
+  contextWindow: number
+  maxOutputTokens?: number
+  knowledgeCutoff?: string
+  capabilities: CatalogModelCapabilities
+  source: string
+  sourceUrl: string
+  sourceProviderId?: string
+}
+
+export interface ProviderModelBinding {
+  providerId: string
+  protocol: Protocol
+  modelId: string
+  upstreamModelName: string
+  status: "available" | "deprecated" | "preview"
+}
+
+export interface ModelCatalogPayload {
+  source: string
+  models: CatalogModelMetadata[]
+  bindings: ProviderModelBinding[]
+}
+
 export interface UsageSummary {
   requests: number
   successes: number
@@ -120,6 +156,10 @@ export interface UsageBucket {
   key: string
   requests: number
   costUsd: number
+  /** Present on provider/model breakdowns; may be absent when the source cannot provide range endpoints. */
+  costLowUsd?: number
+  /** Never inferred from `costUsd` when unavailable. */
+  costHighUsd?: number
   tokens: TokenUsage
 }
 
@@ -127,6 +167,8 @@ export interface UsageTrendPoint {
   date: string
   requests: number
   costUsd: number
+  costLowUsd: number
+  costHighUsd: number
   tokens: TokenUsage
 }
 
@@ -146,10 +188,30 @@ export interface UsageEvent {
   status: "ok" | "error"
   errorCode?: string
   isStreaming: boolean
+  traceId?: string
   sessionId?: string
   tags?: Record<string, string>
   pricingBasis?: string
   pricingSource?: string
+}
+
+export interface UsageTraceGroup {
+  id: string
+  groupBy: "session" | "trace"
+  sessionId?: string
+  traceId?: string
+  requests: number
+  successes: number
+  failures: number
+  costLowUsd: number
+  costHighUsd: number
+  tokens: TokenUsage
+  startedAt: number
+  endedAt: number
+  durationMs: number
+  avgLatencyMs?: number
+  avgFirstTokenMs?: number
+  archivedRequests: number
 }
 
 export interface PricingOverride {
@@ -230,6 +292,11 @@ export interface LogsPayload {
   limit: number
   offset: number
   events: UsageEvent[]
+}
+
+export interface TracesPayload {
+  groupBy: "session" | "trace"
+  groups: UsageTraceGroup[]
 }
 
 export interface LogPayload {

@@ -342,9 +342,9 @@ describe("PricingService", () => {
   it("never throws when every source is unreachable, and still prices", async () => {
     const store = await openStore()
     const warns: string[] = []
-    const service = new PricingService({ store, catalog: unreachableCatalog((m) => warns.push(m)) })
+    const service = new PricingService({ store, autoSync: false, catalog: unreachableCatalog((m) => warns.push(m)) })
 
-    expect((await service.init()).status).toBe("stale")
+    expect((await service.sync({ force: false })).status).toBe("stale")
     expect(warns.join(" ")).toContain("unreachable")
 
     expect((await service.refresh()).status).toBe("stale")
@@ -362,9 +362,9 @@ describe("PricingService", () => {
       ensureLoaded: () => Promise.reject(new Error("catalogue unavailable")),
       refresh: () => Promise.reject(new Error("catalogue unavailable")),
     } as unknown as PricingCatalog
-    const service = new PricingService({ store, catalog: failing, onWarn: (m) => warns.push(m) })
+    const service = new PricingService({ store, autoSync: false, catalog: failing, onWarn: (m) => warns.push(m) })
 
-    const state = await service.init()
+    const state = await service.sync({ force: false })
 
     expect(state.status).toBe("error")
     expect(state.lastError).toBe("catalogue unavailable")
@@ -491,8 +491,8 @@ describe("PricingService", () => {
       return new Response(payload, { status: 200 })
     }) as unknown as typeof globalThis.fetch
 
-    const first = new PricingService({ store, cacheDir: dir, fetch: online })
-    expect((await first.init()).status).toBe("fresh")
+    const first = new PricingService({ store, cacheDir: dir, fetch: online, autoSync: false })
+    expect((await first.sync({ force: false })).status).toBe("fresh")
     expect(downloads).toBe(1)
     expect(readdirSync(dir).some((name) => name.endsWith(".json"))).toBe(true)
 
@@ -500,9 +500,9 @@ describe("PricingService", () => {
       downloads += 1
       throw new Error("offline")
     }) as unknown as typeof globalThis.fetch
-    const second = new PricingService({ store, cacheDir: dir, fetch: offlineFetch })
+    const second = new PricingService({ store, cacheDir: dir, fetch: offlineFetch, autoSync: false })
 
-    expect((await second.init()).status).toBe("fresh")
+    expect((await second.sync({ force: false })).status).toBe("fresh")
     expect(downloads).toBe(1)
     expect(second.estimate({ model: "acme-chat", usage: DEEPSEEK_CHAT_1M }).usd).toBeCloseTo(3, 12)
   })

@@ -15,8 +15,10 @@ import { ModelInfraError } from "../errors.js"
 import type { Store } from "../store/database.js"
 import type { PricingOverride } from "../store/pricing-repository.js"
 import type { CostInfo, ModelPricing, TokenUsage } from "../types.js"
+import { MODEL_METADATA } from "../catalog/snapshot.js"
 import { defaultCacheDir, expandPath } from "../util/paths.js"
 import { createFileCache } from "./cache.js"
+import { calculateTierCostMicros, deriveModelPricingTier, type ModelPricingTier } from "./tiers.js"
 
 export interface PricingDeps {
   store: Store
@@ -40,6 +42,8 @@ export interface PricingServiceDeps extends PricingDeps {
    * surface validates these URLs before `refresh()` (SSRF guard).
    */
   sources?: PricingSource[]
+  /** Queue the price-source refresh after reading the local tier cache. Defaults to true. */
+  autoSync?: boolean
 }
 
 export interface PricingState {
@@ -49,8 +53,21 @@ export interface PricingState {
   lastError?: string
 }
 
+export interface PricingSyncOptions {
+  force?: boolean
+  /** Resolve and report candidate rates without writing them to SQLite. */
+  dryRun?: boolean
+}
+
+export interface PricingSyncResult extends PricingState {
+  syncedModels: number
+  updatedModels: number
+  dryRun: boolean
+}
+
 export interface EstimateInput {
   model: string
+  providerId?: string
   at?: number
   /**
    * A count the provider did not report stays absent rather than becoming 0 —
@@ -91,16 +108,20 @@ export class PricingService {
   private readonly store: Store
   private readonly onWarn: (m: string, e?: unknown) => void
   private readonly catalog: PricingCatalog
+  private readonly autoSync: boolean
+  private readonly tiers = new Map<string, ModelPricingTier>()
   /** The URLs this catalogue will fetch; mirrors `sources` above. */
   private readonly outbound: string[]
   /** Models already reported as unpriced, so a hot path does not spam. */
   private readonly warnedMissing = new Set<string>()
   private lastError: string | undefined
   private loadedOnce = false
+  private closed = false
 
   constructor(deps: PricingServiceDeps) {
     this.store = deps.store
     this.onWarn = deps.onWarn ?? (() => {})
+    this.autoSync = deps.autoSync ?? true
     // An injected catalogue owns its source list, which cannot be read back, so
     // `outboundUrls()` has nothing to report for it.
     this.outbound = deps.catalog ? [] : (deps.sources ?? [modelsDevSource()]).map((source) => source.url)
@@ -112,6 +133,11 @@ export class PricingService {
         fetch: deps.fetch,
         onWarn: (message, error) => this.onWarn(message, error),
       })
+    try {
+      for (const tier of this.store.pricingCache.list()) this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
+    } catch (error) {
+      this.onWarn("could not read the SQLite pricing cache; using the bundled catalogue", error)
+    }
   }
 
   /** The URLs this catalogue fetches, for the HTTP surface's SSRF guard. */
@@ -119,14 +145,42 @@ export class PricingService {
     return this.outbound
   }
 
-  /** Never throws: a failure only degrades `state().status`. */
+  /** Start the remote refresh in the background; opening the local store is enough to start. */
   async init(): Promise<PricingState> {
-    return this.load(false)
+    const state = this.state()
+    if (this.autoSync) this.queueSync(false)
+    return state
   }
 
-  /** Never throws. Ignores the freshness window, the backoff and the cache. */
-  async refresh(): Promise<PricingState> {
-    return this.load(true)
+  /** Never throws. Refreshes the source and persists validated tier changes. */
+  async refresh(): Promise<PricingSyncResult> {
+    return this.sync({ force: true })
+  }
+
+  /** Explicit dynamic pricing sync for embedded hosts and `mik pricing sync`. */
+  async sync(options: PricingSyncOptions = {}): Promise<PricingSyncResult> {
+    const state = await this.load(options.force ?? true)
+    if (this.closed || state.status === "error") {
+      return { ...state, syncedModels: 0, updatedModels: 0, dryRun: options.dryRun ?? false }
+    }
+
+    const candidates = this.syncedTiers()
+    const changed = candidates.filter((tier) => !sameTierRates(this.tiers.get(tierKey(tier.providerId, tier.modelId)), tier))
+    if (!options.dryRun) {
+      for (const tier of changed) {
+        if (this.closed) break
+        try {
+          this.store.pricingCache.set(tier)
+          this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
+        } catch (error) {
+          this.onWarn(`could not cache the price for "${tier.modelId}"`, error)
+        }
+      }
+    }
+    const updatedModels = options.dryRun
+      ? changed.length
+      : changed.filter((tier) => sameTierRates(this.tiers.get(tierKey(tier.providerId, tier.modelId)), tier)).length
+    return { ...this.state(), syncedModels: candidates.length, updatedModels, dryRun: options.dryRun ?? false }
   }
 
   state(): PricingState {
@@ -144,9 +198,21 @@ export class PricingService {
     // `warm()` would queue models.dev's ~4 MB `api.json` for a model whose
     // price is already known locally.
     const manual = this.findOverride(input.model)
-    if (manual) return this.manualCost(manual, input.usage, input.model)
+    if (manual) {
+      const tier = manualTier(manual, input.model, input.providerId)
+      return tier ? tierCost(tier, input.usage, true) : this.manualCost(manual, input.usage, input.model)
+    }
+
+    const cachedTier = this.cachedTier(input.model, input.providerId)
+    if (cachedTier) return tierCost(cachedTier, input.usage, false)
 
     this.warm()
+
+    const liveTier = this.liveTier(input.model, input.at, input.providerId, {
+      promptTokens: finite(input.usage.input),
+      usedReasoning: input.usage.reasoning === undefined ? undefined : input.usage.reasoning > 0,
+    })
+    if (liveTier) return tierCost(liveTier, input.usage, false)
 
     const estimate = this.catalog.estimate(this.toArgs(input))
     const pricing = estimate.pricing
@@ -177,8 +243,15 @@ export class PricingService {
    */
   priceFor(model: string, at?: number, facts?: RequestFacts): ModelPricing | null {
     const manual = this.findOverride(model)
-    if (manual) return pricingFromOverride(manual)
+    if (manual) {
+      const tier = manualTier(manual, model)
+      return tier ? pricingFromTier(tier) : pricingFromOverride(manual)
+    }
+    const cachedTier = this.cachedTier(model)
+    if (cachedTier) return pricingFromTier(cachedTier, facts?.usedReasoning)
     this.warm()
+    const liveTier = this.liveTier(model, at, undefined, facts)
+    if (liveTier) return pricingFromTier(liveTier, facts?.usedReasoning)
     const card = this.catalog.getPrice(model, at, facts)
     return card ? pricingFromCard(card) : null
   }
@@ -219,6 +292,7 @@ export class PricingService {
   }
 
   private async load(force: boolean): Promise<PricingState> {
+    if (this.closed) return this.state()
     try {
       if (force) await this.catalog.refresh()
       else await this.catalog.ensureLoaded()
@@ -240,7 +314,69 @@ export class PricingService {
    */
   private warm(): void {
     if (this.loadedOnce && this.catalog.state().status === "ready") return
-    void this.load(false).catch(() => undefined)
+    this.queueSync(false)
+  }
+
+  /** Stop background work before the owning Store closes. */
+  close(): void {
+    this.closed = true
+  }
+
+  private queueSync(force: boolean): void {
+    void this.sync({ force }).catch((error) => this.onWarn("pricing catalogue load failed", error))
+  }
+
+  private cachedTier(model: string, providerId?: string): ModelPricingTier | undefined {
+    const modelId = canonicalGpt6Id(model)
+    if (!modelId) return undefined
+    if (providerId) return this.tiers.get(tierKey(providerId, modelId))
+    return [...this.tiers.values()]
+      .filter((tier) => tier.modelId === modelId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+  }
+
+  private liveTier(model: string, at?: number, providerId?: string, facts?: RequestFacts): ModelPricingTier | undefined {
+    const modelId = canonicalGpt6Id(model)
+    if (!modelId) return undefined
+    const baseFacts = facts?.usedReasoning ? { ...facts, usedReasoning: false } : facts
+    const card = this.catalog.getPrice(model, at, baseFacts)
+    if (!card || card.source === "fallback") return undefined
+    const pricing = pricingFromCard(card)
+    if (pricing.inputPerM === undefined || pricing.outputPerM === undefined) return undefined
+    const reasoningCard = facts?.usedReasoning ? this.catalog.getPrice(model, at, facts) : undefined
+    const reasoningOutputPerM =
+      reasoningCard && reasoningCard.source !== "fallback" ? pricingFromCard(reasoningCard).outputPerM : undefined
+    const metadata = MODEL_METADATA.find((item) => item.id === modelId)
+    const priceProvider = card.providerId ?? metadata?.sourceProviderId ?? providerId
+    if (!priceProvider || (providerId && priceProvider !== providerId)) return undefined
+    try {
+      return tierFromCard(modelId, priceProvider, pricing, "synced", reasoningOutputPerM)
+    } catch (error) {
+      this.onWarn(`invalid price tier for "${modelId}"; using the bundled catalogue`, error)
+      return undefined
+    }
+  }
+
+  private syncedTiers(): ModelPricingTier[] {
+    const tiers: ModelPricingTier[] = []
+    for (const model of MODEL_METADATA) {
+      if (!canonicalGpt6Id(model.id)) continue
+      const card = this.catalog.getPrice(model.id)
+      if (!card || card.source === "fallback") continue
+      const pricing = pricingFromCard(card)
+      if (pricing.inputPerM === undefined || pricing.outputPerM === undefined) continue
+      const reasoningCard = this.catalog.getPrice(model.id, undefined, { usedReasoning: true })
+      const reasoningOutputPerM =
+        reasoningCard && reasoningCard.source !== "fallback" ? pricingFromCard(reasoningCard).outputPerM : undefined
+      const providerId = card.providerId ?? model.sourceProviderId
+      if (!providerId) continue
+      try {
+        tiers.push(tierFromCard(model.id, providerId, pricing, "synced", reasoningOutputPerM))
+      } catch (error) {
+        this.onWarn(`invalid price tier for "${model.id}"; leaving its previous SQLite price intact`, error)
+      }
+    }
+    return tiers
   }
 
   /**
@@ -350,6 +486,94 @@ function pricingFromOverride(override: PricingOverride): ModelPricing {
   if (override.cacheReadPerM !== undefined) pricing.cacheReadPerM = override.cacheReadPerM
   if (override.cacheWritePerM !== undefined) pricing.cacheWritePerM = override.cacheWritePerM
   return pricing
+}
+
+function canonicalGpt6Id(model: string): string | undefined {
+  const candidate = model.toLowerCase().split(":").at(-1)?.split("/").at(-1)
+  return candidate === "gpt-6-luna" || candidate === "gpt-6-sol" || candidate === "gpt-6-astra" ? candidate : undefined
+}
+
+function tierKey(providerId: string, modelId: string): string {
+  return `${providerId}:${modelId}`
+}
+
+function tierFromCard(
+  modelId: string,
+  providerId: string,
+  card: ModelPricing,
+  source: ModelPricingTier["source"],
+  reasoningOutputPerM?: number,
+): ModelPricingTier {
+  return deriveModelPricingTier({
+    modelId,
+    providerId,
+    source,
+    updatedAt: new Date().toISOString(),
+    inputPerM: card.inputPerM!,
+    outputPerM: card.outputPerM!,
+    cacheReadPerM: card.cacheReadPerM,
+    cacheWritePerM: card.cacheWritePerM,
+    reasoningOutputPerM,
+    longContextThresholdTokens: card.contextTierAbove,
+  })
+}
+
+function manualTier(override: PricingOverride, model: string, providerId?: string): ModelPricingTier | undefined {
+  const modelId = canonicalGpt6Id(model)
+  if (!modelId) return undefined
+  const metadata = MODEL_METADATA.find((item) => item.id === modelId)
+  return deriveModelPricingTier({
+    modelId,
+    providerId: providerId ?? metadata?.sourceProviderId ?? "manual",
+    source: "manual",
+    updatedAt: new Date(override.updatedAt).toISOString(),
+    inputPerM: override.inputPerM ?? 0,
+    outputPerM: override.outputPerM ?? 0,
+    cacheReadPerM: override.cacheReadPerM,
+    cacheWritePerM: override.cacheWritePerM,
+  })
+}
+
+function tierCost(tier: ModelPricingTier, usage: Partial<TokenUsage>, manual: boolean): CostInfo {
+  const { costLowMicros, costHighMicros } = calculateTierCostMicros(tier, usage)
+  const source: CostInfo["source"] = manual ? "manual" : tier.source === "builtin" ? "fallback" : "modelsdev"
+  return {
+    usd: costLowMicros / MILLION,
+    low: costLowMicros / MILLION,
+    high: costHighMicros / MILLION,
+    basis: manual ? "manual" : "exact",
+    source,
+    pricingModel: tier.modelId,
+    providerId: tier.providerId,
+  }
+}
+
+function pricingFromTier(tier: ModelPricingTier, usedReasoning?: boolean): ModelPricing {
+  const pricing: ModelPricing = {
+    inputPerM: tier.rates.inputMicrosPerMillion / MILLION,
+    outputPerM:
+      (usedReasoning && tier.rates.reasoningOutputMicrosPerMillion !== undefined
+        ? tier.rates.reasoningOutputMicrosPerMillion
+        : tier.rates.outputMicrosPerMillion) / MILLION,
+    cacheReadPerM: (tier.rates.cachedInputMicrosPerMillion ?? tier.rates.inputMicrosPerMillion) / MILLION,
+    cacheWritePerM: (tier.rates.cacheWriteMicrosPerMillion ?? tier.rates.inputMicrosPerMillion) / MILLION,
+    currency: "USD",
+    source: tier.source === "manual" ? "manual" : tier.source === "builtin" ? "fallback" : "modelsdev",
+    displayName: tier.modelId,
+    providerId: tier.providerId,
+    reasoningMode: canonicalGpt6Id(tier.modelId) !== undefined,
+  }
+  if (tier.rates.longContextThresholdTokens !== undefined) pricing.contextTierAbove = tier.rates.longContextThresholdTokens
+  return pricing
+}
+
+function sameTierRates(existing: ModelPricingTier | undefined, next: ModelPricingTier): boolean {
+  return Boolean(
+    existing &&
+      existing.source === next.source &&
+      existing.version === next.version &&
+      JSON.stringify(existing.rates) === JSON.stringify(next.rates),
+  )
 }
 
 function pricingFromCard(card: ModelPrice): ModelPricing {

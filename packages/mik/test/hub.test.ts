@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AddressInfo } from "node:net"
-import { createTestServer } from "@ai-sdk/test-server"
+import { createTestServer, TestResponseController } from "@ai-sdk/test-server"
 import { jsonSchema, tool } from "ai"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { ModelInfraError } from "../src/errors.js"
@@ -211,6 +211,13 @@ const server = createTestServer({
     },
   },
   [`${root}/broken/chat/completions`]: { response: { type: "error", status: 500, body: "upstream exploded" } },
+  [`${root}/ratelimit/chat/completions`]: {
+    response: [
+      { type: "error", status: 429, body: "rate limited" },
+      { type: "json-value", body: COMPLETION },
+    ],
+  },
+  [`${root}/slow/chat/completions`]: { response: { type: "error", status: 500, body: "no response configured" } },
   [`${root}/ok/models`]: { response: { type: "json-value", body: MODELS } },
   [`${root}/broken/models`]: { response: { type: "error", status: 500, body: "no catalogue" } },
 })
@@ -228,11 +235,15 @@ beforeAll(() => {
   server.server.start()
   cacheDir = mkdtempSync(join(tmpdir(), "mik-t05-"))
   process.env.MIK_T05_HUB_KEY = TEST_KEY
+  process.env.MIK_G95_KEY_A = "sk-g95-key-a-1234"
+  process.env.MIK_G95_KEY_B = "sk-g95-key-b-5678"
 })
 
 afterAll(() => {
   server.server.stop()
   delete process.env.MIK_T05_HUB_KEY
+  delete process.env.MIK_G95_KEY_A
+  delete process.env.MIK_G95_KEY_B
 })
 
 beforeEach(() => {
@@ -257,7 +268,7 @@ async function makeHub(options: ModelInfraOptions = {}): Promise<ModelInfra> {
     syncCatalog: false,
     // The SDK's own retry loop would add seconds to every failure case.
     maxRetries: 0,
-    providers: ["ok", "tools", "stream", "streamerror", "streamtool", "loop", "fail", "broken"].map(provider),
+    providers: ["ok", "tools", "stream", "streamerror", "streamtool", "loop", "fail", "broken", "ratelimit", "slow"].map(provider),
     defaultModel: "ok:deepseek-chat",
     onWarn: (message) => warnings.push(message),
     ...options,
@@ -351,6 +362,8 @@ describe("ModelInfra.init", () => {
       "fail",
       "loop",
       "ok",
+      "ratelimit",
+      "slow",
       "stream",
       "streamerror",
       "streamtool",
@@ -432,6 +445,34 @@ describe("model resolution", () => {
 })
 
 describe("generate", () => {
+  it("rotates a 429 key and marks the successful retry in usage tags", async () => {
+    const hub = await makeHub({
+      providers: [
+        provider("ok"),
+        { ...provider("ratelimit"), apiKeyRef: ["env:MIK_G95_KEY_A", "env:MIK_G95_KEY_B"] },
+      ],
+    })
+
+    const response = await hub.generate(request({ model: "ratelimit:deepseek-chat" }))
+    const auth = server.calls.map((call) => call.requestHeaders.authorization)
+
+    expect(response.text).toBe("hello from the hub")
+    expect(auth).toEqual([`Bearer ${process.env.MIK_G95_KEY_A}`, `Bearer ${process.env.MIK_G95_KEY_B}`])
+    expect(hub.usage.query().events.find((event) => event.status === "ok")?.tags).toMatchObject({ is_fallback: "true" })
+    expect(JSON.stringify(hub.usage.query().events)).not.toContain(process.env.MIK_G95_KEY_A)
+    expect(JSON.stringify(hub.usage.query().events)).not.toContain(process.env.MIK_G95_KEY_B)
+  })
+
+  it("falls back to the next model after a retryable provider failure", async () => {
+    const hub = await makeHub()
+    const response = await hub.generate(request({ model: "broken:deepseek-chat", fallbackChain: ["ok:deepseek-chat"] }))
+
+    expect(response.text).toBe("hello from the hub")
+    expect(response.provider).toBe("ok")
+    expect(response.model.requested).toBe("broken:deepseek-chat")
+    expect(hub.usage.query().events.find((event) => event.status === "ok")?.tags).toMatchObject({ is_fallback: "true" })
+  })
+
   it("returns a metered response and stores one usage row", async () => {
     const hub = await makeHub()
     const spy = vi.spyOn(hub.pricing, "estimate")
@@ -590,6 +631,29 @@ describe("generate", () => {
 })
 
 describe("stream", () => {
+  it("fails over when the reasoning first-output budget expires before content", async () => {
+    const controller = new TestResponseController()
+    server.urls[`${root}/slow/chat/completions`].response = { type: "controlled-stream", controller }
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis)
+    const acceleratedReasoningTimer = vi.spyOn(globalThis, "setTimeout").mockImplementation(
+      ((callback: (...args: never[]) => void, delay?: number, ...args: never[]) =>
+        realSetTimeout(callback, delay === 120_000 ? 30 : delay, ...args)) as unknown as typeof globalThis.setTimeout,
+    )
+    const hub = await makeHub({ reasoningTimeoutMs: 120_000 })
+    let events: StreamEvent[]
+    try {
+      events = await collect(hub.stream(request({ model: "slow:deepseek-chat", fallbackChain: ["stream:deepseek-chat"] })))
+    } finally {
+      acceleratedReasoningTimer.mockRestore()
+    }
+    const finish = events.find((event): event is Extract<StreamEvent, { type: "finish" }> => event.type === "finish")
+
+    expect(finish?.response.text).toBe("hello world")
+    expect(events.some((event) => event.type === "error")).toBe(false)
+    expect(server.calls.some((call) => call.requestUrl.includes("/slow/chat/completions"))).toBe(true)
+    expect(hub.usage.query().events.find((event) => event.status === "ok")?.tags).toMatchObject({ is_fallback: "true" })
+  })
+
   it("emits the documented events and records usage before finish", async () => {
     const hub = await makeHub()
     const events = await collect(hub.stream(request({ model: "stream:deepseek-chat" })))
@@ -918,11 +982,7 @@ describe("startup bounds and the closed-instance contract (F10)", () => {
       })) as unknown as typeof globalThis.fetch
   }
 
-  function timeoutWarnings(): string[] {
-    return warnings.filter((message) => message.includes("did not load within"))
-  }
-
-  it("returns from init() within the bounded wait when the price catalogue never settles", async () => {
+  it("returns from init() without waiting when the price catalogue never settles", async () => {
     const startedAt = Date.now()
     const hub = await makeHub({ pricingFetch: hangingFetch })
     const elapsedMs = Date.now() - startedAt
@@ -930,29 +990,27 @@ describe("startup bounds and the closed-instance contract (F10)", () => {
 
     // Printed so the evidence report carries the real number.
     console.log(`[F10] hanging catalogue: init() returned in ${elapsedMs} ms; pricing.state()=${JSON.stringify(state)}`)
-    expect(elapsedMs).toBeLessThan(6_000)
+    expect(elapsedMs).toBeLessThan(1_000)
     expect(state.status).not.toBe("fresh")
-    // Rule 6: degrade and warn once, never hang and never throw.
-    expect(timeoutWarnings()).toHaveLength(1)
+    // Rule 6: SQLite/archive are immediately usable; a pending background sync is not a startup timeout.
+    await hub.close()
   }, 20_000)
 
-  it("returns from init() within the bounded wait when the catalogue fails slowly", async () => {
+  it("returns from init() before a slow catalogue failure", async () => {
     const startedAt = Date.now()
     const hub = await makeHub({ pricingFetch: slowFailingFetch(5_000) })
     const elapsedMs = Date.now() - startedAt
 
     console.log(`[F10] slow-failing catalogue: init() returned in ${elapsedMs} ms`)
-    expect(elapsedMs).toBeLessThan(6_000)
+    expect(elapsedMs).toBeLessThan(1_000)
     expect(hub.pricing.state().status).not.toBe("fresh")
+    await hub.close()
   }, 20_000)
 
   it("still loads the model catalogue on the normal path", async () => {
     const hub = await makeHub({ syncCatalog: true, providers: [provider("ok")], defaultModel: "ok:deepseek-chat" })
     await hub.catalogSync
     expect(hub.models.list("ok").map((model) => model.modelId)).toEqual(["deepseek-chat", "deepseek-reasoner"])
-    // The injected transport fails immediately, so the bounded wait settles and
-    // must not be reported as a timeout.
-    expect(timeoutWarnings()).toEqual([])
   })
 
   it("refuses every public member with a ModelInfraError after close()", async () => {

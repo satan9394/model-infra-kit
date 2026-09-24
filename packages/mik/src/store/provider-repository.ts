@@ -11,13 +11,23 @@ function parseJson<T>(value: unknown, fallback: T): T {
 }
 
 function toRecord(row: Record<string, unknown>): ProviderRecord {
+  const keyRef = row.api_key_ref ? asString(row.api_key_ref) : undefined
+  let apiKeyRef: ProviderRecord["apiKeyRef"] = keyRef
+  if (keyRef?.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(keyRef) as unknown
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) apiKeyRef = parsed
+    } catch {
+      // Preserve legacy text as a reference for the credential resolver to reject safely.
+    }
+  }
   return {
     id: asString(row.id),
     appId: asString(row.app_id, "default"),
     name: asString(row.name),
     protocol: asString(row.protocol, "openai-compatible") as ProviderRecord["protocol"],
     baseUrl: row.base_url ? asString(row.base_url) : undefined,
-    apiKeyRef: row.api_key_ref ? asString(row.api_key_ref) : undefined,
+    apiKeyRef,
     npmPackage: row.npm_package ? asString(row.npm_package) : undefined,
     headers: parseJson<Record<string, string>>(row.headers_json, {}),
     enabled: asNumber(row.enabled, 1) === 1,
@@ -80,7 +90,7 @@ export class ProviderRepository {
         record.name,
         record.protocol,
         toSqlValue(record.baseUrl),
-        toSqlValue(record.apiKeyRef),
+        toSqlValue(Array.isArray(record.apiKeyRef) ? JSON.stringify(record.apiKeyRef) : record.apiKeyRef),
         toSqlValue(record.npmPackage),
         JSON.stringify(record.headers),
         record.enabled ? 1 : 0,

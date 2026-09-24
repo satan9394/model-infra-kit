@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import { apiCall } from "@/lib/client-api"
 import { formatDateTime, formatInt, formatRate } from "@/lib/format"
-import type { ModelInfo, ProviderRecord } from "@/lib/types"
+import type { CatalogModelMetadata, ModelInfo, ProviderModelBinding, ProviderRecord } from "@/lib/types"
 import { Badge, Card, EmptyState, TableWrap, Td, Th } from "@/components/ui"
 
 const CAPABILITY_LABELS: ReadonlyArray<{ key: keyof ModelInfo["capabilities"]; label: string }> = [
@@ -25,7 +25,17 @@ const SOURCE_TONE: Record<string, "info" | "ok" | "warn" | "muted"> = {
 const selectClass =
   "rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-600"
 
-export function ModelsClient({ models, providers }: { models: ModelInfo[]; providers: ProviderRecord[] }) {
+export function ModelsClient({
+  models,
+  providers,
+  catalogModels,
+  catalogBindings,
+}: {
+  models: ModelInfo[]
+  providers: ProviderRecord[]
+  catalogModels: CatalogModelMetadata[]
+  catalogBindings: ProviderModelBinding[]
+}) {
   const router = useRouter()
   const [provider, setProvider] = useState("")
   const [capability, setCapability] = useState("")
@@ -61,6 +71,74 @@ export function ModelsClient({ models, providers }: { models: ModelInfo[]; provi
 
   return (
     <div className="space-y-4">
+      <Card title="标准模型机架" subtitle={`${catalogModels.length} 个标准模型；事实与供应商端点分别维护`} padded={false}>
+        {catalogModels.length === 0 ? (
+          <div className="p-4">
+            <EmptyState title="内置模型机架暂不可用" description="HTTP 服务未提供 /api/catalog。" />
+          </div>
+        ) : (
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>标准模型</Th>
+                <Th>家族</Th>
+                <Th className="text-right">上下文</Th>
+                <Th className="text-right">最大输出</Th>
+                <Th>固有能力</Th>
+                <Th>供应商端点</Th>
+                <Th>事实来源</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {catalogModels.map((model) => (
+                <tr key={model.id}>
+                  <Td>
+                    <div className="font-mono text-slate-200">{model.id}</div>
+                    <div className="text-xs text-slate-500">{model.name}</div>
+                  </Td>
+                  <Td className="font-mono text-xs text-slate-400">{model.family}</Td>
+                  <Td className="text-right font-mono tabular-nums">{formatInt(model.contextWindow)}</Td>
+                  <Td className="text-right font-mono tabular-nums">{formatInt(model.maxOutputTokens)}</Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      {([
+                        ["reasoning", "推理"],
+                        ["vision", "视觉"],
+                        ["audio", "音频"],
+                        ["tools", "工具"],
+                        ["structuredOutputs", "结构化输出"],
+                      ] as const)
+                        .filter(([key]) => Boolean(model.capabilities[key]))
+                        .map(([key, label]) => (
+                          <Badge key={key} tone={key === "reasoning" ? "info" : "neutral"}>
+                            {label}
+                          </Badge>
+                        ))}
+                    </div>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      {catalogBindings
+                        .filter((binding) => binding.modelId === model.id)
+                        .map((binding) => (
+                          <Badge key={`${binding.providerId}:${binding.upstreamModelName}`} tone={binding.status === "available" ? "ok" : "warn"}>
+                            {binding.providerId}/{binding.protocol}:{binding.upstreamModelName} · {binding.status}
+                          </Badge>
+                        ))}
+                    </div>
+                  </Td>
+                  <Td>
+                    <a href={model.sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-sky-300 hover:text-sky-200">
+                      {model.source}
+                    </a>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        )}
+      </Card>
+
       {notice ? (
         <div
           className={

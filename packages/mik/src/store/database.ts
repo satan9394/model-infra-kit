@@ -7,6 +7,7 @@ import { migrate } from "./schema.js"
 import { quarantineDatabase, type QuarantineResult } from "./trash.js"
 import { ModelRepository } from "./model-repository.js"
 import { PricingRepository, SettingsRepository } from "./pricing-repository.js"
+import { PricingCacheRepository } from "./pricing-cache-repository.js"
 import { ProviderRepository } from "./provider-repository.js"
 import { UsageRepository } from "./usage-repository.js"
 import { defaultDbPath, expandPath } from "../util/paths.js"
@@ -265,6 +266,7 @@ export class Store {
   readonly providers: ProviderRepository
   readonly models: ModelRepository
   readonly pricing: PricingRepository
+  readonly pricingCache: PricingCacheRepository
   readonly usage: UsageRepository
   readonly settings: SettingsRepository
   readonly schemaVersion: number
@@ -280,6 +282,7 @@ export class Store {
     this.providers = new ProviderRepository(driver)
     this.models = new ModelRepository(driver)
     this.pricing = new PricingRepository(driver)
+    this.pricingCache = new PricingCacheRepository(driver)
     this.usage = new UsageRepository(driver)
     this.settings = new SettingsRepository(driver)
   }

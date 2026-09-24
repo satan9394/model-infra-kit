@@ -1,7 +1,7 @@
 # examples/openai-sdk — existing SDK code, metered
 
-`docs/SPEC.md` §2.2: the `fetch` adapter surface. The business code in
-`index.ts` is ordinary OpenAI SDK code. Exactly two options changed:
+`docs/SPEC.md` §2.2: the `fetch` adapter surface. The client uses the existing
+OpenAI SDK with two routing options, and Agent attribution stays on the request:
 
 ```ts
 const client = new OpenAI({
@@ -12,6 +12,17 @@ const client = new OpenAI({
 
 // ── untouched ──
 const completion = await client.chat.completions.create({ model, messages })
+```
+
+For Agent tracing, send OpenAI's `user` field as the session id and a
+per-call `X-Mik-Trace-Id` header. The adapter stores both with the usage row
+and strips the MIK-only header before forwarding upstream:
+
+```ts
+const completion = await client.chat.completions.create(
+  { model, messages, user: sessionId },
+  { headers: { "X-Mik-Trace-Id": traceId } },
+)
 ```
 
 `mik.fetch` forwards the request to the provider named by `provider:model` in the

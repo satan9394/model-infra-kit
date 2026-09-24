@@ -163,6 +163,24 @@ describe("mik.fetch", () => {
     expect(event.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
+  it("records OpenAI SDK user and trace_id attribution without forwarding MIK fields", async () => {
+    const hub = await makeHub()
+    await hub.fetch(
+      `${hub.baseUrl}/chat/completions`,
+      chatRequest({
+        model: "fwd:deepseek-chat",
+        user: "session-openai-sdk",
+        trace_id: "trace-openai-sdk",
+        messages: [],
+      }),
+    )
+
+    const event = hub.usage.query().events[0]
+    expect(event).toMatchObject({ sessionId: "session-openai-sdk", traceId: "trace-openai-sdk" })
+    const upstream = server.calls.find((entry) => entry.requestUrl.endsWith("/fwd/chat/completions"))!
+    expect(await upstream.requestBodyJson).not.toHaveProperty("trace_id")
+  })
+
   it("routes a bare model id through the default provider", async () => {
     const hub = await makeHub()
     await hub.fetch(`${hub.baseUrl}/chat/completions`, chatRequest({ model: "deepseek-reasoner", messages: [] }))

@@ -248,6 +248,8 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   // --cache-dir` actually survives into the next command.
   const cacheDir = flagString(parsed.values, "cacheDir") ?? env.MIK_CACHE_DIR ?? config.cacheDir
   const offline = flagBool(parsed.values, "offline") || env.MIK_OFFLINE === "1"
+  const pricingDryRun =
+    parsed.command?.name === "pricing" && parsed.action?.name === "sync" && flagBool(parsed.values, "dryRun")
 
   const hub = await ModelInfra.init({
     appId,
@@ -261,9 +263,10 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     //
     // EVO-G70 (G60): `formatWarning` drops the parenthetical when the cause text
     // is already part of the body, so the same sentence stops printing twice.
-    onWarn: (message, error) => io.err(formatWarning(lang, message, error)),
-    ...options.hub,
-  })
+      onWarn: (message, error) => io.err(formatWarning(lang, message, error)),
+      ...options.hub,
+      pricingAutoSync: pricingDryRun ? false : options.hub?.pricingAutoSync,
+    })
 
   return {
     hub,

@@ -7,6 +7,8 @@ import type {
   UsagePage,
   UsageQuery,
   UsageSummary,
+  UsageTraceGroup,
+  UsageTraceGroupBy,
   UsageTrendPoint,
 } from "../types.js"
 import { redact } from "../util/redact.js"
@@ -374,6 +376,10 @@ export class UsageService {
    */
   byTag(query?: UsageQuery): UsageBucket[] {
     return this.store.usage.byTag(this.scoped(query))
+  }
+
+  traces(query?: UsageQuery, groupBy?: UsageTraceGroupBy): UsageTraceGroup[] {
+    return this.store.usage.traces(this.scoped(query), groupBy)
   }
 
   query(filter?: UsageQuery): UsagePage {

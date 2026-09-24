@@ -642,6 +642,46 @@ describe("G01 — secure defaults", () => {
 })
 
 describe("POST /v1/chat/completions", () => {
+  it("opens an SSE response with a keepalive while waiting for first model output", async () => {
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(hub, "stream").mockImplementation(() =>
+      (async function* () {
+        await waiting
+        yield { type: "error", error: { code: "TIMEOUT", message: "model timed out" } }
+      })(),
+    )
+
+    const responsePromise = fetch(`${handle.url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "ok:deepseek-chat", messages: messages(), stream: true }),
+    })
+    let response: Response | null = null
+    try {
+      response = await Promise.race([
+        responsePromise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+      ])
+      expect(response).not.toBeNull()
+      expect(response!.headers.get("content-type")).toContain("text/event-stream")
+      const reader = response!.body!.getReader()
+      const decoder = new TextDecoder()
+      let text = ""
+      while (!text.includes(": thinking") && !text.includes(": ping")) {
+        const next = await reader.read()
+        if (next.done) break
+        text += decoder.decode(next.value, { stream: true })
+      }
+      expect(text).toMatch(/: (thinking|ping)/)
+      await reader.cancel()
+    } finally {
+      release()
+    }
+  })
+
   it("returns an OpenAI completion and records exactly one usage row", async () => {
     const response = await chat({ model: "ok:deepseek-chat", messages: messages() })
     expect(response.status).toBe(200)
@@ -674,6 +714,19 @@ describe("POST /v1/chat/completions", () => {
     })
     expect(page.events[0]!.usage).toEqual({ input: 1200, output: 300, cacheRead: 800, cacheWrite: 0, reasoning: 64 })
     expect(mock.calls.filter((call) => call.requestUrl.endsWith("/ok/chat/completions"))).toHaveLength(1)
+  })
+
+  it("records OpenAI user and trace_id fields as session and trace attribution", async () => {
+    const response = await chat({
+      model: "ok:deepseek-chat",
+      messages: messages(),
+      user: "session-http-sdk",
+      trace_id: "trace-http-sdk",
+    })
+    expect(response.status).toBe(200)
+    expect(hub.usage.query().events).toMatchObject([
+      { sessionId: "session-http-sdk", traceId: "trace-http-sdk" },
+    ])
   })
 
   it("routes a bare model id through the X-ModelHub-Provider header", async () => {
@@ -895,6 +948,24 @@ describe("/api/models", () => {
   })
 })
 
+describe("/api/catalog", () => {
+  it("returns canonical facts separately from provider endpoint names", async () => {
+    const response = await api("/api/catalog")
+    expect(response.status).toBe(200)
+    const catalog = await body<{
+      source: string
+      models: Array<{ id: string; contextWindow: number; sourceUrl: string }>
+      bindings: Array<{ providerId: string; modelId: string; upstreamModelName: string; status: string }>
+    }>(response)
+    const luna = catalog.models.find((model) => model.id === "gpt-6-luna")
+    const endpoint = catalog.bindings.find((binding) => binding.modelId === "gpt-6-luna" && binding.providerId === "openrouter")
+    expect(catalog.source).toBe("bundled static snapshot")
+    expect(luna).toMatchObject({ contextWindow: 1_050_000, sourceUrl: "https://models.dev/api.json" })
+    expect(endpoint).toMatchObject({ upstreamModelName: "openai/gpt-6-luna", status: "available" })
+    expect(luna?.id).not.toBe(endpoint?.upstreamModelName)
+  })
+})
+
 describe("/api/pricing", () => {
   it("reads state, sets and removes a manual price, and syncs", async () => {
     const initial = await body<{ state: { status: string }; overrides: unknown[] }>(await api("/api/pricing"))
@@ -972,6 +1043,44 @@ describe("/api/usage", () => {
     expect(hourly.points).toHaveLength(1)
 
     expect((await api("/api/usage/trends?bucket=week")).status).toBe(400)
+  })
+
+  it("returns recorded low/high cost endpoints on trend and bucket APIs", async () => {
+    const day = new Date()
+    day.setHours(12, 0, 0, 0)
+    expect(
+      hub.usage.record({
+        requestId: "g92-range-http",
+        ts: day.getTime(),
+        source: "generate",
+        providerId: "ok",
+        modelRequested: "ok:deepseek-chat",
+        modelActual: "deepseek-chat",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+        cost: { usd: 0.000502, low: 0.000341, high: 0.000777, basis: "flat", source: "manual" },
+        status: "ok",
+        isStreaming: false,
+      }),
+    ).toBe(true)
+
+    const expected = { costUsd: 0.000502, costLowUsd: 0.000341, costHighUsd: 0.000777 }
+    const trend = await body<{ points: Array<Record<string, unknown>> }>(await api("/api/usage/trends"))
+    expect(trend.points[0]).toMatchObject(expected)
+
+    const providers = await body<{ buckets: Array<Record<string, unknown>> }>(await api("/api/usage/by-provider"))
+    expect(providers.buckets[0]).toMatchObject({ key: "ok", ...expected })
+
+    const models = await body<{ buckets: Array<Record<string, unknown>> }>(await api("/api/usage/by-model"))
+    expect(models.buckets[0]).toMatchObject({ key: "deepseek-chat", ...expected })
+
+    const openapi = await body<{
+      components: { schemas: Record<string, { properties: Record<string, unknown>; required?: string[] }> }
+    }>(await api("/openapi.json"))
+    for (const schema of ["UsageTrendPoint", "UsageBucket"]) {
+      expect(openapi.components.schemas[schema]?.properties).toHaveProperty("costLowUsd")
+      expect(openapi.components.schemas[schema]?.properties).toHaveProperty("costHighUsd")
+      expect(openapi.components.schemas[schema]?.required).toEqual(expect.arrayContaining(["costLowUsd", "costHighUsd"]))
+    }
   })
 
   it("pages and filters the detail log", async () => {
@@ -1350,6 +1459,7 @@ describe("GET /openapi.json", () => {
     "/api/providers/{id}/test",
     "/api/providers/{id}/models",
     "/api/providers/{id}/models/refresh",
+    "/api/catalog",
     "/api/models",
     "/api/models/{ref}",
     "/api/pricing",
@@ -1359,6 +1469,7 @@ describe("GET /openapi.json", () => {
     "/api/usage/trends",
     "/api/usage/by-provider",
     "/api/usage/by-model",
+    "/api/usage/traces",
     "/api/usage/logs",
     "/api/usage/logs/{id}",
     "/api/usage/events",

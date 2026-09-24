@@ -274,6 +274,13 @@ function headerValue(req: IncomingMessage, name: string): string | null {
   return null
 }
 
+function optionalBodyText(body: Record<string, unknown>, name: string): string | undefined {
+  const value = body[name]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== "string") throw badRequest(`"${name}" must be a string.`)
+  return value.trim() || undefined
+}
+
 /**
  * `model` accepts `provider:model` or a bare model id, in which case
  * `X-ModelHub-Provider` picks the provider. With the header set and no model,
@@ -391,7 +398,27 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
   if (temperature !== undefined) request.temperature = temperature
   const maxTokens = numberField(body.max_tokens) ?? numberField(body.max_completion_tokens)
   if (maxTokens !== undefined) request.maxTokens = maxTokens
-  if (typeof body.user === "string" && body.user.trim()) request.sessionId = body.user.trim()
+  const sessionId = optionalBodyText(body, "session_id") ??
+    (typeof body.user === "string" && body.user.trim() ? body.user.trim() : undefined) ??
+    headerValue(ctx.req, "x-mik-session-id") ?? undefined
+  if (sessionId) request.sessionId = sessionId
+  const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+    ? body.metadata as Record<string, unknown>
+    : {}
+  const traceId = optionalBodyText(body, "trace_id") ?? optionalBodyText(metadata, "trace_id") ?? headerValue(ctx.req, "x-mik-trace-id") ?? undefined
+  if (traceId) request.traceId = traceId
+  if (body.fallback_chain !== undefined) {
+    if (!Array.isArray(body.fallback_chain) || !body.fallback_chain.every((item) => typeof item === "string")) {
+      throw badRequest('"fallback_chain" must be an array of model references.')
+    }
+    request.fallbackChain = body.fallback_chain as string[]
+  }
+  const timeoutValue = body.reasoning_timeout_ms ?? headerValue(ctx.req, "x-mik-reasoning-timeout-ms")
+  if (timeoutValue !== undefined && timeoutValue !== null) {
+    const timeout = typeof timeoutValue === "number" ? timeoutValue : Number(timeoutValue)
+    if (!Number.isFinite(timeout) || timeout <= 0) throw badRequest('"reasoning_timeout_ms" must be a positive number of milliseconds.')
+    request.reasoningTimeoutMs = timeout
+  }
   request.tags = { entrypoint: "openai-http" }
 
   const id = `chatcmpl-${randomUUID()}`
@@ -423,22 +450,43 @@ async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: s
   request.signal = controller.signal
 
   const iterator = ctx.hub.stream(request)[Symbol.asyncIterator]()
+  let stream: SseStream | undefined
   let first: IteratorResult<StreamEvent>
   try {
-    first = await iterator.next()
+    const firstPromise = iterator.next()
+    if (ctx.heartbeatMs > 0) {
+      let heartbeatTimer: ReturnType<typeof setTimeout> | undefined
+      const heartbeatWait = new Promise<"heartbeat">((resolve) => {
+        heartbeatTimer = setTimeout(() => resolve("heartbeat"), ctx.heartbeatMs)
+        heartbeatTimer.unref?.()
+      })
+      const firstOrHeartbeat = await Promise.race([firstPromise, heartbeatWait])
+      if (heartbeatTimer) clearTimeout(heartbeatTimer)
+      if (firstOrHeartbeat === "heartbeat") {
+        stream = new SseStream(ctx.res, ctx.heartbeatMs)
+        stream.open()
+        stream.startHeartbeat()
+        await stream.comment("thinking")
+        first = await firstPromise
+      } else {
+        first = firstOrHeartbeat
+      }
+    } else {
+      first = await firstPromise
+    }
   } catch (error) {
     throw toHttpError(error)
   }
 
   if (first.done) {
-    const empty = new SseStream(ctx.res, 0)
-    empty.open()
-    await empty.raw("data: [DONE]\n\n")
-    empty.close()
+    stream ??= new SseStream(ctx.res, 0)
+    stream.open()
+    await stream.raw("data: [DONE]\n\n")
+    stream.close()
     return
   }
 
-  if (first.value.type === "error") {
+  if (first.value.type === "error" && !stream) {
     // The hub records the usage row when its generator *finishes*, not when the
     // error event is yielded, so the stream must be drained before answering —
     // otherwise a request that failed would silently go unmetered.
@@ -448,9 +496,11 @@ async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: s
     return
   }
 
-  const stream = new SseStream(ctx.res, ctx.heartbeatMs)
-  stream.open()
-  stream.startHeartbeat()
+  if (!stream) {
+    stream = new SseStream(ctx.res, ctx.heartbeatMs)
+    stream.open()
+    stream.startHeartbeat()
+  }
 
   const modelId = resolveModelId(ctx, request)
   await stream.raw(chunk(id, created, modelId, { role: "assistant" }, null))

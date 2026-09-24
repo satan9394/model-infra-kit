@@ -70,8 +70,8 @@ export interface ProviderConfig {
    */
   protocol?: Protocol
   baseUrl?: string
-  /** Reference such as `env:DEEPSEEK_API_KEY` or `file:~/.mik/secrets/deepseek`. */
-  apiKeyRef?: string
+  /** One credential reference, a comma-separated list, or an array of references. */
+  apiKeyRef?: string | string[]
   npmPackage?: string
   headers?: Record<string, string>
   enabled?: boolean
@@ -173,7 +173,14 @@ export interface ModelRequest {
   headers?: Record<string, string>
   /** Arbitrary per-call tags, stored with the usage event. */
   tags?: Record<string, string>
+  /** Groups this model call under one Agent task trace. */
+  traceId?: string
+  /** Groups multiple traces and calls under one host Agent session. */
   sessionId?: string
+  /** Ordered model references to try after a retryable failure. */
+  fallbackChain?: string[]
+  /** Maximum wait for first model output before aborting and failing over. */
+  reasoningTimeoutMs?: number
   signal?: AbortSignal
 }
 
@@ -215,6 +222,7 @@ export interface UsageEventInput {
   status: "ok" | "error"
   errorCode?: string
   isStreaming: boolean
+  traceId?: string
   sessionId?: string
   tags?: Record<string, string>
 }
@@ -329,6 +337,14 @@ export interface UsageBucket {
   key: string
   requests: number
   costUsd: number
+  /**
+   * Recorded lower endpoint, summed as integer micro-USD. The provider/model
+   * breakdowns always include it; byTag may omit both endpoints because its
+   * historical tag rollups only stored the legacy point estimate.
+   */
+  costLowUsd?: number
+  /** See `costLowUsd`; never inferred from `costUsd` when unavailable. */
+  costHighUsd?: number
   tokens: TokenUsage
 }
 
@@ -336,6 +352,10 @@ export interface UsageTrendPoint {
   date: string
   requests: number
   costUsd: number
+  /** Recorded lower endpoint, aggregated as integer micro-USD. */
+  costLowUsd: number
+  /** Recorded upper endpoint, aggregated as integer micro-USD. */
+  costHighUsd: number
   tokens: TokenUsage
 }
 
@@ -346,6 +366,7 @@ export interface UsageQuery {
   providerId?: string
   model?: string
   status?: "ok" | "error"
+  traceId?: string
   sessionId?: string
   /** Only rows carrying this attribution tag key (EVO-G75). */
   tag?: string
@@ -356,6 +377,29 @@ export interface UsageQuery {
   tagValue?: string
   limit?: number
   offset?: number
+}
+
+export type UsageTraceGroupBy = "session" | "trace"
+
+/** Aggregate cost and timing for the calls belonging to one Agent session or trace. */
+export interface UsageTraceGroup {
+  id: string
+  groupBy: UsageTraceGroupBy
+  sessionId?: string
+  traceId?: string
+  requests: number
+  successes: number
+  failures: number
+  costLowUsd: number
+  costHighUsd: number
+  tokens: TokenUsage
+  startedAt: number
+  endedAt: number
+  durationMs: number
+  avgLatencyMs?: number
+  avgFirstTokenMs?: number
+  /** Requests whose individual detail rows were folded into daily trace rollups. */
+  archivedRequests: number
 }
 
 export interface UsagePage {

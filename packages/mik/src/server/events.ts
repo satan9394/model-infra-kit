@@ -1,5 +1,5 @@
 import type { ModelInfra } from "../hub.js"
-import type { PricingState } from "../pricing/service.js"
+import type { PricingSyncResult } from "../pricing/service.js"
 import type { ModelInfo, UsageEvent } from "../types.js"
 
 /** The three topics `GET /api/events` publishes, per `docs/interfaces.md`. */
@@ -107,7 +107,7 @@ function tapPricing(hub: ModelInfra, bus: EventBus): () => void {
     bus.emit({ type: "pricing.updated", at: Date.now(), data: { action: "remove", modelId, removed } })
     return removed
   }
-  pricing.refresh = async (): Promise<PricingState> => {
+  pricing.refresh = async (): Promise<PricingSyncResult> => {
     const state = await refresh.call(pricing)
     bus.emit({ type: "pricing.updated", at: Date.now(), data: { action: "sync", status: state.status } })
     return state

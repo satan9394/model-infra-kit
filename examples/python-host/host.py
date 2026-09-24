@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 import urllib.error
 import urllib.request
 
@@ -35,6 +36,8 @@ def main(argv: list[str]) -> int:
         print("usage: host.py [base_url] [model]", file=sys.stderr)
         return 2
 
+    trace_id = uuid.uuid4().hex
+
     headers = {"content-type": "application/json"}
     token = os.environ.get("MIK_SERVER_TOKEN", "")
     if token:
@@ -46,6 +49,7 @@ def main(argv: list[str]) -> int:
         # which rejects a "system" role inside `messages`.
         "messages": [{"role": "user", "content": "Reply with one short sentence about Python."}],
         "user": SESSION,
+        "trace_id": trace_id,
     }
     request = urllib.request.Request(
         f"{base_url}/chat/completions",
@@ -73,6 +77,7 @@ def main(argv: list[str]) -> int:
     print(f"answer:  {json.dumps((message.get('content') or '')[:120])}")
     print(f"usage:   {json.dumps(body.get('usage'))}")
     print(f"session: {SESSION}")
+    print(f"trace:   {trace_id}")
     if not body.get("usage"):
         print("FAIL: the proxy returned no usage", file=sys.stderr)
         return 1

@@ -551,7 +551,13 @@ describe("EVO-G75 A4 — an old database upgrades without losing data", () => {
       .map((row) => Number(row.version))
 
     expect(columns).toContain("tags_json")
-    expect(applied).toEqual([1, 2])
+    expect(columns).toContain("trace_id")
+    expect(applied).toEqual([1, 2, 3, 4])
+    expect(
+      store.driver
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_trace_rollups'")
+        .get(),
+    ).toBeTruthy()
 
     // ① no data lost, ② the pre-change row reads back (with empty tags).
     const legacy = store.usage.get("legacy-1")
@@ -596,13 +602,21 @@ describe("EVO-G75 A4 — an old database upgrades without losing data", () => {
     const path = publishedDatabase()
     const store = await Store.open({ path })
 
-    // v2 must not have tried to add a column that is already there.
+    // v2 must not have tried to add a column that is already there; v3 adds
+    // the pricing cache and v4 adds trace attribution without changing the
+    // legacy usage row.
     expect(
       store.driver
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all()
         .map((row) => Number(row.version)),
-    ).toEqual([1, 2])
+    ).toEqual([1, 2, 3, 4])
+    expect(
+      store.driver
+        .prepare("PRAGMA table_info(usage_events)")
+        .all()
+        .map((row) => String(row.name)),
+    ).toContain("trace_id")
     expect(
       store.driver
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_tag_rollups'")

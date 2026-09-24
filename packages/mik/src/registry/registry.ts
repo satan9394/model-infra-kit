@@ -1,5 +1,6 @@
 import type { CredentialStore } from "../credential/store.js"
 import { ModelInfraError } from "../errors.js"
+import { KeyPool, normalizeRefs } from "../router/key-pool.js"
 import type { Store } from "../store/database.js"
 import type { Protocol, ProviderConfig, ProviderPreset, ProviderRecord } from "../types.js"
 import { PROTOCOL_PACKAGES, getPreset } from "./presets.js"
@@ -57,6 +58,7 @@ function joinModelRef(providerId: string, modelId: string): string {
  * `get` are not scoped by app; `appId` is stamped on records at creation time.
  */
 export class ProviderRegistry {
+  private readonly keyPool = new KeyPool()
   constructor(private readonly deps: ProviderRegistryDeps) {}
 
   list(): ProviderRecord[] {
@@ -190,7 +192,18 @@ export class ProviderRegistry {
     preset: ProviderPreset | undefined,
   ): { apiKey: string | null; apiKeySource: ApiKeySource } {
     if (record.apiKeyRef) {
-      return { apiKey: this.deps.credentials.resolve(record.apiKeyRef), apiKeySource: "ref" }
+      const refs = normalizeRefs(record.apiKeyRef)
+      if (refs.length === 0) {
+        throw new ModelInfraError(`Provider "${record.id}" has an empty API key reference list.`, {
+          code: "CREDENTIAL",
+          providerId: record.id,
+        })
+      }
+      if (refs.length === 1) {
+        return { apiKey: this.deps.credentials.resolve(refs[0]!), apiKeySource: "ref" }
+      }
+      const selection = this.keyPool.resolve(record.id, refs, (ref) => this.deps.credentials.tryResolve(ref))
+      return { apiKey: selection!.apiKey, apiKeySource: "ref" }
     }
 
     const envKey = preset?.envKey
@@ -203,6 +216,19 @@ export class ProviderRegistry {
       `Provider "${record.id}" has no API key. Set ${envKey} or configure apiKeyRef for this provider.`,
       { code: "CREDENTIAL", providerId: record.id },
     )
+  }
+
+  /** Number of configured references, used to bound 429-triggered retries. */
+  keyCount(id: string): number {
+    const record = this.deps.store.providers.get(id)
+    if (!record) return 0
+    const preset = record.presetId ? getPreset(record.presetId) : undefined
+    return this.keyPool.keyCount(record.apiKeyRef ?? (preset?.envKey ? [`env:${preset.envKey}`] : undefined))
+  }
+
+  /** Cool the most recently selected reference after a 429 response. */
+  coolCurrentKey(id: string, cooldownMs = 30_000): void {
+    this.keyPool.coolCurrent(id, cooldownMs)
   }
 
   /** The `provider:model` used when a request omits a model. */

@@ -10,7 +10,8 @@ ProviderConfig, ProviderRecord, ProviderPreset, ProviderStatus
 ModelInfo, ModelCapabilities, ModelPricing, ModelSource
 TokenUsage { input; output; cacheRead; cacheWrite; reasoning }
 CostInfo { usd; low; high; basis; source; pricingModel?; providerId? }
-ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; signal? }
+ProviderConfig.apiKeyRef?: string | string[] // one ref, comma-separated refs, or ref array; only references are stored
+ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; traceId?; fallbackChain?: string[]; reasoningTimeoutMs?: number; signal? }
   // EVO-G75：`tags?: Record<string, string>` 是宿主自定义的**归属标签**（如
   // `{ feature: "quant-backtest" }`）。值入库前经 `sanitizeTags()` 归一化 + `redactDeep()`
   // 脱敏；非对象/异常值一律按既定策略处理，**绝不抛错**（见「EVO-G75」节）。
@@ -18,7 +19,13 @@ ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; tempe
 ModelResponse { text; toolCalls; finishReason; usage; cost; provider; model{requested,actual}; latencyMs; firstTokenMs?; steps? }
 StreamEvent（text_delta | tool_call_delta | tool_call_complete | step_finish | usage | finish | error）
 UsageEvent, UsageSummary, UsageBucket, UsageTrendPoint, UsageQuery, UsagePage
+UsageTraceGroup, UsageTraceGroupBy
 ModelInfraConfig
+
+// src/catalog/
+ModelMetadata, ProviderModelBinding, ModelFilter, CatalogModelCapabilities
+ModelInfra.catalog.list(filter?) / get(modelId) / assertCapability(modelId, capability)
+ModelInfra.catalog.resolveEndpoint(modelId, providerId) / listBindings(filter?)
 
 // src/errors.ts
 ModelInfraError, isModelInfraError, toModelInfraError, ModelInfraErrorCode
@@ -27,7 +34,7 @@ ModelInfraError, isModelInfraError, toModelInfraError, ModelInfraErrorCode
 CredentialStore { parse; resolve; tryResolve; set; delete; list; describe }
 
 // src/store/database.ts
-Store.open({ path?, driver?, onWarn?, trashDir?, maxIntegrityCheckBytes? }) → Store { providers; models; pricing; usage; settings; driver; close() }
+Store.open({ path?, driver?, onWarn?, trashDir?, maxIntegrityCheckBytes? }) → Store { providers; models; pricing; pricingCache; usage; settings; driver; close() }
 ```
 
 ---
@@ -94,6 +101,7 @@ export interface PricingDeps { store: Store; cacheDir?: string; onWarn?: (m: str
 export interface PricingServiceDeps extends PricingDeps {
   catalog?: import("llm-pricing").PricingCatalog
   fetch?: typeof globalThis.fetch
+  autoSync?: boolean
 }
 export interface PricingState {
   status: "fresh" | "stale" | "error"
@@ -101,12 +109,15 @@ export interface PricingState {
   source?: string
   lastError?: string
 }
-export interface EstimateInput { model: string; at?: number; usage: Partial<TokenUsage> }
+export interface EstimateInput { model: string; providerId?: string; at?: number; usage: Partial<TokenUsage> }
+export interface PricingSyncOptions { force?: boolean; dryRun?: boolean }
+export interface PricingSyncResult extends PricingState { syncedModels: number; updatedModels: number; dryRun: boolean }
 export class PricingService {
-  constructor(deps: PricingDeps)
-  /** 永不抛错：失败只把 status 降级为 stale/error 并 onWarn */
+  constructor(deps: PricingServiceDeps)
+  /** 先读 SQLite 价格缓存，再在后台刷新上游；不会等待网络。 */
   init(): Promise<PricingState>
-  refresh(): Promise<PricingState>
+  refresh(): Promise<PricingSyncResult>
+  sync(options?: PricingSyncOptions): Promise<PricingSyncResult>
   state(): PricingState
   estimate(input: EstimateInput): CostInfo
   /** `facts` 透传给 llm-pricing，用于取到长上下文分档 / 思考模式的卡（F02 增量）。 */
@@ -116,6 +127,24 @@ export class PricingService {
   listOverrides(): PricingOverride[]
   /** llm-pricing 的 pricingCandidates 透传，供 UI 展示匹配候选 */
   candidates(model: string): string[]
+}
+
+export interface ModelPricingTier {
+  modelId: string
+  providerId: string
+  source: "builtin" | "synced" | "manual"
+  version: number
+  updatedAt: string
+  rates: {
+    inputMicrosPerMillion: number
+    cachedInputMicrosPerMillion?: number
+    cacheWriteMicrosPerMillion?: number
+    outputMicrosPerMillion: number
+    reasoningOutputMicrosPerMillion?: number
+    longContextThresholdTokens?: number
+    longContextInputMultiplier?: number
+    longContextOutputMultiplier?: number
+  }
 }
 ```
 
@@ -161,6 +190,8 @@ export class UsageService {
    * 语义见「EVO-G75」节；它**不是**身份，绝不用于权限/配额/隔离判断。
    */
   byTag(query?: UsageQuery): UsageBucket[]
+  /** G96：按 traceId 或 sessionId 聚合；成本与 token 总数包含保留期内已折叠的每日归档。 */
+  traces(query?: UsageQuery, groupBy?: "trace" | "session"): UsageTraceGroup[]
   /**
    * G64 追加：返回**该库里所有写过量用的 `app_id`**（升序）。本类唯一不经
    * `scoped()` 的读取——它问的就是「还有谁在写这个文件」，加 appId 过滤会把答案抹掉。
@@ -199,6 +230,8 @@ export class ModelInfra {
   readonly providers: ProviderRegistry
   readonly pricing: PricingService
   readonly usage: UsageService
+  /** Bundled model facts and explicit provider endpoint bindings; no network sync. */
+  readonly catalog: ModelCatalogService
   readonly models: {
     list(providerId?: string): ModelInfo[]
     get(ref: string): ModelInfo | null
@@ -221,19 +254,33 @@ export class ModelInfra {
 export interface ModelInfraOptions extends ModelInfraConfig {
   baseUrl?: string
   maxRetries?: number
+  fallbackChain?: string[]
+  reasoningTimeoutMs?: number
+  keyCooldownMs?: number
   pricingCatalog?: import("llm-pricing").PricingCatalog
   pricingFetch?: typeof globalThis.fetch
   /** G01 追加：显式价格目录源；HTTP 面 sync 前用 SSRF guard 校验（经 `pricing.outboundUrls()`）。 */
   pricingSources?: import("llm-pricing").PricingSource[]
+  /** 设为 false 禁止本次实例启动时自动异步刷新价格；默认 true。 */
+  pricingAutoSync?: boolean
   onUsage?: (event: UsageEvent) => void
 }
 ```
 
 `ModelRequest.model` 解析规则：`"provider:model"` 直接拆；裸模型名用 `providers.defaultModel()` 的 provider；都缺失抛 `INVALID_REQUEST`。
 
+### EVO-G95 — 弹性路由与凭据池
+
+- `ModelRequest.fallbackChain` 先于 `ModelInfraOptions.fallbackChain` 尝试；主模型失败后依序尝试显式 `provider:model` 备选。仅 429、超时、连接与上游 5xx 可触发模型降级；流式调用只有在尚未输出文本或工具调用时才切换，避免重复内容。
+- `reasoningTimeoutMs`（请求字段优先，其次实例配置）限制流式首个可见输出等待；非流式请求将其作为单次调用超时。OpenAI 兼容端点接受 `reasoning_timeout_ms` 或 `x-mik-reasoning-timeout-ms`。SSE 若首事件超过 heartbeat 周期，会先发 `: thinking` 注释并继续按间隔发送注释心跳。
+- Provider `apiKeyRef` 支持单引用、逗号分隔引用或引用数组。每次解析按轮询选择一个可用引用；429 后该引用在内存冷却（默认 30 秒，`keyCooldownMs` 可改）。数据库仍只保存 credential reference，解析出的 secret 不进入池状态、日志或用量标签。
+- 每次实际尝试各记录一条用量行；通过模型或 Key 轮换成功的行以 `tags.is_fallback = "true"` 标记。失败尝试保持 `status="error"` 与缺失成本状态。
+
 ## T06/T07 — `src/cli/` 与 `src/server/`
 
 CLI 子命令：`init` / `serve` / `dashboard` / `provider add|list|remove|test` / `models` / `pricing sync|set|list` / `usage summary|trends|logs|export`。
+
+`mik models catalog [--json]` 列出内置的标准模型事实与供应商端点映射；`mik models` / `mik models list` 仍查询本地发现的供应商模型。
 
 `mik serve` 标志（T14）：`--port <n>` / `--host <h>` / `--token <t>` / `--cors <origin>`。`--cors` 接受 `'*'`（任意源）或 `https://...`（固定源，映射到 `createServer({ cors: { origin } })`），非法值直接报错；默认关闭。T14 同时也暴露了 `createServer({ cors })` 已是既有能力（`boolean | CorsOptions`）。
 
@@ -245,10 +292,11 @@ GET  /api/providers            POST /api/providers
 PATCH/DELETE /api/providers/:id
 POST /api/providers/:id/test
 GET  /api/providers/:id/models   POST /api/providers/:id/models/refresh
+GET  /api/catalog              （内置标准模型事实 + 供应商端点绑定，不访问上游）
 GET  /api/models               GET /api/models/:ref
 GET  /api/pricing              PUT /api/pricing/:modelId   POST /api/pricing/sync
 DELETE /api/pricing/:modelId   （T07 追加并经指挥批准：看板需要撤销手动价）
-GET  /api/usage/summary|trends|by-provider|by-model|logs|logs/:id
+GET  /api/usage/summary|trends|by-provider|by-model|traces|logs|logs/:id
        （G78：`/api/usage/summary` 的响应在 `summary` 上**追加**三个字段，
          `costLowerBoundOnly` / `unpricedRequests` / `unmeasuredRequests`，
          由 `costBound()` 推出。既有字段与数字一个都没变；加了它们之后，
@@ -256,6 +304,8 @@ GET  /api/usage/summary|trends|by-provider|by-model|logs|logs/:id
        （G89：`summary.costUsd` 已标注 `@deprecated`——它是点估计，
          有未定价/已折叠请求时两侧都不是界。替代写法与迁移样例见文末
          **EVO-G89** 节；字段**继续填充**，本 HTTP 面的字段与数值一个都没改。）
+       （G92：趋势点与按供应商/模型分桶**追加** `costLowUsd` / `costHighUsd`；
+         `costUsd` 保留原值兼容旧消费者，三种金额都按整数微美元聚合。）
 GET  /api/events               （SSE：usage.recorded / catalog.updated / pricing.updated）
 POST /api/usage/events         （F19 新增：宿主自己调模型，把用量上报进来）
 GET  /openapi.json
@@ -291,6 +341,7 @@ POST /v1/chat/completions      GET /v1/models
   errorCode?: string
   isStreaming?: boolean
   sessionId?: string
+  traceId?: string
   appId?: string               // G01：只允许等于本服务 appId，缺省取服务端 appId；否则整单 400（防计量伪造）
   tags?: Record<string, string> // 值经 redactDeep 脱敏后入库
 }
@@ -916,14 +967,43 @@ const cell = bound.costLowerBoundOnly ? `at least ${floor}` : band
 
 ### 边界与未覆盖（本卡不做的部分）
 
-- **分桶与趋势点不在此列**：`UsageBucket.costUsd`、`UsageTrendPoint.costUsd` 是另一类字段，**没有** low/high 端点可换（HTTP 面也只给单值），本卡未动、也未标注弃用——「`costUsd` 全仓禁用」不是本卡的结论。
+- **EVO-G92 补齐趋势点与 provider/model 分桶的区间**：`UsageTrendPoint` 始终带 `costLowUsd` / `costHighUsd`；`UsageBucket` 的供应商与模型分桶也带这两个端点。明细行在 SQL 中逐行四舍五入成整数微美元后求和，折叠行直接求和 `cost_low_microusd` / `cost_high_microusd`；内存合并仍只累加整数微美元，最后才映射为美元数。既有 `costUsd` 的计算和值保持不变。
+- **`byTag()` 的两个区间端点仍可缺席**：历史 `usage_tag_rollups` 只保存 `cost_microusd`，并未保留上下界；`UsageBucket` 因此将端点声明为可选。不会从 `costUsd` 复制或推算缺失端点。此行为只影响 `byTag()`，不影响 HTTP 的供应商/模型分桶。
 - **`examples/` 与测试仍读它，且是这样设计的**：`examples/cli-agent`、`examples/agent-cli`、`examples/openai-sdk` 作为**宿主示例**继续读 `summary.costUsd`——它们同时是「既有宿主的读取行为不变」这条非破坏承诺的活证据（A2）；测试里读它是为了断言字段仍被填充。**产品面（CLI / 看板）不再读它**，两件事互不矛盾。
 - **看板断言分两层**：`apps/dashboard/test/cost-span.test.ts` 直接 import 生产函数 `formatUsdSpan`（不是复制表达式）断言其输出；`packages/mik/test/g89-cost-point-estimate.test.ts` 断言真实视图文件里调用它的是 `costLowUsd`/`costHighUsd` 两个端点。**仍没有**页面级渲染断言（看板测试用 `node --test` 跑 `.ts`，不带 JSX 变换，渲染不了 RSC）。
 - **价差是否由上游真实产出未验证**：spread 用例通过 `UsageService.record()` 直接写入 `low < usd < high` 的 `CostInfo`；类型契约允许该形状，`PricingService.estimate()` 会把 `catalog.estimate()` 的 `low`/`high` 原样带出，仓库自带 fixture 也是这一形——但「`llm-pricing` 当前档位数据在真机上是否会给出价差」未在本卡验证（R208 申报）。
 - **两端一边缺失的分支**：`formatUsdSpan` 在 `high` 缺失时只回下限（`number` 类型下不可达，仅为 `NaN`/`undefined` 兜底）；该分支**无真实数据覆盖**，测试只覆盖「两端都缺 → `—`」（R208 申报）。
 
+## EVO-G92 — 趋势点与分桶成本区间
 
+`UsageTrendPoint` 增加必有的 `costLowUsd`、`costHighUsd`；`UsageBucket` 增加可选的同名字段。`GET /api/usage/trends` 的每日/每小时点以及 `/api/usage/by-provider`、`/api/usage/by-model` 的桶都会返回两端金额。保留 `costUsd` 及其原计算结果，以免破坏既有只读消费者。
 
+两端金额在 `usage_events` 上通过 `SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER))` 与对应的 `cost_high_usd` 表达式聚合；已折叠的 `usage_daily_rollups` 使用整数 `cost_low_microusd` / `cost_high_microusd`。内存合并同样只累加整数微美元，完成后才转换为美元数。没有价差时 `formatUsdSpan` 显示单值，有价差时显示完整区间。
 
+看板将「最贵的一天」定义为**区间下限最高的一天**；下限相同时用上限打破并列。最贵日、按天明细、供应商分桶和模型分桶均显示对应的 `costLowUsd ~ costHighUsd` 区间。
 
+## EVO-G93 — 模型机架与能力元数据矩阵
 
+模型能力取自按供应商分组的公开记录，`sourceProviderId` 标出用于规范化该条事实的记录，避免把不同端点的窗口限制混为一谈。静态快照在 2026-09-23 核对；Claude 3.5 Sonnet 保留 Anthropic 历史规格，映射标为 `deprecated`。
+
+`ModelMetadata` 描述标准模型事实：统一 `id`、`family`、名称、上下文/输出上限、推理/视觉/音频/工具/结构化输出能力，以及来源链接。`ProviderModelBinding` 独立描述 `(providerId, protocol, modelId) → upstreamModelName` 和端点状态；供应商部署别名不会覆盖标准模型 ID 或固有能力。实例 API 还会通过配置的 `presetId` 与 `protocol` 将自定义 provider id 解析到兼容绑定；协议不符或没有显式映射时返回 `undefined`，不猜测部署名称。
+
+`ModelInfra.catalog.list(filter?)`、`get(modelId)`、`assertCapability(modelId, capability)`、`resolveEndpoint(modelId, providerId)` 与 `listBindings(filter?)` 提供同步只读查询。能力守卫对缺失模型抛 `MODEL_NOT_FOUND`，对不支持的能力抛 `INVALID_REQUEST`。快照来自每条记录的 `source` / `sourceUrl`，上游不可用不影响启动，也不会在 `ModelInfra.init()` 中触网。`mik models catalog` 支持双语表格与 `--json`；看板 `/models` 将标准机架与供应商实际发现的目录分别展示。Claude 3.5 Sonnet 保留为历史元数据，端点绑定状态为 `deprecated`。
+
+## EVO-G94 — 动态阶梯计价与 SQLite 价格缓存
+
+`ModelPricingTier.rates` 以整数微美元/百万 Token 保存输入、缓存读取、缓存写入、普通输出与思考输出费率；可选长上下文阈值与倍率只作为计价参数。GPT-6 Luna / Sol / Astra 在上游未给出独立缓存费率时，读取价按基础输入价的 10% 计算、写入价按 125% 计算、思考 Token 单独按 `reasoningOutputMicrosPerMillion` 计价（未配置时跟随普通输出价）。基础费率始终来自模型目录或显式手动价。
+
+成本核算以 `BigInt` 计算每个 Token 类别的微美元分子，仅在最终汇总处四舍五入成整数微美元；上下限相同，因为该阶梯卡代表一个确定费率。没有缓存的模型继续走原有 `llm-pricing` 路径。经校验的 tier 按 `(providerId, modelId)` 写入 SQLite `pricing_cache`，带版本号与来源；启动时先读本地 tier，远程刷新异步执行。网络或 JSON 失败只写告警、保留本地缓存并继续使用随包目录。
+
+`mik.pricing.sync({ force?, dryRun? })` 与 `mik pricing sync [--dry-run]` 可刷新阶梯价；试运行不写 SQLite tier 行。手动价格仍优先于同步缓存。密钥不参与价格记录或同步数据。
+
+## EVO-G96 — Agent Trace 查询与全生态适配
+
+`ModelRequest.traceId` / `sessionId` 与 `UsageEvent.traceId` / `sessionId` 是可选归属字段。`UsageQuery.traceId` 和 `sessionId` 可筛选用量明细。`UsageService.traces(query?, groupBy?)` 与 `GET /api/usage/traces?groupBy=trace|session` 返回请求数、成功/失败数、reasoning token、耗时范围、延迟均值和成本上下限。成本在 SQLite 以整数微美元累加，最终映射成美元数。
+
+`GET /api/usage/logs` 支持 `traceId`，用于取回仍在明细保留期内的调用步骤。旧明细每日折叠时，schema v4 会同步写入 `usage_trace_rollups`；聚合金额与 reasoning token 保留到与普通日汇总相同的保留边界。`archivedRequests` 标出仍计入聚合但已经没有逐次详情的调用数。所有查询默认按实例 `appId` 隔离。
+
+OpenAI 兼容入口 `POST /v1/chat/completions` 将标准 `user` 记为 `sessionId`，也接受 `session_id` 或 `X-Mik-Session-Id`；`trace_id`、`metadata.trace_id` 或 `X-Mik-Trace-Id` 会记为 `traceId`。嵌入式 `mik.fetch` 支持同一组 body 字段/headers，并在转发时移除 MIK 专用 headers 与 `session_id` / `trace_id` 扩展字段。
+
+适配示例位于 `examples/openai-sdk`、`examples/python-host` 和 `examples/langchain-python`。OpenAI SDK 仍用 `baseURL: mik.baseUrl` 与 `fetch: mik.fetch`；Python 与 LangChain 指向 `http://127.0.0.1:3211/v1`。`user`/session header 标记会话，逐次 `X-Mik-Trace-Id` 或 `trace_id` 标记一次 Agent Loop。

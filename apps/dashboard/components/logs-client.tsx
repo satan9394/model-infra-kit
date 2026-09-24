@@ -63,6 +63,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
               <KeyValue label="请求模型">{event.modelRequested}</KeyValue>
               <KeyValue label="实际模型">{event.modelActual}</KeyValue>
               {event.sessionId ? <KeyValue label="sessionId">{event.sessionId}</KeyValue> : null}
+              {event.traceId ? <KeyValue label="traceId">{event.traceId}</KeyValue> : null}
             </section>
 
             <section>

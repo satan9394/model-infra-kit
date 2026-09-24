@@ -382,12 +382,13 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     // marking (4) + the unpriced scope note (1) + the log legend (1) + the range
     // wording (3) + the two scope notices (2) → 322; EVO-G86 added the
     // `--with-id` help line and the `REQUEST ID` header (2) → 324. EVO-G88 added
-    // the one-sided window notice and `init`'s cache-dir line (2) → 326. Parity
-    // (the line below) is the real invariant.
-    expect(Object.keys(zh)).toHaveLength(326)
-    expect(Object.keys(en)).toHaveLength(326)
+    // the one-sided window notice and `init`'s cache-dir line (2) → 326. EVO-G93
+    // added 21 catalog command/help labels → 347; EVO-G94 added three pricing
+    // sync labels → 350. Parity (the line below) is the real invariant.
+    expect(Object.keys(zh)).toHaveLength(350)
+    expect(Object.keys(en)).toHaveLength(350)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(326)
+    expect(i18nKeys()).toHaveLength(350)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })

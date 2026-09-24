@@ -22,6 +22,8 @@ export interface ForwardedCall {
   status: "ok" | "error"
   errorCode?: string
   isStreaming: boolean
+  sessionId?: string
+  traceId?: string
   /**
    * The amount the endpoint said it billed (EVO-G73), read straight from the
    * response body this adapter already parses. `absent` for every provider that
@@ -55,7 +57,15 @@ export interface MikFetchOptions {
 
 const AUTH_HEADERS = ["authorization", "api-key", "x-api-key", "x-goog-api-key"]
 /** Headers that describe this hop, not the upstream request. */
-const HOP_HEADERS = ["host", "content-length", "connection", "transfer-encoding", "accept-encoding"]
+const HOP_HEADERS = [
+  "host",
+  "content-length",
+  "connection",
+  "transfer-encoding",
+  "accept-encoding",
+  "x-mik-session-id",
+  "x-mik-trace-id",
+]
 
 const ZERO_USAGE = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 })
 
@@ -94,6 +104,9 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
     const bodyText = await readBody(request)
     const payload = bodyText ? parseJson(bodyText) : null
     const requestedModel = typeof payload?.model === "string" ? payload.model : undefined
+    const metadata = payload ? asRecord(payload.metadata) : null
+    const sessionId = textValue(payload?.session_id) ?? textValue(payload?.user) ?? textValue(request.headers.get("x-mik-session-id"))
+    const traceId = textValue(payload?.trace_id) ?? textValue(metadata?.trace_id) ?? textValue(request.headers.get("x-mik-trace-id"))
     const isGeneration = request.method !== "GET" && request.method !== "HEAD"
 
     // A body that cannot be parsed cannot be routed, and forwarding it verbatim
@@ -127,7 +140,13 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       )
     }
 
-    const outgoing = isGeneration && payload ? { ...payload, model: target.modelId } : undefined
+    const outgoing: Record<string, unknown> | undefined = isGeneration && payload ? { ...payload, model: target.modelId } : undefined
+    // These MIK-only attribution fields are consumed locally and are not sent
+    // to providers that may reject OpenAI-compatible extension properties.
+    if (outgoing) {
+      delete outgoing.session_id
+      delete outgoing.trace_id
+    }
     const transport = options.fetch ?? globalThis.fetch
 
     let response: Response
@@ -150,6 +169,8 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         status: "error",
         errorCode: "CONNECTION",
         isStreaming: false,
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(traceId === undefined ? {} : { traceId }),
       })
       return errorResponse(502, `Could not reach provider "${target.providerId}".`, "CONNECTION")
     }
@@ -174,6 +195,8 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         status: response.ok ? "ok" : "error",
         errorCode: response.ok ? undefined : codeForStatus(response.status),
         isStreaming,
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(traceId === undefined ? {} : { traceId }),
         ...(providerCost === undefined ? {} : { providerCost }),
       })
     }
@@ -242,6 +265,10 @@ function parseJson(text: string): Record<string, unknown> | null {
   } catch {
     return null
   }
+}
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 /**

@@ -873,6 +873,12 @@ describe("dashboard launch is shell-free", () => {
 })
 
 describe("pricing", () => {
+  it("accepts the dry-run flag on price sync", () => {
+    const parsed = parseCliArgs(["pricing", "sync", "--dry-run"])
+    expect(parsed.action?.name).toBe("sync")
+    expect(parsed.values.dryRun).toBe(true)
+  })
+
   it("sets and lists a manual override with four-decimal money", async () => {
     const { dir, base } = sandbox()
     const set = await run(["pricing", "set", "deepseek-chat", "--input", "0.27", "--output", "1.1", ...base], dir)

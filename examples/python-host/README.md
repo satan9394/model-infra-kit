@@ -15,11 +15,13 @@ python host.py http://127.0.0.1:3211/v1 local:mock-mini
 
 The script POSTs to `<base_url>/chat/completions`, prints the answer and the
 `usage` block, and exits non-zero if the proxy returned no usage. It sends
-`"user": "python-host"`, which the proxy stores as the usage event's
-`session_id`, so the run can be attributed afterwards:
+`"user": "python-host"` as `session_id` plus a fresh `trace_id` for each run.
+The session appears in CLI usage logs. The trace is available from
+`GET /api/usage/logs?traceId=<id>` and in the Agent task dashboard:
 
 ```bash
 mik usage logs --config mik.config.json | grep python-host
+# In the dashboard, open Agent 任务 and choose the trace id printed by host.py
 ```
 
 Notes:

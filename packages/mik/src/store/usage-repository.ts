@@ -1,4 +1,15 @@
-import type { CostInfo, TokenUsage, UnpricedCoverage, UsageEvent, UsageQuery, UsageSummary, UsageTrendPoint, UsageBucket } from "../types.js"
+import type {
+  CostInfo,
+  TokenUsage,
+  UnpricedCoverage,
+  UsageBucket,
+  UsageEvent,
+  UsageQuery,
+  UsageSummary,
+  UsageTraceGroup,
+  UsageTraceGroupBy,
+  UsageTrendPoint,
+} from "../types.js"
 import { RESERVED_TAG_KEYS } from "../usage/tags.js"
 import { asNumber, asString, toSqlValue, type SqlDriver, type SqlValue } from "./driver.js"
 import { fromMicroUsd, localDateKey, localHourKey, startOfLocalDay, toMicroUsd } from "./money.js"
@@ -51,6 +62,10 @@ function buildWhere(query: UsageQuery, column: "ts" | "date"): Where {
   if (query.sessionId && column === "ts") {
     parts.push("session_id = ?")
     params.push(query.sessionId)
+  }
+  if (query.traceId && column === "ts") {
+    parts.push("trace_id = ?")
+    params.push(query.traceId)
   }
   /**
    * Attribution-tag filter (EVO-G75), detail rows only — a folded day has no
@@ -149,6 +164,7 @@ function rowToEvent(row: Record<string, unknown>): UsageEvent {
     status: asString(row.status, "ok") as UsageEvent["status"],
     errorCode: row.error_code ? asString(row.error_code) : undefined,
     isStreaming: asNumber(row.is_streaming) === 1,
+    traceId: row.trace_id ? asString(row.trace_id) : undefined,
     sessionId: row.session_id ? asString(row.session_id) : undefined,
     tags: parseTags(row.tags_json),
   }
@@ -165,6 +181,82 @@ interface AggregateRow {
   latencyCount: number
   firstTokenSum: number
   firstTokenCount: number
+}
+
+interface BucketAggregate {
+  key: string
+  requests: number
+  costMicro: number
+  lowMicro: number
+  highMicro: number
+  tokens: TokenUsage
+}
+
+interface TrendAggregate {
+  date: string
+  requests: number
+  costMicro: number
+  lowMicro: number
+  highMicro: number
+  tokens: TokenUsage
+}
+
+interface TraceAggregate {
+  groupBy: UsageTraceGroupBy
+  groupId: string
+  sessionId?: string
+  requests: number
+  successes: number
+  costLowMicro: number
+  costHighMicro: number
+  tokens: TokenUsage
+  startedAt: number
+  endedAt: number
+  latencySum: number
+  latencyCount: number
+  firstTokenSum: number
+  firstTokenCount: number
+  archivedRequests: number
+}
+
+function traceRollupSql(groupBy: UsageTraceGroupBy): string {
+  const groupId = groupBy === "session" ? "session_id" : "trace_id"
+  const predicate = groupBy === "session" ? "session_id IS NOT NULL" : "trace_id IS NOT NULL"
+  return `INSERT INTO usage_trace_rollups (
+    date, app_id, dimension, group_id, session_id, trace_id, provider_id, model, status,
+    request_count, success_count, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+    cost_low_microusd, cost_high_microusd, started_at, ended_at,
+    latency_sum_ms, latency_count, first_token_sum_ms, first_token_count
+  )
+  SELECT
+    strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime'), app_id, '${groupBy}', ${groupId},
+    COALESCE(session_id, ''), COALESCE(trace_id, ''), provider_id, model_actual, status,
+    COUNT(*), SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END),
+    SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(reasoning_tokens),
+    SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)),
+    SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)), MIN(ts), MAX(ts),
+    SUM(COALESCE(latency_ms, 0)), SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END),
+    SUM(COALESCE(first_token_ms, 0)), SUM(CASE WHEN first_token_ms IS NULL THEN 0 ELSE 1 END)
+  FROM usage_events
+  WHERE ts < ? AND ${predicate}
+  GROUP BY strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime'), app_id, ${groupId},
+    COALESCE(session_id, ''), COALESCE(trace_id, ''), provider_id, model_actual, status
+  ON CONFLICT(date, app_id, dimension, group_id, session_id, trace_id, provider_id, model, status) DO UPDATE SET
+    request_count = request_count + excluded.request_count,
+    success_count = success_count + excluded.success_count,
+    input_tokens = input_tokens + excluded.input_tokens,
+    output_tokens = output_tokens + excluded.output_tokens,
+    cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+    cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+    reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+    cost_low_microusd = cost_low_microusd + excluded.cost_low_microusd,
+    cost_high_microusd = cost_high_microusd + excluded.cost_high_microusd,
+    started_at = MIN(started_at, excluded.started_at),
+    ended_at = MAX(ended_at, excluded.ended_at),
+    latency_sum_ms = latency_sum_ms + excluded.latency_sum_ms,
+    latency_count = latency_count + excluded.latency_count,
+    first_token_sum_ms = first_token_sum_ms + excluded.first_token_sum_ms,
+    first_token_count = first_token_count + excluded.first_token_count`
 }
 
 function emptyAggregate(): AggregateRow {
@@ -217,8 +309,8 @@ export class UsageRepository {
           request_id, app_id, ts, source, provider_id, model_requested, model_actual, pricing_model,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
           cost_usd, cost_low_usd, cost_high_usd, pricing_source, pricing_basis,
-          latency_ms, first_token_ms, status, error_code, is_streaming, session_id, tags_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          latency_ms, first_token_ms, status, error_code, is_streaming, session_id, trace_id, tags_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         event.requestId,
@@ -245,6 +337,7 @@ export class UsageRepository {
         toSqlValue(event.errorCode),
         event.isStreaming ? 1 : 0,
         toSqlValue(event.sessionId),
+        toSqlValue(event.traceId),
         JSON.stringify(event.tags ?? {}),
       )
     return Number(result.changes) > 0
@@ -434,12 +527,28 @@ export class UsageRepository {
   }
 
   private groupBy(query: UsageQuery, key: { events: string; rollups: string }): UsageBucket[] {
-    const buckets = new Map<string, UsageBucket>()
+    const buckets = new Map<string, BucketAggregate>()
     const keyAlias = "bucket_key"
-    const merge = (key: string, requests: number, costMicro: number, tokens: TokenUsage) => {
-      const existing = buckets.get(key) ?? { key, requests: 0, costUsd: 0, tokens: EMPTY_TOKENS() }
+    const merge = (
+      key: string,
+      requests: number,
+      costMicro: number,
+      lowMicro: number,
+      highMicro: number,
+      tokens: TokenUsage,
+    ) => {
+      const existing = buckets.get(key) ?? {
+        key,
+        requests: 0,
+        costMicro: 0,
+        lowMicro: 0,
+        highMicro: 0,
+        tokens: EMPTY_TOKENS(),
+      }
       existing.requests += requests
-      existing.costUsd = fromMicroUsd(toMicroUsd(existing.costUsd) + costMicro)
+      existing.costMicro += costMicro
+      existing.lowMicro += lowMicro
+      existing.highMicro += highMicro
       existing.tokens.input += tokens.input
       existing.tokens.output += tokens.output
       existing.tokens.cacheRead += tokens.cacheRead
@@ -453,19 +562,28 @@ export class UsageRepository {
       .prepare(
         `SELECT ${key.events} AS ${keyAlias}, COUNT(*) AS requests,
           SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
+          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
+          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
         FROM usage_events${eventWhere.clause} GROUP BY ${keyAlias}`,
       )
       .all(...eventWhere.params)) {
-      merge(asString(row[keyAlias]), asNumber(row.requests), asNumber(row.cost_micro), {
-        input: asNumber(row.input_tokens),
-        output: asNumber(row.output_tokens),
-        cacheRead: asNumber(row.cache_read_tokens),
-        cacheWrite: asNumber(row.cache_write_tokens),
-        reasoning: asNumber(row.reasoning_tokens),
-      })
+      merge(
+        asString(row[keyAlias]),
+        asNumber(row.requests),
+        asNumber(row.cost_micro),
+        asNumber(row.low_micro),
+        asNumber(row.high_micro),
+        {
+          input: asNumber(row.input_tokens),
+          output: asNumber(row.output_tokens),
+          cacheRead: asNumber(row.cache_read_tokens),
+          cacheWrite: asNumber(row.cache_write_tokens),
+          reasoning: asNumber(row.reasoning_tokens),
+        },
+      )
     }
 
     const rollupWhere = buildWhere(query, "date")
@@ -473,22 +591,38 @@ export class UsageRepository {
       .prepare(
         `SELECT ${key.rollups} AS ${keyAlias}, SUM(request_count) AS requests,
           SUM(cost_microusd) AS cost_micro,
+          SUM(cost_low_microusd) AS low_micro,
+          SUM(cost_high_microusd) AS high_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
         FROM usage_daily_rollups${rollupWhere.clause} GROUP BY ${keyAlias}`,
       )
       .all(...rollupWhere.params)) {
-      merge(asString(row[keyAlias]), asNumber(row.requests), asNumber(row.cost_micro), {
-        input: asNumber(row.input_tokens),
-        output: asNumber(row.output_tokens),
-        cacheRead: asNumber(row.cache_read_tokens),
-        cacheWrite: asNumber(row.cache_write_tokens),
-        reasoning: asNumber(row.reasoning_tokens),
-      })
+      merge(
+        asString(row[keyAlias]),
+        asNumber(row.requests),
+        asNumber(row.cost_micro),
+        asNumber(row.low_micro),
+        asNumber(row.high_micro),
+        {
+          input: asNumber(row.input_tokens),
+          output: asNumber(row.output_tokens),
+          cacheRead: asNumber(row.cache_read_tokens),
+          cacheWrite: asNumber(row.cache_write_tokens),
+          reasoning: asNumber(row.reasoning_tokens),
+        },
+      )
     }
 
-    return [...buckets.values()].sort((a, b) => b.costUsd - a.costUsd)
+    return [...buckets.values()]
+      .map(({ costMicro, lowMicro, highMicro, ...bucket }) => ({
+        ...bucket,
+        costUsd: fromMicroUsd(costMicro),
+        costLowUsd: fromMicroUsd(lowMicro),
+        costHighUsd: fromMicroUsd(highMicro),
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd)
   }
 
   /**
@@ -651,12 +785,193 @@ export class UsageRepository {
     )
   }
 
+  /** Aggregate retained Agent activity by session or trace, including daily rollups. */
+  traces(query: UsageQuery = {}, groupBy: UsageTraceGroupBy = "trace"): UsageTraceGroup[] {
+    const aggregates = new Map<string, TraceAggregate>()
+    const merge = (row: Record<string, unknown>, archived: boolean): void => {
+      const groupId = asString(row.group_id)
+      if (!groupId) return
+      const current = aggregates.get(groupId) ?? {
+        groupBy,
+        groupId,
+        sessionId: undefined,
+        requests: 0,
+        successes: 0,
+        costLowMicro: 0,
+        costHighMicro: 0,
+        tokens: EMPTY_TOKENS(),
+        startedAt: Number.POSITIVE_INFINITY,
+        endedAt: 0,
+        latencySum: 0,
+        latencyCount: 0,
+        firstTokenSum: 0,
+        firstTokenCount: 0,
+        archivedRequests: 0,
+      }
+      const requests = asNumber(row.requests)
+      current.requests += requests
+      current.successes += asNumber(row.successes)
+      current.costLowMicro += asNumber(row.low_micro)
+      current.costHighMicro += asNumber(row.high_micro)
+      current.tokens.input += asNumber(row.input_tokens)
+      current.tokens.output += asNumber(row.output_tokens)
+      current.tokens.cacheRead += asNumber(row.cache_read_tokens)
+      current.tokens.cacheWrite += asNumber(row.cache_write_tokens)
+      current.tokens.reasoning += asNumber(row.reasoning_tokens)
+      current.startedAt = Math.min(current.startedAt, asNumber(row.started_at))
+      current.endedAt = Math.max(current.endedAt, asNumber(row.ended_at))
+      current.latencySum += asNumber(row.latency_sum)
+      current.latencyCount += asNumber(row.latency_count)
+      current.firstTokenSum += asNumber(row.first_token_sum)
+      current.firstTokenCount += asNumber(row.first_token_count)
+      if (archived) current.archivedRequests += requests
+      const sessionId = row.session_id ? asString(row.session_id) : undefined
+      if (sessionId) current.sessionId = sessionId
+      aggregates.set(groupId, current)
+    }
+
+    const dimensionColumn = groupBy === "session" ? "session_id" : "trace_id"
+    const eventWhere = buildWhere(query, "ts")
+    const eventClause = eventWhere.clause
+      ? `${eventWhere.clause} AND ${dimensionColumn} IS NOT NULL`
+      : ` WHERE ${dimensionColumn} IS NOT NULL`
+    for (const row of this.driver
+      .prepare(
+        `SELECT ${dimensionColumn} AS group_id, MAX(session_id) AS session_id, MAX(trace_id) AS trace_id,
+          COUNT(*) AS requests, SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS successes,
+          SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+          SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
+          SUM(reasoning_tokens) AS reasoning_tokens,
+          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
+          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
+          MIN(ts) AS started_at, MAX(ts) AS ended_at,
+          SUM(COALESCE(latency_ms, 0)) AS latency_sum,
+          SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END) AS latency_count,
+          SUM(COALESCE(first_token_ms, 0)) AS first_token_sum,
+          SUM(CASE WHEN first_token_ms IS NULL THEN 0 ELSE 1 END) AS first_token_count
+        FROM usage_events${eventClause} GROUP BY ${dimensionColumn}`,
+      )
+      .all(...eventWhere.params)) {
+      merge(row, false)
+    }
+
+    const rollupParts = ["dimension = ?"]
+    const rollupParams: SqlValue[] = [groupBy]
+    if (query.from !== undefined) {
+      rollupParts.push("date >= ?")
+      rollupParams.push(localDateKey(query.from))
+    }
+    if (query.to !== undefined) {
+      rollupParts.push("date <= ?")
+      rollupParams.push(localDateKey(query.to - 1))
+    }
+    if (query.appId) {
+      rollupParts.push("app_id = ?")
+      rollupParams.push(query.appId)
+    }
+    if (query.providerId) {
+      rollupParts.push("provider_id = ?")
+      rollupParams.push(query.providerId)
+    }
+    if (query.model) {
+      rollupParts.push("model = ?")
+      rollupParams.push(query.model)
+    }
+    if (query.status) {
+      rollupParts.push("status = ?")
+      rollupParams.push(query.status)
+    }
+    if (query.sessionId) {
+      rollupParts.push("session_id = ?")
+      rollupParams.push(query.sessionId)
+    }
+    if (query.traceId) {
+      rollupParts.push("trace_id = ?")
+      rollupParams.push(query.traceId)
+    }
+    for (const row of this.driver
+      .prepare(
+        `SELECT group_id, MAX(NULLIF(session_id, '')) AS session_id, MAX(NULLIF(trace_id, '')) AS trace_id,
+          SUM(request_count) AS requests, SUM(success_count) AS successes,
+          SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+          SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
+          SUM(reasoning_tokens) AS reasoning_tokens,
+          SUM(cost_low_microusd) AS low_micro, SUM(cost_high_microusd) AS high_micro,
+          MIN(started_at) AS started_at, MAX(ended_at) AS ended_at,
+          SUM(latency_sum_ms) AS latency_sum, SUM(latency_count) AS latency_count,
+          SUM(first_token_sum_ms) AS first_token_sum, SUM(first_token_count) AS first_token_count
+        FROM usage_trace_rollups WHERE ${rollupParts.join(" AND ")} GROUP BY group_id`,
+      )
+      .all(...rollupParams)) {
+      merge(row, true)
+    }
+
+    const offset = Math.max(query.offset ?? 0, 0)
+    const limit = Math.min(Math.max(query.limit ?? 100, 1), 500)
+    return [...aggregates.values()]
+      .sort((a, b) => b.endedAt - a.endedAt || b.costLowMicro - a.costLowMicro || a.groupId.localeCompare(b.groupId))
+      .slice(offset, offset + limit)
+      .map((aggregate) => {
+        const {
+          groupBy: dimension,
+          groupId,
+          sessionId,
+          requests,
+          successes,
+          costLowMicro,
+          costHighMicro,
+          tokens,
+          startedAt,
+          endedAt,
+          latencySum,
+          latencyCount,
+          firstTokenSum,
+          firstTokenCount,
+          archivedRequests,
+        } = aggregate
+        return {
+          id: `${dimension}:${groupId}`,
+          groupBy: dimension,
+          ...(dimension === "session" ? { sessionId: groupId } : { traceId: groupId }),
+          ...(dimension === "trace" && sessionId ? { sessionId } : {}),
+          requests,
+          successes,
+          failures: requests - successes,
+          costLowUsd: fromMicroUsd(costLowMicro),
+          costHighUsd: fromMicroUsd(costHighMicro),
+          startedAt: Number.isFinite(startedAt) ? startedAt : 0,
+          endedAt,
+          durationMs: Number.isFinite(startedAt) ? Math.max(0, endedAt - startedAt) : 0,
+          ...(latencyCount > 0 ? { avgLatencyMs: latencySum / latencyCount } : {}),
+          ...(firstTokenCount > 0 ? { avgFirstTokenMs: firstTokenSum / firstTokenCount } : {}),
+          tokens,
+          archivedRequests,
+        }
+      })
+  }
+
   trends(query: UsageQuery = {}, bucket: "day" | "hour" = "day"): UsageTrendPoint[] {
-    const points = new Map<string, UsageTrendPoint>()
-    const merge = (key: string, requests: number, costMicro: number, tokens: TokenUsage) => {
-      const existing = points.get(key) ?? { date: key, requests: 0, costUsd: 0, tokens: EMPTY_TOKENS() }
+    const points = new Map<string, TrendAggregate>()
+    const merge = (
+      key: string,
+      requests: number,
+      costMicro: number,
+      lowMicro: number,
+      highMicro: number,
+      tokens: TokenUsage,
+    ) => {
+      const existing = points.get(key) ?? {
+        date: key,
+        requests: 0,
+        costMicro: 0,
+        lowMicro: 0,
+        highMicro: 0,
+        tokens: EMPTY_TOKENS(),
+      }
       existing.requests += requests
-      existing.costUsd = fromMicroUsd(toMicroUsd(existing.costUsd) + costMicro)
+      existing.costMicro += costMicro
+      existing.lowMicro += lowMicro
+      existing.highMicro += highMicro
       existing.tokens.input += tokens.input
       existing.tokens.output += tokens.output
       existing.tokens.cacheRead += tokens.cacheRead
@@ -670,6 +985,8 @@ export class UsageRepository {
       .prepare(
         `SELECT ts, COUNT(*) AS requests,
           SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
+          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
+          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
@@ -677,35 +994,57 @@ export class UsageRepository {
       )
       .all(...eventWhere.params)) {
       const ts = asNumber(row.ts)
-      merge(bucket === "day" ? localDateKey(ts) : localHourKey(ts), asNumber(row.requests), asNumber(row.cost_micro), {
-        input: asNumber(row.input_tokens),
-        output: asNumber(row.output_tokens),
-        cacheRead: asNumber(row.cache_read_tokens),
-        cacheWrite: asNumber(row.cache_write_tokens),
-        reasoning: asNumber(row.reasoning_tokens),
-      })
+      merge(
+        bucket === "day" ? localDateKey(ts) : localHourKey(ts),
+        asNumber(row.requests),
+        asNumber(row.cost_micro),
+        asNumber(row.low_micro),
+        asNumber(row.high_micro),
+        {
+          input: asNumber(row.input_tokens),
+          output: asNumber(row.output_tokens),
+          cacheRead: asNumber(row.cache_read_tokens),
+          cacheWrite: asNumber(row.cache_write_tokens),
+          reasoning: asNumber(row.reasoning_tokens),
+        },
+      )
     }
 
     const rollupWhere = buildWhere(query, "date")
     for (const row of this.driver
       .prepare(
         `SELECT date, SUM(request_count) AS requests, SUM(cost_microusd) AS cost_micro,
+          SUM(cost_low_microusd) AS low_micro, SUM(cost_high_microusd) AS high_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
         FROM usage_daily_rollups${rollupWhere.clause} GROUP BY date`,
       )
       .all(...rollupWhere.params)) {
-      merge(asString(row.date), asNumber(row.requests), asNumber(row.cost_micro), {
-        input: asNumber(row.input_tokens),
-        output: asNumber(row.output_tokens),
-        cacheRead: asNumber(row.cache_read_tokens),
-        cacheWrite: asNumber(row.cache_write_tokens),
-        reasoning: asNumber(row.reasoning_tokens),
-      })
+      merge(
+        asString(row.date),
+        asNumber(row.requests),
+        asNumber(row.cost_micro),
+        asNumber(row.low_micro),
+        asNumber(row.high_micro),
+        {
+          input: asNumber(row.input_tokens),
+          output: asNumber(row.output_tokens),
+          cacheRead: asNumber(row.cache_read_tokens),
+          cacheWrite: asNumber(row.cache_write_tokens),
+          reasoning: asNumber(row.reasoning_tokens),
+        },
+      )
     }
 
-    return [...points.values()].sort((a, b) => a.date.localeCompare(b.date))
+    return [...points.values()]
+      .map(({ costMicro, lowMicro, highMicro, ...point }) => ({
+        ...point,
+        costUsd: fromMicroUsd(costMicro),
+        costLowUsd: fromMicroUsd(lowMicro),
+        costHighUsd: fromMicroUsd(highMicro),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date))
   }
 
   query(filter: UsageQuery = {}): { total: number; events: UsageEvent[] } {
@@ -770,6 +1109,11 @@ export class UsageRepository {
             first_token_count = first_token_count + excluded.first_token_count`,
         )
         .run(cutoff)
+      // Preserve the session and trace dimensions before detail rows are pruned.
+      // Each dimension has its own row so querying either view never reuses the
+      // other view's aggregate or double-counts general usage totals.
+      this.driver.prepare(traceRollupSql("session")).run(cutoff)
+      this.driver.prepare(traceRollupSql("trace")).run(cutoff)
       /**
        * EVO-G75: the tag dimension folded in the **same transaction**, before
        * the detail rows below are deleted. `usage_daily_rollups` cannot carry
@@ -817,9 +1161,9 @@ export class UsageRepository {
     const deleted = this.rollup(cutoff)
     if (retentionDays > 0) {
       const pruneBefore = startOfLocalDay(now - retentionDays * 86_400_000)
-      this.driver
-        .prepare("DELETE FROM usage_daily_rollups WHERE date < ?")
-        .run(localDateKey(pruneBefore))
+      const date = localDateKey(pruneBefore)
+      this.driver.prepare("DELETE FROM usage_daily_rollups WHERE date < ?").run(date)
+      this.driver.prepare("DELETE FROM usage_trace_rollups WHERE date < ?").run(date)
     }
     return deleted
   }
@@ -830,6 +1174,8 @@ export class UsageRepository {
       : this.driver.prepare("DELETE FROM usage_events").run()
     if (appId) this.driver.prepare("DELETE FROM usage_daily_rollups WHERE app_id = ?").run(appId)
     else this.driver.prepare("DELETE FROM usage_daily_rollups").run()
+    if (appId) this.driver.prepare("DELETE FROM usage_trace_rollups WHERE app_id = ?").run(appId)
+    else this.driver.prepare("DELETE FROM usage_trace_rollups").run()
     return Number(result.changes)
   }
 }

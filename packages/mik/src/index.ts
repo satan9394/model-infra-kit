@@ -9,6 +9,22 @@
  * ```
  */
 export { ModelInfra, type ModelCatalog, type ModelInfraOptions, type ResolvedModelRef } from "./hub.js"
+export {
+  MODEL_CATALOG_SOURCE,
+  MODEL_METADATA,
+  PROVIDER_MODEL_BINDINGS,
+  ModelCatalogService,
+  modelCatalog,
+  type BindingFilter,
+  type CatalogProviderLookup,
+  type CatalogCapability,
+  type CatalogModelCapabilities,
+  type ModelCatalogServiceOptions,
+  type ModelFilter,
+  type ModelMetadata,
+  type ProviderModelBinding,
+  type ProviderModelBindingStatus,
+} from "./catalog/index.js"
 export { createMikFetch, readOpenAiUsage, type FetchTarget, type ForwardedCall, type MikFetchOptions } from "./fetch.js"
 // EVO-G73: `ForwardedCall.providerCost` / `readOpenAiUsage().cost` are public, so
 // the type they are written in has to be nameable by a host. Type-only export:
@@ -40,9 +56,15 @@ export {
   type PricingDeps,
   type PricingServiceDeps,
   type PricingState,
+  type PricingSyncOptions,
+  type PricingSyncResult,
+  type ModelPricingTier,
+  type ModelPricingTierRates,
+  type ModelPricingTierSource,
 } from "./pricing/index.js"
 
 export { UsageService, type UsageServiceDeps } from "./usage/index.js"
+export { KeyPool, normalizeRefs, type KeyPoolSelection } from "./router/key-pool.js"
 
 export {
   MODEL_LIST_PROTOCOLS,
@@ -85,5 +107,7 @@ export type {
   UsagePage,
   UsageQuery,
   UsageSummary,
+  UsageTraceGroup,
+  UsageTraceGroupBy,
   UsageTrendPoint,
 } from "./types.js"

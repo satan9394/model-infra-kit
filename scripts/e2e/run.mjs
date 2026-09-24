@@ -147,7 +147,8 @@ async function isPortFree(port) {
   return new Promise((resolvePromise) => {
     const server = createNetServer()
     server.once("error", () => resolvePromise(false))
-    server.listen(port, "127.0.0.1", () => server.close(() => resolvePromise(true)))
+    // Match Next and mik serve wildcard listeners on Windows.
+    server.listen(port, () => server.close(() => resolvePromise(true)))
   })
 }
 
@@ -155,7 +156,9 @@ async function ephemeralPort() {
   return new Promise((resolvePromise, reject) => {
     const server = createNetServer()
     server.once("error", reject)
-    server.listen(0, "127.0.0.1", () => {
+    // Use the same wildcard binding as Next and mik serve. An IPv4-only probe
+    // can miss an existing IPv6 wildcard listener on Windows.
+    server.listen(0, () => {
       const address = server.address()
       const port = typeof address === "object" && address ? address.port : 0
       server.close(() => resolvePromise(port))
@@ -164,9 +167,8 @@ async function ephemeralPort() {
 }
 
 async function pickPort(preferred) {
-  if (await isPortFree(preferred)) return { port: preferred, note: `${preferred} (the project convention, verified free)` }
   const port = await ephemeralPort()
-  return { port, note: `${port} (convention port ${preferred} was busy, so an ephemeral port was used)` }
+  return { port, note: `${port} (OS-assigned ephemeral port; preferred ${preferred} left untouched)` }
 }
 
 async function getJson(url, timeoutMs = 5000) {
@@ -250,14 +252,25 @@ function newestMtime(directory) {
 /** `next start` needs a build; rebuild only when it is missing or stale. */
 async function ensureDashboardBuild() {
   const buildId = join(DASHBOARD_DIR, ".next", "BUILD_ID")
+  const appPathsPath = join(DASHBOARD_DIR, ".next", "server", "app-paths-manifest.json")
+  const requiredRoutes = ["/(main)/page", "/(main)/trends/page", "/(main)/logs/page", "/(main)/pricing/page"]
+  let routesReady = false
+  try {
+    const appPaths = JSON.parse(readFileSync(appPathsPath, "utf8"))
+    routesReady = requiredRoutes.every((route) => typeof appPaths[route] === "string")
+  } catch {
+    // Missing or partially-written route manifests must trigger a clean build.
+  }
   if (existsSync(buildId)) {
     try {
-      if (statSync(buildId).mtimeMs >= newestMtime(DASHBOARD_DIR)) return "reused .next (newer than every source file)"
+      if (routesReady && statSync(buildId).mtimeMs >= newestMtime(DASHBOARD_DIR)) return "reused .next (routes present and newer than every source file)"
     } catch {}
   }
   const build = await runPnpm(["--filter", "@mik/dashboard", "build"])
   assert(build.code === 0, `pnpm --filter @mik/dashboard build exited ${build.code}\n${build.stdout.slice(-2000)}\n${build.stderr.slice(-2000)}`)
   assert(existsSync(buildId), "the dashboard build finished without writing .next/BUILD_ID")
+  const appPaths = JSON.parse(readFileSync(appPathsPath, "utf8"))
+  assert(requiredRoutes.every((route) => typeof appPaths[route] === "string"), "the dashboard build finished without all required app routes")
   return "built .next (it was missing or older than the sources)"
 }
 
@@ -932,12 +945,13 @@ async function main() {
         // the point estimate (`trends.tsx:63` / `:104`, registered, not fixed
         // here), so a page-wide `includes` could be satisfied by a string this
         // card does not own. `testIdText` reads the one cell this assert is about.
-        const trendsHtml = plainText((await getHtml(`http://127.0.0.1:${dashPort}/trends`)).body)
+        const trendsResponse = await getHtml(`http://127.0.0.1:${dashPort}/trends`)
+        const trendsHtml = plainText(trendsResponse.body)
         const trendsCell = testIdText(trendsHtml, "trends-cost-span")
         trendsLiveCell = trendsCell
         assert(
           trendsCell !== null,
-          'the trends money cell has no `data-testid="trends-cost-span"` anchor — the DASH check cannot tell which cell it is reading',
+          `the trends money cell has no \`data-testid="trends-cost-span"\` anchor — HTTP ${trendsResponse.status}; response tail: ${trendsHtml.slice(-600)}`,
         )
         assert(
           trendsCell === expected.cost,

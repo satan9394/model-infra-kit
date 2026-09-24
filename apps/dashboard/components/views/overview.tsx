@@ -179,7 +179,9 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                     </Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(bucket.requests)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
-                    <Td className="text-right font-mono tabular-nums">{formatUsd(bucket.costUsd)}</Td>
+                    <Td className="text-right font-mono tabular-nums">
+                      {formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
+                    </Td>
                   </tr>
                 ))}
               </tbody>
@@ -212,7 +214,9 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                     </Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(bucket.requests)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
-                    <Td className="text-right font-mono tabular-nums">{formatUsd(bucket.costUsd)}</Td>
+                    <Td className="text-right font-mono tabular-nums">
+                      {formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
+                    </Td>
                   </tr>
                 ))}
               </tbody>

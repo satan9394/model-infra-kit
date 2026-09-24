@@ -10,12 +10,14 @@ import type {
   BucketsPayload,
   HealthPayload,
   LogsPayload,
+  ModelCatalogPayload,
   ModelInfo,
   ModelPayload,
   ModelsPayload,
   PricingPayload,
   ProvidersPayload,
   SummaryPayload,
+  TracesPayload,
   TrendsPayload,
 } from "./types"
 
@@ -63,6 +65,10 @@ export function loadLogs(query: string): Promise<MikResult<LogsPayload>> {
   return mikTry<LogsPayload>(`/api/usage/logs?${query}`)
 }
 
+export function loadTraces(query: string, groupBy: "trace" | "session"): Promise<MikResult<TracesPayload>> {
+  return mikTry<TracesPayload>(`/api/usage/traces?${query}&groupBy=${groupBy}`)
+}
+
 export function loadPricing(): Promise<MikResult<PricingPayload>> {
   return mikTry<PricingPayload>("/api/pricing")
 }
@@ -73,6 +79,10 @@ export function loadProviders(): Promise<MikResult<ProvidersPayload>> {
 
 export function loadModels(providerId?: string): Promise<MikResult<ModelsPayload>> {
   return mikTry<ModelsPayload>(providerId ? `/api/models?provider=${encodeURIComponent(providerId)}` : "/api/models")
+}
+
+export function loadModelCatalog(): Promise<MikResult<ModelCatalogPayload>> {
+  return mikTry<ModelCatalogPayload>("/api/catalog")
 }
 
 /**

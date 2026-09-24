@@ -1,5 +1,5 @@
 import type { PricingOverride } from "../../store/pricing-repository.js"
-import { flagNumber, flagString, type ParsedCli } from "../args.js"
+import { flagBool, flagNumber, flagString, type ParsedCli } from "../args.js"
 import { contextLang, invocationLang, requireArg, withContext, type RunOptions } from "../context.js"
 import { CliRuntimeError, CliUsageError } from "../errors.js"
 import { formatMoney, formatTable, formatTimestamp } from "../format.js"
@@ -69,8 +69,11 @@ async function runSync(parsed: ParsedCli, options: RunOptions): Promise<number> 
     if (context.offline) {
       throw new CliRuntimeError(tr(lang, "pricing.sync.offline"))
     }
-    const state = await context.hub.pricing.refresh()
+    const dryRun = flagBool(parsed.values, "dryRun")
+    const state = await context.hub.pricing.sync({ force: true, dryRun })
     context.io.out(renderState(state, lang))
+    context.io.out(tr(lang, "pricing.sync.result", state.syncedModels, state.updatedModels))
+    if (dryRun) context.io.out(tr(lang, "pricing.sync.dryRun"))
     if (state.status === "error") {
       context.io.err(tr(lang, "pricing.sync.failed"))
       return 1

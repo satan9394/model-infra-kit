@@ -14,7 +14,7 @@ import { tr, type Lang } from "./i18n.js"
 import { renderActionHelp, renderCommandHelp, renderRootHelp, renderVersion } from "./help.js"
 import { runDashboard } from "./commands/dashboard.js"
 import { runInit } from "./commands/init.js"
-import { runModels } from "./commands/models.js"
+import { runModelCatalog, runModels } from "./commands/models.js"
 import { runPricing } from "./commands/pricing.js"
 import { runProvider } from "./commands/provider.js"
 import { runServe } from "./commands/serve.js"
@@ -54,6 +54,7 @@ export async function dispatch(parsed: ParsedCli, options: RunOptions): Promise<
     case "provider":
       return runProvider(parsed, options)
     case "models":
+      if (parsed.action?.name === "catalog") return runModelCatalog(parsed, options)
       return runModels(parsed, options)
     case "pricing":
       return runPricing(parsed, options)
