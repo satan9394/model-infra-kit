@@ -23,7 +23,7 @@ export default async function PricingView({ embedded }: ViewProps = {}) {
       />
       {/* EVO-G09 A1: neutral guide first, error banner only after a failed retry. */}
       <UpstreamNotice message={errors[0]} />
-      {!embedded ? null : <p className="mb-4 text-xs text-slate-500">嵌入视图 · 价格与同步状态</p>}
+      {!embedded ? null : <p className="mb-4 text-xs text-subtle">嵌入视图 · 价格与同步状态</p>}
       <PricingClient
         state={pricing.ok ? pricing.data.state : null}
         overrides={pricing.ok ? pricing.data.overrides : []}

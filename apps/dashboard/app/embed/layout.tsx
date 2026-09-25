@@ -8,7 +8,7 @@ export default function EmbedLayout({ children }: { children: ReactNode }) {
   return (
     <main className="mx-auto w-full max-w-5xl px-4 pb-8 pt-4">
       {children}
-      <p className="mt-8 border-t border-slate-800/80 pt-3 text-right text-[11px] text-slate-600">
+      <p className="mt-8 border-t border-border pt-3 text-right text-[11px] text-subtle/85">
         由 model-infra-kit 看板提供 · <a className="underline" href="/">完整版</a>
       </p>
     </main>

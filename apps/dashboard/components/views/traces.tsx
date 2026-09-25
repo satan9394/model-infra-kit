@@ -71,23 +71,23 @@ export default async function TracesView({ params }: { params: SearchParams }) {
       <UpstreamNotice message={errors[0]} />
       <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-[#0d1424] p-3 text-sm">
-        <span className="mr-1 text-xs text-slate-500">聚合维度</span>
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
+        <span className="mr-1 text-xs text-subtle">聚合维度</span>
         <Link
           href={linkFor(params, range, "trace")}
           aria-current={groupBy === "trace" ? "page" : undefined}
-          className={groupBy === "trace" ? "rounded-md bg-slate-700 px-3 py-1.5 text-slate-100" : "rounded-md px-3 py-1.5 text-slate-400 hover:bg-slate-800"}
+          className={groupBy === "trace" ? "rounded-md bg-surface-active px-3 py-1.5 text-foreground" : "rounded-md px-3 py-1.5 text-muted-foreground hover:bg-surface-muted"}
         >
           Trace
         </Link>
         <Link
           href={linkFor(params, range, "session")}
           aria-current={groupBy === "session" ? "page" : undefined}
-          className={groupBy === "session" ? "rounded-md bg-slate-700 px-3 py-1.5 text-slate-100" : "rounded-md px-3 py-1.5 text-slate-400 hover:bg-slate-800"}
+          className={groupBy === "session" ? "rounded-md bg-surface-active px-3 py-1.5 text-foreground" : "rounded-md px-3 py-1.5 text-muted-foreground hover:bg-surface-muted"}
         >
           Session
         </Link>
-        <span className="ml-auto text-xs text-slate-500">{range.label} · 成本按整数微美元累计</span>
+        <span className="ml-auto text-xs text-subtle">{range.label} · 成本按整数微美元累计</span>
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -103,7 +103,7 @@ export default async function TracesView({ params }: { params: SearchParams }) {
               <EmptyState title="还没有 Agent 链路" description="通过 ModelRequest.traceId / sessionId，或 HTTP 端点的 trace_id / user 字段归属调用。" />
             </div>
           ) : (
-            <div className="max-h-[680px] divide-y divide-slate-800/70 overflow-y-auto">
+            <div className="max-h-[680px] divide-y divide-border overflow-y-auto">
               {groups.map((group) => {
                 const id = groupBy === "trace" ? group.traceId : group.sessionId
                 if (!id) return null
@@ -114,19 +114,19 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                     key={group.id}
                     href={href}
                     aria-current={isActive ? "true" : undefined}
-                    className={isActive ? "block bg-sky-950/40 px-4 py-3" : "block px-4 py-3 hover:bg-slate-800/40"}
+                    className={isActive ? "block bg-info/10 px-4 py-3" : "block px-4 py-3 hover:bg-surface-muted"}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <span className="break-all font-mono text-xs text-slate-200">{id}</span>
-                      <span className="font-mono text-xs tabular-nums text-emerald-300">{formatUsdSpan(group.costLowUsd, group.costHighUsd)}</span>
+                      <span className="break-all font-mono text-xs text-foreground">{id}</span>
+                      <span className="font-mono text-xs tabular-nums text-positive">{formatUsdSpan(group.costLowUsd, group.costHighUsd)}</span>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-subtle">
                       <span>{formatInt(group.requests)} 次调用</span>
                       <span>{formatInt(group.tokens.reasoning)} Thinking Token</span>
                       <span>{formatMs(group.durationMs)}</span>
                       {group.archivedRequests > 0 ? <span>{formatInt(group.archivedRequests)} 条已归档</span> : null}
                     </div>
-                    <div className="mt-1 text-[10px] text-slate-600">{formatDateTime(group.startedAt)} → {formatDateTime(group.endedAt)}</div>
+                    <div className="mt-1 text-[10px] text-subtle/85">{formatDateTime(group.startedAt)} → {formatDateTime(group.endedAt)}</div>
                   </Link>
                 )
               })}
@@ -145,11 +145,11 @@ export default async function TracesView({ params }: { params: SearchParams }) {
             <div className="p-4"><EmptyState title="没有保留的请求明细" description={`${formatInt(active.archivedRequests)} 次调用仍计入上方聚合成本；每日归档后不再保留单次调用时间线。`} /></div>
           ) : (
             <div className="overflow-x-auto p-4">
-              <div className="mb-3 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500">
+              <div className="mb-3 flex flex-wrap justify-between gap-2 text-[11px] text-subtle">
                 <span>时间跨度 {formatMs(active.durationMs)} · 显示 {events.length} / {formatInt(active.requests)} 次调用</span>
                 {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} 次较早调用已归档</span> : null}
               </div>
-              <div className="mb-2 ml-[150px] h-px bg-slate-800" />
+              <div className="mb-2 ml-[150px] h-px bg-surface-muted" />
               <div className="min-w-[640px] space-y-2">
                 {events.map((event) => {
                   const start = events[0]?.ts ?? event.ts
@@ -158,18 +158,18 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                   const left = Math.max(0, Math.min(96, ((event.ts - start) / span) * 100))
                   const width = Math.max(3, Math.min(100 - left, ((event.latencyMs ?? 1) / span) * 100))
                   return (
-                    <div key={event.requestId} className="grid grid-cols-[140px_minmax(180px,1fr)_minmax(200px,0.9fr)] items-center gap-3 rounded-lg border border-slate-800/70 bg-slate-950/30 px-3 py-2">
+                    <div key={event.requestId} className="grid grid-cols-[140px_minmax(180px,1fr)_minmax(200px,0.9fr)] items-center gap-3 rounded-lg border border-border bg-surface-muted px-3 py-2">
                       <div className="min-w-0">
-                        <div className="truncate font-mono text-[11px] text-slate-300">{event.modelActual}</div>
-                        <div className="font-mono text-[10px] text-slate-600">{formatDateTime(event.ts)}</div>
+                        <div className="truncate font-mono text-[11px] text-foreground/80">{event.modelActual}</div>
+                        <div className="font-mono text-[10px] text-subtle/85">{formatDateTime(event.ts)}</div>
                       </div>
-                      <div className="relative h-5 rounded bg-slate-900" aria-label={`${event.modelActual} latency ${formatMs(event.latencyMs)}`}>
-                        <div className="absolute top-1 h-3 rounded bg-sky-500/80" style={{ left: `${left}%`, width: `${width}%` }} />
+                      <div className="relative h-5 rounded bg-surface" aria-label={`${event.modelActual} latency ${formatMs(event.latencyMs)}`}>
+                        <div className="absolute top-1 h-3 rounded bg-info/80" style={{ left: `${left}%`, width: `${width}%` }} />
                       </div>
-                      <div className="flex flex-wrap justify-between gap-x-3 text-[10px] text-slate-500">
+                      <div className="flex flex-wrap justify-between gap-x-3 text-[10px] text-subtle">
                         <span>{formatMs(event.latencyMs)}</span>
                         <span>{formatInt(event.usage.reasoning)} reasoning</span>
-                        <span className="font-mono text-slate-300">{formatUsdSpan(event.cost.low, event.cost.high)}</span>
+                        <span className="font-mono text-foreground/80">{formatUsdSpan(event.cost.low, event.cost.high)}</span>
                       </div>
                     </div>
                   )

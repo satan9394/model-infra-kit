@@ -44,9 +44,9 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
         title="概览"
         description={
           <span>
-            按日期区间看成本与用量 · 应用 <code className="text-slate-300">{shell.health?.appId ?? "—"}</code> ·
-            供应商 <code className="text-slate-300">{shell.health?.providers ?? "—"}</code> ·
-            模型 <code className="text-slate-300">{shell.health?.models ?? "—"}</code>
+            按日期区间看成本与用量 · 应用 <code className="text-foreground/80">{shell.health?.appId ?? "—"}</code> ·
+            供应商 <code className="text-foreground/80">{shell.health?.providers ?? "—"}</code> ·
+            模型 <code className="text-foreground/80">{shell.health?.models ?? "—"}</code>
           </span>
         }
         actions={<LiveRefresh topics={["usage.recorded", "catalog.updated", "pricing.updated"]} ticker />}
@@ -59,7 +59,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
-        <p className="mb-4 text-xs text-slate-500">
+        <p className="mb-4 text-xs text-subtle">
           嵌入视图 · 区间 {range.label}
           {filters.provider || filters.model ? ` · 已套用筛选` : ""}
         </p>
@@ -143,7 +143,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           actions={
             <Link
               href={`/trends${rangeQueryString(range)}`}
-              className="text-xs text-sky-400 hover:text-sky-300"
+              className="text-xs text-primary hover:text-info"
             >
               看 token 明细 →
             </Link>
@@ -173,7 +173,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                 {providerBuckets.map((bucket) => (
                   <tr key={bucket.key}>
                     <Td>
-                      <Link href={`?provider=${encodeURIComponent(bucket.key)}`} className="text-slate-200 hover:text-sky-300">
+                      <Link href={`?provider=${encodeURIComponent(bucket.key)}`} className="text-foreground hover:text-info">
                         {bucket.key || "（未标注）"}
                       </Link>
                     </Td>
@@ -208,7 +208,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                 {modelBuckets.map((bucket) => (
                   <tr key={bucket.key}>
                     <Td>
-                      <Link href={`?model=${encodeURIComponent(bucket.key)}`} className="text-slate-200 hover:text-sky-300">
+                      <Link href={`?model=${encodeURIComponent(bucket.key)}`} className="text-foreground hover:text-info">
                         {bucket.key || "（未标注）"}
                       </Link>
                     </Td>
@@ -226,13 +226,13 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       </div>
 
       {shell.health ? (
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-subtle">
           <Badge tone={shell.health.pricing.status === "fresh" ? "ok" : "warn"}>
             pricing {shell.health.pricing.status}
           </Badge>
           <span>
             uptime {Math.round(shell.health.uptimeMs / 1000)}s · OpenAI 兼容入口{" "}
-            <code className="text-slate-400">{shell.health.baseUrl}</code>
+            <code className="text-muted-foreground">{shell.health.baseUrl}</code>
           </span>
         </div>
       ) : null}

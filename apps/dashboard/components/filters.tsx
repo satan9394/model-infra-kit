@@ -13,7 +13,7 @@ export function RangePicker({ range, params }: { range: ResolvedRange; params: S
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex overflow-hidden rounded-md border border-slate-800">
+      <div className="flex overflow-hidden rounded-md border border-border">
         {RANGE_PRESETS.filter((preset) => preset.value !== "custom").map((preset) => (
           <button
             key={preset.value}
@@ -21,8 +21,8 @@ export function RangePicker({ range, params }: { range: ResolvedRange; params: S
             onClick={() => router.push(withRange(params, { range: preset.value as RangePreset }))}
             className={
               range.preset === preset.value
-                ? "bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-100"
-                : "px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                ? "bg-surface-active px-3 py-1.5 text-xs font-medium text-foreground"
+                : "px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
             }
           >
             {preset.label}
@@ -40,23 +40,23 @@ export function RangePicker({ range, params }: { range: ResolvedRange; params: S
           type="date"
           value={from}
           onChange={(event: ChangeEvent<HTMLInputElement>) => setFrom(event.target.value)}
-          className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-600"
+          className="rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
         />
-        <span className="text-xs text-slate-600">~</span>
+        <span className="text-xs text-subtle/85">~</span>
         <input
           type="date"
           value={to}
           onChange={(event: ChangeEvent<HTMLInputElement>) => setTo(event.target.value)}
-          className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-600"
+          className="rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
         />
         <button
           type="submit"
-          className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 transition-colors hover:bg-slate-700"
+          className="rounded-md border border-border-strong bg-surface-muted px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           应用
         </button>
       </form>
-      <span className="text-xs text-slate-500">当前：{range.label}</span>
+      <span className="text-xs text-subtle">当前：{range.label}</span>
     </div>
   )
 }
@@ -100,7 +100,7 @@ export function FilterBar({
     : models.filter((model) => providerIds.size === 0 || providerIds.has(model.providerId))
 
   const selectClass =
-    "rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-600"
+    "rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -131,7 +131,7 @@ export function FilterBar({
         <button
           type="button"
           onClick={() => push({ provider: "", model: "", status: "" })}
-          className="rounded-md border border-slate-800 px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+          className="rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground hover:bg-surface-muted hover:text-foreground"
         >
           清除过滤
         </button>

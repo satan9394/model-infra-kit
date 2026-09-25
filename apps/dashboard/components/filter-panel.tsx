@@ -20,7 +20,7 @@ export function FilterPanel({
   extra?: ReactNode
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-[#0d1424] px-4 py-3">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
       <RangePicker range={range} params={params} />
       <div className="flex flex-wrap items-center gap-3">
         <FilterBar providers={providers} models={models} params={params} status={status} />

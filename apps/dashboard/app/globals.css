@@ -1,33 +1,142 @@
 @import "tailwindcss";
 
-/* The dashboard is a single dark theme: the numbers are the product. */
+@theme {
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9;
+  --color-surface-control: #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-surface-active: #e2e8f0;
+  --color-foreground: #0f172a;
+  --color-muted-foreground: #475569;
+  --color-subtle: #64748b;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-primary: #2563eb;
+  --color-primary-soft: #eff6ff;
+  --color-positive: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #be123c;
+  --color-info: #0369a1;
+  --color-chart-grid: #e2e8f0;
+  --color-chart-axis: #64748b;
+  --color-chart-cost: #0284c7;
+  --color-chart-input: #0284c7;
+  --color-chart-output: #7c3aed;
+  --color-chart-cache-read: #15803d;
+  --color-chart-cache-write: #b45309;
+  --color-tooltip: #ffffff;
+  --color-shadow: rgb(15 23 42 / 0.1);
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
+  color-scheme: light;
+}
+
+:root.dark {
   color-scheme: dark;
-  --page: #070b16;
-  --panel: #0d1424;
-  --line: #1e293b;
+  --color-background: #090f1a;
+  --color-surface: #101827;
+  --color-surface-muted: #172235;
+  --color-surface-control: #0c1422;
+  --color-surface-hover: #1c2a40;
+  --color-surface-active: #24344d;
+  --color-foreground: #e7edf6;
+  --color-muted-foreground: #b0bdce;
+  --color-subtle: #8998ad;
+  --color-border: #26354a;
+  --color-border-strong: #3a4b63;
+  --color-primary: #8abaff;
+  --color-primary-soft: #172b46;
+  --color-positive: #86d6aa;
+  --color-warning: #f2c477;
+  --color-danger: #ff9aaa;
+  --color-info: #83c9f1;
+  --color-chart-grid: #29384c;
+  --color-chart-axis: #9baac0;
+  --color-chart-cost: #7dd3fc;
+  --color-chart-input: #7dd3fc;
+  --color-chart-output: #c4b5fd;
+  --color-chart-cache-read: #86efac;
+  --color-chart-cache-write: #fcd34d;
+  --color-tooltip: #111b2b;
+  --color-shadow: rgb(0 0 0 / 0.32);
 }
 
-html,
-body {
-  background-color: var(--page);
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"]:not(.dark) {
+    color-scheme: dark;
+    --color-background: #090f1a;
+    --color-surface: #101827;
+    --color-surface-muted: #172235;
+    --color-surface-control: #0c1422;
+    --color-surface-hover: #1c2a40;
+    --color-surface-active: #24344d;
+    --color-foreground: #e7edf6;
+    --color-muted-foreground: #b0bdce;
+    --color-subtle: #8998ad;
+    --color-border: #26354a;
+    --color-border-strong: #3a4b63;
+    --color-primary: #8abaff;
+    --color-primary-soft: #172b46;
+    --color-positive: #86d6aa;
+    --color-warning: #f2c477;
+    --color-danger: #ff9aaa;
+    --color-info: #83c9f1;
+    --color-chart-grid: #29384c;
+    --color-chart-axis: #9baac0;
+    --color-chart-cost: #7dd3fc;
+    --color-chart-input: #7dd3fc;
+    --color-chart-output: #c4b5fd;
+    --color-chart-cache-read: #86efac;
+    --color-chart-cache-write: #fcd34d;
+    --color-tooltip: #111b2b;
+    --color-shadow: rgb(0 0 0 / 0.32);
+  }
 }
 
-body {
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  :where(a, button, input, select, textarea):focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 72%, transparent);
+    outline-offset: 2px;
+  }
+
+  .dashboard-table tbody tr {
+    transition: background-color 120ms ease;
+  }
+
+  .dashboard-table tbody tr:hover {
+    background-color: var(--color-surface-muted);
+  }
 }
 
 ::selection {
-  background-color: #1d4ed8;
-  color: #f8fafc;
+  background-color: var(--color-primary);
+  color: var(--color-surface);
 }
 
-/* Recharts renders an SVG with a transparent background; keep it readable. */
 .recharts-cartesian-axis-tick text {
-  fill: #94a3b8;
+  fill: var(--color-chart-axis);
   font-size: 11px;
 }
 
 .recharts-default-tooltip {
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px var(--color-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-table tbody tr {
+    transition: none;
+  }
 }

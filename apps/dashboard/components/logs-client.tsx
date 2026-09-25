@@ -29,34 +29,34 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
   return (
     <div className="fixed inset-0 z-30 flex justify-end">
       <button type="button" aria-label="关闭" onClick={onClose} className="flex-1 bg-black/50" />
-      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-800 bg-[#0b1120] p-4 shadow-2xl">
+      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-border bg-surface p-4 shadow-2xl">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-medium text-slate-200">请求详情</h2>
-            <p className="mt-0.5 break-all font-mono text-xs text-slate-500">{requestId}</p>
+            <h2 className="text-sm font-medium text-foreground">请求详情</h2>
+            <p className="mt-0.5 break-all font-mono text-xs text-subtle">{requestId}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+            className="rounded border border-border-strong px-2 py-1 text-xs text-foreground/80 hover:bg-surface-muted"
           >
             关闭
           </button>
         </div>
 
-        {state.loading ? <p className="text-xs text-slate-500">加载中…</p> : null}
-        {state.error ? <p className="break-all font-mono text-xs text-rose-300">{state.error}</p> : null}
+        {state.loading ? <p className="text-xs text-subtle">加载中…</p> : null}
+        {state.error ? <p className="break-all font-mono text-xs text-danger">{state.error}</p> : null}
 
         {event ? (
           <div className="space-y-4">
             <section>
-              <h3 className="mb-1 text-xs font-medium text-slate-400">基本信息</h3>
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">基本信息</h3>
               <KeyValue label="时间">{formatDateTime(event.ts)}</KeyValue>
               <KeyValue label="appId">{event.appId}</KeyValue>
               <KeyValue label="来源 source">{event.source}</KeyValue>
               <KeyValue label="状态">
                 <Badge tone={event.status === "ok" ? "ok" : "bad"}>{event.status}</Badge>
-                {event.errorCode ? <span className="ml-2 text-rose-300">{event.errorCode}</span> : null}
+                {event.errorCode ? <span className="ml-2 text-danger">{event.errorCode}</span> : null}
               </KeyValue>
               <KeyValue label="流式">{event.isStreaming ? "是" : "否"}</KeyValue>
               <KeyValue label="供应商">{event.providerId}</KeyValue>
@@ -67,7 +67,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
             </section>
 
             <section>
-              <h3 className="mb-1 text-xs font-medium text-slate-400">token（四类）</h3>
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">token（四类）</h3>
               <KeyValue label="input">{formatInt(event.usage.input)}</KeyValue>
               <KeyValue label="output">{formatInt(event.usage.output)}</KeyValue>
               <KeyValue label="cache_read">{formatInt(event.usage.cacheRead)}</KeyValue>
@@ -77,7 +77,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
             </section>
 
             <section>
-              <h3 className="mb-1 text-xs font-medium text-slate-400">成本</h3>
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">成本</h3>
               <KeyValue label="usd">{formatUsd(event.cost.usd, 6)}</KeyValue>
               <KeyValue label="low / high">
                 {formatUsd(event.cost.low, 6)} / {formatUsd(event.cost.high, 6)}
@@ -88,14 +88,14 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
             </section>
 
             <section>
-              <h3 className="mb-1 text-xs font-medium text-slate-400">延迟</h3>
+              <h3 className="mb-1 text-xs font-medium text-muted-foreground">延迟</h3>
               <KeyValue label="latency">{formatMs(event.latencyMs)}</KeyValue>
               <KeyValue label="first token">{formatMs(event.firstTokenMs)}</KeyValue>
             </section>
 
             {event.tags && Object.keys(event.tags).length > 0 ? (
               <section>
-                <h3 className="mb-1 text-xs font-medium text-slate-400">tags</h3>
+                <h3 className="mb-1 text-xs font-medium text-muted-foreground">tags</h3>
                 {Object.entries(event.tags).map(([key, value]) => (
                   <KeyValue key={key} label={key}>
                     {value}
@@ -137,14 +137,14 @@ export function LogsClient({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
-          共 <span className="font-mono text-slate-200">{formatInt(total)}</span> 条 · 第 {page} / {pages} 页 · 每页
+          共 <span className="font-mono text-foreground">{formatInt(total)}</span> 条 · 第 {page} / {pages} 页 · 每页
           {PAGE_SIZES.map((size) => (
             <Link
               key={size}
               href={href(0, size)}
-              className={size === limit ? "ml-2 font-mono text-sky-300" : "ml-2 font-mono text-slate-500 hover:text-slate-300"}
+              className={size === limit ? "ml-2 font-mono text-info" : "ml-2 font-mono text-subtle hover:text-foreground/80"}
             >
               {size}
             </Link>
@@ -156,8 +156,8 @@ export function LogsClient({
             aria-disabled={offset <= 0}
             className={
               offset <= 0
-                ? "pointer-events-none rounded border border-slate-800 px-2 py-1 text-slate-600"
-                : "rounded border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800"
+                ? "pointer-events-none rounded border border-border px-2 py-1 text-subtle/85"
+                : "rounded border border-border-strong px-2 py-1 text-foreground/80 hover:bg-surface-muted"
             }
           >
             上一页
@@ -167,8 +167,8 @@ export function LogsClient({
             aria-disabled={offset + limit >= total}
             className={
               offset + limit >= total
-                ? "pointer-events-none rounded border border-slate-800 px-2 py-1 text-slate-600"
-                : "rounded border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800"
+                ? "pointer-events-none rounded border border-border px-2 py-1 text-subtle/85"
+                : "rounded border border-border-strong px-2 py-1 text-foreground/80 hover:bg-surface-muted"
             }
           >
             下一页
@@ -199,21 +199,21 @@ export function LogsClient({
               <tr
                 key={event.requestId}
                 onClick={() => setOpenId(event.requestId)}
-                className="cursor-pointer transition-colors hover:bg-slate-800/40"
+                className="cursor-pointer transition-colors hover:bg-surface-muted"
               >
                 <Td className="whitespace-nowrap font-mono text-xs">{formatDateTime(event.ts)}</Td>
                 <Td>
-                  <div className="font-mono text-xs text-slate-200">{event.modelActual || event.modelRequested}</div>
-                  <div className="text-[11px] text-slate-500">{event.providerId}</div>
+                  <div className="font-mono text-xs text-foreground">{event.modelActual || event.modelRequested}</div>
+                  <div className="text-[11px] text-subtle">{event.providerId}</div>
                 </Td>
                 <Td className="text-right font-mono tabular-nums text-xs">{formatInt(tokenTotal(event.usage))}</Td>
                 <Td className="text-right font-mono tabular-nums text-xs">{formatUsd(event.cost.usd)}</Td>
                 <Td className="text-right font-mono tabular-nums text-xs">{formatMs(event.latencyMs)}</Td>
                 <Td>
                   <Badge tone={event.status === "ok" ? "ok" : "bad"}>{event.status}</Badge>
-                  {event.errorCode ? <div className="mt-1 text-[11px] text-rose-400">{event.errorCode}</div> : null}
+                  {event.errorCode ? <div className="mt-1 text-[11px] text-danger">{event.errorCode}</div> : null}
                 </Td>
-                <Td className="max-w-[160px] truncate font-mono text-[11px] text-slate-500">{event.requestId}</Td>
+                <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle">{event.requestId}</Td>
               </tr>
             ))}
           </tbody>

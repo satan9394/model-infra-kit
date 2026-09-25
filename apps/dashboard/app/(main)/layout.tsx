@@ -9,8 +9,8 @@ export default function MainLayout({ children }: { children: ReactNode }) {
     <>
       <Nav />
       <main className="mx-auto w-full max-w-7xl px-5 pb-20 pt-6">{children}</main>
-      <footer className="mx-auto w-full max-w-7xl px-5 pb-8 text-xs text-slate-500">
-        数据源 <code className="text-slate-400">{serverUrl}</code>（MIK_SERVER_URL）· 看板不直连 SQLite
+      <footer className="mx-auto w-full max-w-7xl px-5 pb-8 text-xs text-subtle">
+        数据源 <code className="text-muted-foreground">{serverUrl}</code>（MIK_SERVER_URL）· 看板不直连 SQLite
       </footer>
     </>
   )

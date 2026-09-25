@@ -17,8 +17,8 @@ export function PageHeader({
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-100">{title}</h1>
-        {description ? <p className="mt-1 text-sm text-slate-400">{description}</p> : null}
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -41,12 +41,12 @@ export function Card({
   padded?: boolean
 }) {
   return (
-    <section className={`rounded-xl border border-slate-800 bg-[#0d1424] ${className}`}>
+    <section className={`rounded-xl border border-border/80 bg-surface shadow-sm ${className}`}>
       {title || actions ? (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 px-4 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
           <div>
-            <h2 className="text-sm font-medium text-slate-200">{title}</h2>
-            {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
+            <h2 className="text-sm font-medium text-foreground">{title}</h2>
+            {subtitle ? <p className="mt-0.5 text-xs text-subtle">{subtitle}</p> : null}
           </div>
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </header>
@@ -59,12 +59,12 @@ export function Card({
 type Tone = "neutral" | "ok" | "warn" | "bad" | "info" | "muted"
 
 const TONE_CLASS: Record<Tone, string> = {
-  neutral: "border-slate-700 bg-slate-800/60 text-slate-300",
-  ok: "border-emerald-800/70 bg-emerald-950/60 text-emerald-300",
-  warn: "border-amber-800/70 bg-amber-950/60 text-amber-300",
-  bad: "border-rose-900/70 bg-rose-950/60 text-rose-300",
-  info: "border-sky-900/70 bg-sky-950/60 text-sky-300",
-  muted: "border-slate-800 bg-slate-900/60 text-slate-500",
+  neutral: "border-border-strong bg-surface-hover text-foreground/80",
+  ok: "border-positive/35 bg-positive/10 text-positive",
+  warn: "border-warning/35 bg-warning/10 text-warning",
+  bad: "border-danger/35 bg-danger/10 text-danger",
+  info: "border-info/40 bg-info/10 text-info",
+  muted: "border-border bg-surface-muted text-subtle",
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: Tone }) {
@@ -94,18 +94,18 @@ export function StatCard({
   testId?: string
 }) {
   const accent: Record<Tone, string> = {
-    neutral: "text-slate-100",
-    ok: "text-emerald-300",
-    warn: "text-amber-300",
-    bad: "text-rose-300",
-    info: "text-sky-300",
-    muted: "text-slate-400",
+    neutral: "text-foreground",
+    ok: "text-positive",
+    warn: "text-warning",
+    bad: "text-danger",
+    info: "text-info",
+    muted: "text-muted-foreground",
   }
   return (
-    <div className="rounded-xl border border-slate-800 bg-[#0d1424] px-4 py-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`mt-1 font-mono text-xl tabular-nums ${accent[tone]}`} data-testid={testId}>{value}</div>
-      {hint ? <div className="mt-1 text-[11px] text-slate-500">{hint}</div> : null}
+    <div className="rounded-xl border border-border/80 bg-surface px-4 py-4 shadow-sm">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className={`mt-1 font-mono text-xl font-semibold tracking-tight tabular-nums ${accent[tone]}`} data-testid={testId}>{value}</div>
+      {hint ? <div className="mt-1 text-[11px] leading-5 text-subtle">{hint}</div> : null}
     </div>
   )
 }
@@ -120,9 +120,9 @@ export function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-900/30 px-6 py-10 text-center">
-      <p className="text-sm font-medium text-slate-300">{title}</p>
-      {description ? <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">{description}</p> : null}
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-surface-muted px-6 py-10 text-center">
+      <p className="text-sm font-medium text-foreground/80">{title}</p>
+      {description ? <p className="mt-1 max-w-md text-xs leading-5 text-subtle">{description}</p> : null}
       {action ? <div className="mt-3">{action}</div> : null}
     </div>
   )
@@ -130,10 +130,10 @@ export function EmptyState({
 
 export function ErrorBanner({ message, hint }: { message: string; hint?: ReactNode }) {
   return (
-    <div className="mb-4 rounded-lg border border-rose-900/70 bg-rose-950/40 px-4 py-3">
-      <p className="text-sm font-medium text-rose-200">上游 mik serve 不可用</p>
-      <p className="mt-1 break-all font-mono text-xs text-rose-300/90">{message}</p>
-      {hint ? <div className="mt-2 text-xs text-rose-200/70">{hint}</div> : null}
+    <div className="mb-4 rounded-lg border border-danger/35 bg-danger/10 px-4 py-3">
+      <p className="text-sm font-medium text-danger">上游 mik serve 不可用</p>
+      <p className="mt-1 break-all font-mono text-xs text-danger/80">{message}</p>
+      {hint ? <div className="mt-2 text-xs text-danger/80">{hint}</div> : null}
     </div>
   )
 }
@@ -141,7 +141,7 @@ export function ErrorBanner({ message, hint }: { message: string; hint?: ReactNo
 export function TableWrap({ children }: { children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-full border-collapse text-sm">{children}</table>
+      <table className="dashboard-table w-full min-w-full border-collapse text-sm">{children}</table>
     </div>
   )
 }
@@ -149,7 +149,7 @@ export function TableWrap({ children }: { children: ReactNode }) {
 export function Th({ children, className = "" }: { children?: ReactNode; className?: string }) {
   return (
     <th
-      className={`whitespace-nowrap border-b border-slate-800 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500 ${className}`}
+      className={`whitespace-nowrap border-b border-border/70 px-3 py-2 text-left text-xs font-medium text-subtle ${className}`}
     >
       {children}
     </th>
@@ -157,14 +157,14 @@ export function Th({ children, className = "" }: { children?: ReactNode; classNa
 }
 
 export function Td({ children, className = "" }: { children?: ReactNode; className?: string }) {
-  return <td className={`border-b border-slate-800/60 px-3 py-2 align-top text-slate-300 ${className}`}>{children}</td>
+  return <td className={`border-b border-border/70 px-3 py-2 align-top text-foreground/80 ${className}`}>{children}</td>
 }
 
 export function KeyValue({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-slate-800/60 py-1.5 last:border-b-0">
-      <span className="shrink-0 text-xs text-slate-500">{label}</span>
-      <span className="break-all text-right font-mono text-xs text-slate-300">{children}</span>
+    <div className="flex items-baseline justify-between gap-4 border-b border-border py-1.5 last:border-b-0">
+      <span className="shrink-0 text-xs text-subtle">{label}</span>
+      <span className="break-all text-right font-mono text-xs text-foreground/80">{children}</span>
     </div>
   )
 }

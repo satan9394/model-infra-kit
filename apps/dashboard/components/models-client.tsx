@@ -23,7 +23,7 @@ const SOURCE_TONE: Record<string, "info" | "ok" | "warn" | "muted"> = {
 }
 
 const selectClass =
-  "rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-slate-600"
+  "rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus:border-border-strong"
 
 export function ModelsClient({
   models,
@@ -93,10 +93,10 @@ export function ModelsClient({
               {catalogModels.map((model) => (
                 <tr key={model.id}>
                   <Td>
-                    <div className="font-mono text-slate-200">{model.id}</div>
-                    <div className="text-xs text-slate-500">{model.name}</div>
+                    <div className="font-mono text-foreground">{model.id}</div>
+                    <div className="text-xs text-subtle">{model.name}</div>
                   </Td>
-                  <Td className="font-mono text-xs text-slate-400">{model.family}</Td>
+                  <Td className="font-mono text-xs text-muted-foreground">{model.family}</Td>
                   <Td className="text-right font-mono tabular-nums">{formatInt(model.contextWindow)}</Td>
                   <Td className="text-right font-mono tabular-nums">{formatInt(model.maxOutputTokens)}</Td>
                   <Td>
@@ -128,7 +128,7 @@ export function ModelsClient({
                     </div>
                   </Td>
                   <Td>
-                    <a href={model.sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-sky-300 hover:text-sky-200">
+                    <a href={model.sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-info hover:text-info">
                       {model.source}
                     </a>
                   </Td>
@@ -143,8 +143,8 @@ export function ModelsClient({
         <div
           className={
             notice.tone === "ok"
-              ? "rounded-lg border border-emerald-900/70 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200"
-              : "rounded-lg border border-rose-900/70 bg-rose-950/40 px-3 py-2 text-xs text-rose-200"
+              ? "rounded-lg border border-positive/35 bg-positive/10 px-3 py-2 text-xs text-positive"
+              : "rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger"
           }
         >
           {notice.text}
@@ -183,7 +183,7 @@ export function ModelsClient({
                 type="button"
                 onClick={() => void refresh(provider)}
                 disabled={busy === provider}
-                className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                className="rounded border border-border-strong bg-surface-muted px-2 py-1.5 text-xs text-foreground hover:bg-surface-active disabled:opacity-50"
               >
                 {busy === provider ? "同步中…" : "刷新该供应商模型"}
               </button>
@@ -221,10 +221,10 @@ export function ModelsClient({
               {visible.map((model) => (
                 <tr key={model.ref}>
                   <Td>
-                    <div className="font-mono text-slate-200">{model.modelId}</div>
-                    <div className="text-xs text-slate-500">{model.displayName}</div>
+                    <div className="font-mono text-foreground">{model.modelId}</div>
+                    <div className="text-xs text-subtle">{model.displayName}</div>
                   </Td>
-                  <Td className="font-mono text-xs text-slate-400">{model.providerId}</Td>
+                  <Td className="font-mono text-xs text-muted-foreground">{model.providerId}</Td>
                   <Td className="text-right font-mono tabular-nums">{formatInt(model.contextWindow)}</Td>
                   <Td className="text-right font-mono tabular-nums">{formatInt(model.maxOutputTokens)}</Td>
                   <Td>
@@ -244,7 +244,7 @@ export function ModelsClient({
                   <Td>
                     <Badge tone={SOURCE_TONE[model.source] ?? "muted"}>{model.source}</Badge>
                   </Td>
-                  <Td className="text-xs text-slate-500">{model.syncedAt ? formatDateTime(model.syncedAt) : "—"}</Td>
+                  <Td className="text-xs text-subtle">{model.syncedAt ? formatDateTime(model.syncedAt) : "—"}</Td>
                 </tr>
               ))}
             </tbody>

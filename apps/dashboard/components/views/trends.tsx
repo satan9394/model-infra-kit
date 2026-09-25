@@ -52,7 +52,7 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
-        <p className="mb-4 text-xs text-slate-500">嵌入视图 · 区间 {range.label}</p>
+        <p className="mb-4 text-xs text-subtle">嵌入视图 · 区间 {range.label}</p>
       )}
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

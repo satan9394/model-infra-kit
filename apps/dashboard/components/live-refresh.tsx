@@ -72,14 +72,14 @@ export function LiveRefresh({
     <div className="flex flex-wrap items-center gap-2">
       <LiveBadge state={state} />
       {ticker ? (
-        <span className="rounded border border-slate-800 bg-slate-900/60 px-2 py-1 text-[11px] text-slate-400">
-          本次会话新增 <span className="font-mono text-slate-200">{session.requests}</span> 次调用 ·
-          <span className="font-mono text-slate-200"> {formatUsd(session.cost)}</span>
-          {session.lastModel ? <span className="text-slate-500"> · 最近 {session.lastModel}</span> : null}
+        <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-muted-foreground">
+          本次会话新增 <span className="font-mono text-foreground">{session.requests}</span> 次调用 ·
+          <span className="font-mono text-foreground"> {formatUsd(session.cost)}</span>
+          {session.lastModel ? <span className="text-subtle"> · 最近 {session.lastModel}</span> : null}
         </span>
       ) : null}
       {refreshes > 0 ? (
-        <span className="rounded border border-slate-800 bg-slate-900/60 px-2 py-1 text-[11px] text-slate-500">
+        <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-subtle">
           已自动刷新 {refreshes} 次
         </span>
       ) : null}
@@ -89,11 +89,11 @@ export function LiveRefresh({
           setRefreshes((value) => value + 1)
           router.refresh()
         }}
-        className="rounded border border-slate-800 px-2 py-1 text-[11px] text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+        className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
       >
         手动刷新
       </button>
-      {state.error ? <span className="text-[11px] text-amber-400">{state.error}</span> : null}
+      {state.error ? <span className="text-[11px] text-warning">{state.error}</span> : null}
     </div>
   )
 }

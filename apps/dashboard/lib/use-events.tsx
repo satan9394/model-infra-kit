@@ -84,15 +84,15 @@ export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
 
 export function LiveBadge({ state }: { state: HubEventsState }) {
   const tone = state.connected
-    ? "border-emerald-800/70 bg-emerald-950/60 text-emerald-300"
-    : "border-slate-700 bg-slate-800/60 text-slate-400"
+    ? "border-positive/35 bg-positive/10 text-positive"
+    : "border-border-strong bg-surface-hover text-muted-foreground"
   return (
     <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] ${tone}`}>
       <span
-        className={`inline-block h-1.5 w-1.5 rounded-full ${state.connected ? "bg-emerald-400" : "bg-slate-500"}`}
+        className={`inline-block h-1.5 w-1.5 rounded-full ${state.connected ? "bg-positive" : "bg-subtle"}`}
       />
       {state.connected ? "实时" : "未连接"}
-      {state.lastEventAt ? <span className="text-slate-500">· {new Date(state.lastEventAt).toLocaleTimeString("zh-CN")}</span> : null}
+      {state.lastEventAt ? <span className="text-subtle">· {new Date(state.lastEventAt).toLocaleTimeString("zh-CN")}</span> : null}
     </span>
   )
 }

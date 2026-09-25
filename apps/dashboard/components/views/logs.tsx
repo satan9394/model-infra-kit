@@ -39,7 +39,7 @@ export default async function LogsView({ params, embedded }: ViewProps) {
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
-        <p className="mb-4 text-xs text-slate-500">嵌入视图 · 区间 {range.label}</p>
+        <p className="mb-4 text-xs text-subtle">嵌入视图 · 区间 {range.label}</p>
       )}
       <LogsClient
         events={logs.ok ? logs.data.events : []}

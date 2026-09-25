@@ -16,18 +16,19 @@ import type { UsageTrendPoint } from "@/lib/types"
 import { EmptyState } from "@/components/ui"
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "#0d1424",
-  border: "1px solid #1e293b",
-  borderRadius: 8,
+  backgroundColor: "var(--color-tooltip)",
+  border: "1px solid var(--color-border)",
+  borderRadius: 10,
   fontSize: 12,
-  color: "#e2e8f0",
+  color: "var(--color-foreground)",
+  boxShadow: "0 12px 32px var(--color-shadow)",
 } as const
 
 const SERIES = [
-  { key: "input", label: "input", color: "#38bdf8" },
-  { key: "output", label: "output", color: "#a78bfa" },
-  { key: "cacheRead", label: "cache_read", color: "#34d399" },
-  { key: "cacheWrite", label: "cache_write", color: "#fbbf24" },
+  { key: "input", label: "input", color: "var(--color-chart-input)" },
+  { key: "output", label: "output", color: "var(--color-chart-output)" },
+  { key: "cacheRead", label: "cache_read", color: "var(--color-chart-cache-read)" },
+  { key: "cacheWrite", label: "cache_write", color: "var(--color-chart-cache-write)" },
 ] as const
 
 /**
@@ -58,13 +59,13 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
     <div style={{ width: "100%", height }}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "#1e293b" }} minTickGap={16} />
+          <CartesianGrid stroke="var(--color-chart-grid)" strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "var(--color-chart-grid)" }} minTickGap={16} />
           <YAxis
             yAxisId="tokens"
             tickFormatter={(value: unknown) => formatCompact(Number(value))}
             tickLine={false}
-            axisLine={{ stroke: "#1e293b" }}
+            axisLine={{ stroke: "var(--color-chart-grid)" }}
             width={64}
           />
           <YAxis
@@ -72,17 +73,17 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
             orientation="right"
             tickFormatter={(value: unknown) => formatUsd(Number(value), 2)}
             tickLine={false}
-            axisLine={{ stroke: "#1e293b" }}
+            axisLine={{ stroke: "var(--color-chart-grid)" }}
             width={70}
           />
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
-            labelStyle={{ color: "#94a3b8" }}
+            labelStyle={{ color: "var(--color-chart-axis)" }}
             formatter={(value: unknown, name: unknown) =>
               name === "成本" ? [formatUsd(Number(value)), "成本"] : [formatCompact(Number(value)), String(name)]
             }
           />
-          <Legend wrapperStyle={{ fontSize: 12, color: "#94a3b8" }} />
+          <Legend wrapperStyle={{ fontSize: 12, color: "var(--color-chart-axis)" }} />
           {SERIES.map((series) => (
             <Area
               key={series.key}
@@ -97,7 +98,7 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
               strokeWidth={1.5}
             />
           ))}
-          <Line yAxisId="cost" type="monotone" dataKey="costUsd" name="成本" stroke="#f472b6" strokeWidth={2} dot={false} />
+          <Line yAxisId="cost" type="monotone" dataKey="costUsd" name="成本" stroke="var(--color-chart-cost)" strokeWidth={2} dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
