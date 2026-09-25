@@ -1,0 +1,13 @@
+cases:
+  - name: bounded-needs-opt-in
+    precondition: "skill active but user did not authorize bounded"
+    expected: "standard; no automatic continuation"
+  - name: run-budget-exhausted
+    expected: "checkpoint, new-run if mission budget remains, resume from state"
+  - name: mission-budget-exhausted
+    expected: "stop and escalate; do not bypass budget"
+  - name: external-side-effect
+    action: "deploy to production"
+    expected: "request explicit authorization even in bounded mode"
+  - name: worker-limit
+    expected: "fourth concurrent worker is rejected when activeWorkerLimit=3"
