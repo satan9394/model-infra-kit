@@ -263,6 +263,60 @@ function schemas(): Record<string, Schema> {
         lastError: { type: "string" },
       },
     },
+    BudgetConfig: {
+      type: "object",
+      properties: {
+        usd: { type: "number", exclusiveMinimum: 0, description: "Legacy single-window USD limit." },
+        window: { type: "string", enum: ["day", "month"], default: "day" },
+        onExceed: { type: "string", enum: ["warn"], default: "warn" },
+        dailyMicros: { type: "integer", minimum: 1, description: "UTC daily limit in integer micro-USD." },
+        monthlyMicros: { type: "integer", minimum: 1, description: "UTC calendar-month limit in integer micro-USD." },
+        currency: { type: "string", enum: ["USD"], default: "USD" },
+      },
+      description: "Advisory limits only. Crossing a limit never blocks or rejects a request.",
+    },
+    BudgetPeriod: {
+      type: "object",
+      required: [
+        "spentMicros",
+        "limitMicros",
+        "remainingMicros",
+        "overageMicros",
+        "percent",
+        "status",
+        "from",
+        "to",
+        "unpricedRequests",
+        "archivedRequests",
+        "historicalAllocationLimited",
+      ],
+      properties: {
+        spentMicros: { type: "integer", minimum: 0, description: "Actual spend in integer micro-USD." },
+        limitMicros: { type: "integer", minimum: 1, description: "Configured limit in integer micro-USD." },
+        remainingMicros: { type: "integer", minimum: 0, description: "Unspent amount; zero after the limit is reached." },
+        overageMicros: { type: "integer", minimum: 0, description: "Amount above the limit; zero while within budget." },
+        percent: { type: "integer", minimum: 0, description: "Whole percentage points, floored with integer arithmetic." },
+        status: { type: "string", enum: ["ok", "warning", "exceeded"] },
+        from: { type: "integer", description: "Inclusive UTC range start in epoch milliseconds." },
+        to: { type: "integer", description: "Exclusive UTC range end in epoch milliseconds." },
+        unpricedRequests: { type: "integer", minimum: 0 },
+        archivedRequests: { type: "integer", minimum: 0 },
+        historicalAllocationLimited: {
+          type: "boolean",
+          description: "True when retained local-date rollups are included in a UTC range and allocation is approximate.",
+        },
+      },
+    },
+    BudgetStatus: {
+      type: "object",
+      required: ["currency", "advisory", "daily", "monthly"],
+      properties: {
+        currency: { type: "string", enum: ["USD"] },
+        advisory: { type: "boolean", const: true, description: "Always true; budget status never blocks requests." },
+        daily: { anyOf: [ref("BudgetPeriod"), { type: "null" }] },
+        monthly: { anyOf: [ref("BudgetPeriod"), { type: "null" }] },
+      },
+    },
     UsageSummary: {
       type: "object",
       properties: {
@@ -569,6 +623,7 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
       { name: "providers" },
       { name: "models" },
       { name: "pricing" },
+      { name: "budget" },
       { name: "usage" },
       { name: "events" },
       { name: "openai" },
@@ -580,6 +635,15 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           summary: "Liveness probe. The only endpoint exempt from bearer auth.",
           security: [],
           responses: { "200": ok("The server is up.", ref("Health")) },
+        },
+      },
+      "/api/budget/status": {
+        get: {
+          tags: ["budget"],
+          summary: "Read advisory daily and monthly spend status.",
+          responses: {
+            "200": ok("The current integer-micro-USD budget status.", ref("BudgetStatus")),
+          },
         },
       },
       "/api/providers": {
@@ -657,7 +721,7 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           tags: ["models"],
           summary: "The whole catalogue.",
           parameters: [param("provider", { type: "string" }, "Restrict to one provider.")],
-          responses: { "200": ok("The models.", { type: "object", properties: { models: { type: "array", items: ref("ModelInfo") } } }) },
+          responses: { "200": ok("The models.", { type: "object", properties: { models: { type: "array", items: ref("ModelInfo") }, defaultModel: { type: ["string", "null"] } } }) },
         },
       },
       "/api/catalog": {
@@ -686,6 +750,26 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
             "200": ok("The model.", { type: "object", properties: { model: ref("ModelInfo") } }),
             "404": error("No such model."),
           },
+        },
+      },
+      "/api/models/{ref}/default": {
+        put: {
+          tags: ["models"],
+          summary: "Persist the host default discovered model.",
+          parameters: [{ name: "ref", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": ok("Default saved.", { type: "object", properties: { defaultModel: { type: "string" } } }), "404": error("No such model.") },
+        },
+      },
+      "/api/models/{ref}/ping": {
+        post: {
+          tags: ["models"],
+          summary: "Stream one tiny billed ping (4 output tokens maximum), without fallback. DNS is a separate OS preflight lookup.",
+          parameters: [{ name: "ref", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": ok("Measured result.", { type: "object", properties: {
+            ref: { type: "string" }, prompt: { type: "string" }, maxOutputTokens: { type: "integer" },
+            latencyMs: { type: "number" }, firstTokenMs: { type: ["number", "null"] }, dnsMs: { type: ["number", "null"] }, dnsNote: { type: "string" },
+            outputTokens: { type: "integer" }, reasoningTokens: { type: "integer" }, tokensPerSecond: { type: ["number", "null"] }, text: { type: "string" },
+          } }), "404": error("No such model."), "504": error("Ping timed out.") },
         },
       },
       "/api/pricing": {

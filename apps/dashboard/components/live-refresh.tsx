@@ -28,7 +28,7 @@ export function LiveRefresh({
   const router = useRouter()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshes, setRefreshes] = useState(0)
-  const [session, setSession] = useState({ requests: 0, cost: 0, lastModel: "" })
+  const [session, setSession] = useState({ requests: 0, costMicros: 0, lastModel: "" })
 
   const topicsRef = useRef(topics)
   topicsRef.current = topics
@@ -48,7 +48,7 @@ export function LiveRefresh({
         const event = frame.data as Partial<UsageEvent> | undefined
         setSession((previous) => ({
           requests: previous.requests + 1,
-          cost: previous.cost + (typeof event?.cost?.usd === "number" ? event.cost.usd : 0),
+          costMicros: previous.costMicros + (typeof event?.cost?.usd === "number" ? Math.round(event.cost.usd * 1_000_000) : 0),
           lastModel: event?.modelActual ?? event?.modelRequested ?? previous.lastModel,
         }))
       }
@@ -74,7 +74,7 @@ export function LiveRefresh({
       {ticker ? (
         <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-muted-foreground">
           本次会话新增 <span className="font-mono text-foreground">{session.requests}</span> 次调用 ·
-          <span className="font-mono text-foreground"> {formatUsd(session.cost)}</span>
+          <span className="font-mono text-foreground"> {formatUsd(session.costMicros / 1_000_000)}</span>
           {session.lastModel ? <span className="text-subtle"> · 最近 {session.lastModel}</span> : null}
         </span>
       ) : null}

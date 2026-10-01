@@ -11,7 +11,7 @@ ModelInfo, ModelCapabilities, ModelPricing, ModelSource
 TokenUsage { input; output; cacheRead; cacheWrite; reasoning }
 CostInfo { usd; low; high; basis; source; pricingModel?; providerId? }
 ProviderConfig.apiKeyRef?: string | string[] // one ref, comma-separated refs, or ref array; only references are stored
-ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; traceId?; fallbackChain?: string[]; reasoningTimeoutMs?: number; signal? }
+ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; traceId?; fallbackChain?: string[] | false; reasoningTimeoutMs?: number; signal? }
   // EVO-G75：`tags?: Record<string, string>` 是宿主自定义的**归属标签**（如
   // `{ feature: "quant-backtest" }`）。值入库前经 `sanitizeTags()` 归一化 + `redactDeep()`
   // 脱敏；非对象/异常值一律按既定策略处理，**绝不抛错**（见「EVO-G75」节）。
@@ -20,7 +20,8 @@ ModelResponse { text; toolCalls; finishReason; usage; cost; provider; model{requ
 StreamEvent（text_delta | tool_call_delta | tool_call_complete | step_finish | usage | finish | error）
 UsageEvent, UsageSummary, UsageBucket, UsageTrendPoint, UsageQuery, UsagePage
 UsageTraceGroup, UsageTraceGroupBy
-ModelInfraConfig
+ModelInfraConfig, BudgetConfig, BudgetStatus, BudgetPeriod
+checkBudgetStatus(usage, config, now?)
 
 // src/catalog/
 ModelMetadata, ProviderModelBinding, ModelFilter, CatalogModelCapabilities
@@ -161,6 +162,8 @@ export class UsageService {
   constructor(deps: UsageServiceDeps)
   record(event: Omit<UsageEvent, "appId"> & { appId?: string }): boolean
   summary(query?: UsageQuery): UsageSummary
+  /** G101：读取一个 UTC `[from, to)` 窗口的整数微美元总额；只读。 */
+  budgetTotals(from: number, to: number): import("./usage/budget.js").BudgetUsageTotals
   /**
    * G74 追加（展示用）：区间内**没有解析到价格**的请求/token 占比与按模型明细。
    * 只读 `usage_events`（rollup 表不存 `pricing_source`，故 ratio 的分子分母都只
@@ -230,6 +233,8 @@ export class ModelInfra {
   readonly providers: ProviderRegistry
   readonly pricing: PricingService
   readonly usage: UsageService
+  /** G101：读取 UTC 日/月软预算状态；只读 advisory，不会阻断请求。 */
+  budgetStatus(now?: number): import("./usage/budget.js").BudgetStatus
   /** Bundled model facts and explicit provider endpoint bindings; no network sync. */
   readonly catalog: ModelCatalogService
   readonly models: {
@@ -271,7 +276,7 @@ export interface ModelInfraOptions extends ModelInfraConfig {
 
 ### EVO-G95 — 弹性路由与凭据池
 
-- `ModelRequest.fallbackChain` 先于 `ModelInfraOptions.fallbackChain` 尝试；主模型失败后依序尝试显式 `provider:model` 备选。仅 429、超时、连接与上游 5xx 可触发模型降级；流式调用只有在尚未输出文本或工具调用时才切换，避免重复内容。
+- `ModelRequest.fallbackChain: false` disables both request and host fallback chains; an empty array still inherits the host chain. `ModelRequest.fallbackChain` 先于 `ModelInfraOptions.fallbackChain` 尝试；主模型失败后依序尝试显式 `provider:model` 备选。仅 429、超时、连接与上游 5xx 可触发模型降级；流式调用只有在尚未输出文本或工具调用时才切换，避免重复内容。
 - `reasoningTimeoutMs`（请求字段优先，其次实例配置）限制流式首个可见输出等待；非流式请求将其作为单次调用超时。OpenAI 兼容端点接受 `reasoning_timeout_ms` 或 `x-mik-reasoning-timeout-ms`。SSE 若首事件超过 heartbeat 周期，会先发 `: thinking` 注释并继续按间隔发送注释心跳。
 - Provider `apiKeyRef` 支持单引用、逗号分隔引用或引用数组。每次解析按轮询选择一个可用引用；429 后该引用在内存冷却（默认 30 秒，`keyCooldownMs` 可改）。数据库仍只保存 credential reference，解析出的 secret 不进入池状态、日志或用量标签。
 - 每次实际尝试各记录一条用量行；通过模型或 Key 轮换成功的行以 `tags.is_fallback = "true"` 标记。失败尝试保持 `status="error"` 与缺失成本状态。
@@ -288,12 +293,14 @@ HTTP API（全部挂在 `/api`，OpenAI 兼容端点挂 `/v1`）：
 
 ```
 GET  /api/health
+GET  /api/budget/status       （G101：整数微美元日/月软预算状态；只读、绝不阻断请求）
 GET  /api/providers            POST /api/providers
 PATCH/DELETE /api/providers/:id
 POST /api/providers/:id/test
 GET  /api/providers/:id/models   POST /api/providers/:id/models/refresh
 GET  /api/catalog              （内置标准模型事实 + 供应商端点绑定，不访问上游）
 GET  /api/models               GET /api/models/:ref
+POST /api/models/:ref/ping      PUT /api/models/:ref/default
 GET  /api/pricing              PUT /api/pricing/:modelId   POST /api/pricing/sync
 DELETE /api/pricing/:modelId   （T07 追加并经指挥批准：看板需要撤销手动价）
 GET  /api/usage/summary|trends|by-provider|by-model|traces|logs|logs/:id
@@ -514,8 +521,8 @@ writeSetting(key: string, value: string): void
 - 代码位置：CLI 见 `src/cli/context.ts:140-143`；库见 `src/hub.ts:317`（`config.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID`）。
 - **差异是有意设计**：库宿主显式传参应压过环境变量（显式 > 隐式）；CLI 的 flag 同样压过 env。两条路径的「env vs 文件/默认」不可比，因为库不读 `mik.config.json`。
 - **settings 表**（`cli.lang` 等小设置）只由 CLI 的 REPL/向导读写（`hub.readSetting`/`writeSetting`），优先级低于环境变量、高于系统语言：`MIK_LANG` → `cli.lang` → `OS locale` → `en`（见上文「小设置持久化」节）。
-- **`budget`（EVO-G07）**：属 config 入参层，即**最高优先级**；它没有环境变量、`mik.config.json` 或 settings 层的对应物（CLI 不读该字段），因此只有「显式入参 → 不配置」两种状态，不存在被覆盖的情形。
-- `mik.config.json` 承载 `appId` / `db` / `cacheDir` / `initialProviders`（`src/cli/context.ts`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费。
+- **`budget`（EVO-G07/G101）**：库调用时属 config 入参层，即**最高优先级**；CLI 也可从 `mik.config.json` 读取同一结构（没有独立环境变量）。显式库入参仍只有「显式入参 → 不配置」两种状态，不存在被覆盖的情形。
+- `mik.config.json` 承载 `appId` / `db` / `cacheDir` / `budget` / `initialProviders`（`src/cli/context.ts`）——改文件**不会**重新播种供应商，`initialProviders` 仅 `mik init` 首次消费；`budget` 每次 CLI 打开上下文时作为只告警配置传给 `ModelInfra.init()`。
   - **`cacheDir`（EVO-G84 / F11 新增）**：`mik init` 在命令行传了 `--cache-dir`（或环境里有 `MIK_CACHE_DIR`）时把该值写进文件；**未传时不写该字段**（既有文件的形状不变，非破坏性）。解析链与 `db`/`appId` 完全一致：`--cache-dir` → `MIK_CACHE_DIR` → `mik.config.json` 的 `cacheDir` → 库内置默认 `~/.model-infra-kit/cache`。此前该 flag 被**静默丢弃**（R232/F11 实测：传了 `--cache-dir` 后文件里只有 `appId`/`db`/`initialProviders`），后续命令仍落回主目录缓存。
   - 已由测试锁定：`packages/mik/test/config-precedence.test.ts`（`appId` 链）、`packages/mik/test/g84-init-guidance.test.ts`（`cacheDir` 落盘 + 读取链 + 收尾指引）。
 
@@ -548,17 +555,20 @@ writeSetting(key: string, value: string): void
 | `recordUsage` | `boolean` | `true` | 是否持久化用量事件 |
 | `cacheDir` | `string` | `~/.model-infra-kit/cache` | 价格目录缓存目录 |
 | `onWarn` | `(message, error?) => void` | 无 | 非致命问题回调（目录同步失败、缺价等） |
-| `budget` | `{ usd: number; window?: "day" \| "month"; onExceed?: "warn" }` | 不配置（= 关闭） | 软预算：**只告警、绝不硬拒绝**。见下文「EVO-G07」 |
+| `budget` | `{ usd?: number; window?: "day" \| "month"; onExceed?: "warn"; dailyMicros?: number; monthlyMicros?: number; currency?: "USD" }` | 不配置（= 关闭） | 软预算：**只告警、绝不硬拒绝**；微美元日/月状态可经 `budgetStatus()` 与 HTTP 读取。见下文「EVO-G07 / EVO-G101」 |
 
 该接口与 F16 记录的 `ModelInfraOptions`（`baseUrl`/`maxRetries`/`pricingCatalog`/`pricingFetch`/`onUsage`）共同构成 `ModelInfra.init()` 的入参。
 
-#### `budget`（EVO-G07 新增，契约）
+#### `budget`（EVO-G07 / EVO-G101，契约）
 
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `usd` | `number` | 必填 | 阈值（美元），必须为**正有限数**；`0`/负数/`NaN`/`Infinity` 视为非法配置 |
+| `usd` | `number` | 无（兼容旧配置） | 旧版单窗口阈值（美元），必须为**正有限数**；`0`/负数/`NaN`/`Infinity` 视为非法配置 |
 | `window` | `"day" \| "month"` | `"day"` | 统计窗口，边界为 **UTC** 日界/月界（`Date.UTC(...)`），不是本地时区 |
 | `onExceed` | `"warn"` | `"warn"` | 目前**只支持** `"warn"`；其它取值视为非法配置 |
+| `dailyMicros` | `number` | 无 | UTC 自然日配额，必须是正的安全整数微美元；可单独启用只读状态 |
+| `monthlyMicros` | `number` | 无 | UTC 自然月配额，必须是正的安全整数微美元；可单独启用只读状态 |
+| `currency` | `"USD"` | `"USD"` | 当前只支持 USD；其它值不启用状态计算 |
 
 语义（不可放宽）：
 
@@ -569,6 +579,10 @@ writeSetting(key: string, value: string): void
 - 计数范围：只累计 `event.appId` **严格等于**本实例 `appId` 的事件（不等则整行跳过；init 基数同样只覆盖该 appId）。
 - **失败静默（不影响调用与记录）**：未配置 → 零查询零告警；配置非法 → 忽略该配置并经 `onWarn` 提示一次；init 基数汇总失败 → 基数按 0 计（一次 `onWarn`），不抛错；运行期累计异常 → 静默。
 - 告警消息含阈值、当前累计、窗口与 appId，且整体过 `redact()`（`packages/mik/src/util/redact.ts`）。
+
+G101 的只读状态计算由 `checkBudgetStatus(usage, config, now?)` 提供，`ModelInfra.budgetStatus(now?)` 直接暴露同一结果。返回结构固定为 `{ currency: "USD", advisory: true, daily, monthly }`；未配置对应配额的周期为 `null`。每个周期的金额字段都是整数微美元：`spentMicros`、`limitMicros`、`remainingMicros` 与 `overageMicros`（超出部分，未超出时为 0），`percent` 是向下取整的整数百分比，状态为 `<80%` 的 `ok`、`80%–99%` 的 `warning` 或 `>=100%` 的 `exceeded`。`advisory: true` 是协议不变式：状态读取不改变记录流程，也不会返回 429 或阻断任何 API 请求。
+
+周期总额读取明细行并加上保留的 `usage_daily_rollups`。明细按 `[from, to)` 的 UTC 毫秒范围过滤；rollup 只保存本地日键，所以当它被纳入 UTC 周期时返回 `historicalAllocationLimited: true`，并报告 `archivedRequests`。`unpricedRequests` 只计仍保留明细的缺价请求；未知的归档价格不猜测、不插值。HTTP `GET /api/budget/status` 返回上述 `BudgetStatus`，沿用服务端既有的鉴权规则（配置 token 时需要 Bearer；未配置 token 时 GET 可读）。
 
 相关实现：`packages/mik/src/types.ts`（`BudgetConfig`）、`packages/mik/src/usage/service.ts`（累计与一次性告警、`windowStart()`/`toMicroUsd()`/`isUsableBudget()`/`budgetBaseMicros()`）、`packages/mik/src/hub.ts`（init 时汇总基数）、`packages/mik/src/store/usage-repository.ts`（`costMicros()`）。口径与排查见 `docs/cost-reconciliation.md`。
 
@@ -1007,3 +1021,11 @@ const cell = bound.costLowerBoundOnly ? `at least ${floor}` : band
 OpenAI 兼容入口 `POST /v1/chat/completions` 将标准 `user` 记为 `sessionId`，也接受 `session_id` 或 `X-Mik-Session-Id`；`trace_id`、`metadata.trace_id` 或 `X-Mik-Trace-Id` 会记为 `traceId`。嵌入式 `mik.fetch` 支持同一组 body 字段/headers，并在转发时移除 MIK 专用 headers 与 `session_id` / `trace_id` 扩展字段。
 
 适配示例位于 `examples/openai-sdk`、`examples/python-host` 和 `examples/langchain-python`。OpenAI SDK 仍用 `baseURL: mik.baseUrl` 与 `fetch: mik.fetch`；Python 与 LangChain 指向 `http://127.0.0.1:3211/v1`。`user`/session header 标记会话，逐次 `X-Mik-Trace-Id` 或 `trace_id` 标记一次 Agent Loop。
+
+## EVO-G102 — Model ping and host default
+
+`GET /api/models` includes `defaultModel: string | null`. `PUT /api/models/:ref/default` validates a discovered model and persists its ref through the existing provider registry; it returns `{ defaultModel }`. Encode namespace-containing refs as one URL segment. Both mutation endpoints use existing write authentication.
+
+`POST /api/models/:ref/ping` sends one streaming `ping` prompt, at most 4 output tokens, no fallback chain and a 10-second model timeout. The response is `{ ref, prompt, maxOutputTokens, latencyMs, firstTokenMs, dnsMs, dnsNote, outputTokens, reasoningTokens, tokensPerSecond, text }`. TTFT starts at model invocation and ends at the first nonempty text delta; absent text is `null`. Throughput uses visible output tokens (excluding reasoning) over the post-first-token duration. Text and errors are redacted and normal metering applies, including after a soft budget is exceeded.
+
+DNS is a separately timed OS lookup of the configured provider hostname before model invocation (1-second bound). It may use the OS cache and is explicitly not the SDK connection DNS phase; unavailable/failed lookup returns null and never prevents the model request. Duration measurements are not monetary values.

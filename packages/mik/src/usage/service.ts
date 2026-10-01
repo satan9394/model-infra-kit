@@ -1,4 +1,5 @@
 import type { Store } from "../store/database.js"
+import type { BudgetUsageTotals } from "./budget.js"
 import type {
   BudgetConfig,
   UnpricedCoverage,
@@ -46,7 +47,9 @@ export function windowStart(window: BudgetWindow, ts: number): number {
  * A typo (`0`, a negative number, `NaN`, an unsupported `onExceed`) must never
  * be fatal: it makes the feature inactive, nothing else (A4).
  */
-export function isUsableBudget(budget: BudgetConfig | undefined): boolean {
+export function isUsableBudget<T extends BudgetConfig | undefined>(
+  budget: T,
+): budget is T & { usd: number } {
   if (!budget || typeof budget.usd !== "number" || !Number.isFinite(budget.usd) || budget.usd <= 0) return false
   if (budget.window !== undefined && budget.window !== "day" && budget.window !== "month") return false
   return budget.onExceed === undefined || budget.onExceed === "warn"
@@ -321,6 +324,11 @@ export class UsageService {
 
   summary(query?: UsageQuery): UsageSummary {
     return this.store.usage.summary(this.scoped(query))
+  }
+
+  /** Read integer budget totals, including any retained daily rollups. */
+  budgetTotals(from: number, to: number): BudgetUsageTotals {
+    return this.store.usage.budgetTotals(this.appId, from, to)
   }
 
   /**

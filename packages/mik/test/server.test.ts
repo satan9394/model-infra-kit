@@ -434,7 +434,7 @@ describe("auth", () => {
     const health = await fetch(url("/api/health"))
     expect(health.status).toBe(200)
 
-    for (const path of ["/api/providers", "/api/usage/summary", "/openapi.json", "/v1/models"]) {
+    for (const path of ["/api/providers", "/api/budget/status", "/api/usage/summary", "/openapi.json", "/v1/models"]) {
       const anonymous = await fetch(url(path))
       expect(anonymous.status, path).toBe(401)
       expect(anonymous.headers.get("www-authenticate")).toContain("Bearer")
@@ -473,6 +473,69 @@ describe("auth", () => {
     const response = await fetch(`${open.url}/api/providers`)
     expect(response.status).toBe(200)
     await open.close()
+  })
+})
+
+describe("G101 — advisory budget status", () => {
+  it("requires auth, reports overage in integer micros, and never blocks usage reports", async () => {
+    const budgetHub = await ModelInfra.init({
+      appId: "g101-api",
+      db: ":memory:",
+      cacheDir,
+      pricingFetch: offlineFetch,
+      syncCatalog: false,
+      budget: { dailyMicros: 1 },
+      onWarn: () => {},
+    })
+    const budgetHandle = await createServer({ hub: budgetHub, port: 0, token: TOKEN, heartbeatMs: 0 })
+    try {
+      const anonymous = await fetch(`${budgetHandle.url}/api/budget/status`)
+      expect(anonymous.status).toBe(401)
+
+      const initial = await fetch(`${budgetHandle.url}/api/budget/status`, { headers: { authorization: `Bearer ${TOKEN}` } })
+      expect(initial.status).toBe(200)
+      expect((await body<{ daily: { spentMicros: number; overageMicros: number } | null }>(initial)).daily).toMatchObject({
+        spentMicros: 0,
+        overageMicros: 0,
+      })
+
+      const report = {
+        providerId: "reported",
+        usage: { input: 1, output: 1 },
+        cost: { usd: 0.000002 },
+      }
+      const first = await fetch(`${budgetHandle.url}/api/usage/events`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...report, requestId: "g101-api-1" }),
+      })
+      expect(first.status).toBe(200)
+      expect(await body<{ accepted: number }>(first)).toMatchObject({ accepted: 1 })
+
+      const exceeded = await fetch(`${budgetHandle.url}/api/budget/status`, { headers: { authorization: `Bearer ${TOKEN}` } })
+      expect(exceeded.status).toBe(200)
+      expect((await body<{ daily: { spentMicros: number; limitMicros: number; remainingMicros: number; overageMicros: number; status: string } }>(exceeded)).daily).toMatchObject({
+        spentMicros: 2,
+        limitMicros: 1,
+        remainingMicros: 0,
+        overageMicros: 1,
+        status: "exceeded",
+      })
+
+      // Crossing the advisory limit does not turn the normal write path into a
+      // 429 or any other rejection.
+      const second = await fetch(`${budgetHandle.url}/api/usage/events`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...report, requestId: "g101-api-2" }),
+      })
+      expect(second.status).toBe(200)
+      expect(await body<{ accepted: number }>(second)).toMatchObject({ accepted: 1 })
+      expect(budgetHub.usage.query().total).toBe(2)
+    } finally {
+      await budgetHandle.close()
+      await budgetHub.close()
+    }
   })
 })
 
@@ -931,6 +994,47 @@ describe("/api/providers", () => {
 })
 
 describe("/api/models", () => {
+  it("G102 refuses inherited host fallback when the selected model fails", async () => {
+    await handle.close()
+    hub.close()
+    hub = await makeHub({ fallbackChain: ["str:deepseek-chat"] })
+    handle = await createServer({ hub, port: 0, token: TOKEN })
+    await api("/api/providers/ok/models/refresh", { method: "POST" })
+    hub.providers.add({ ...provider("ok"), baseUrl: `${root}/bad` })
+    const response = await api("/api/models/ok:deepseek-chat/ping", { method: "POST" })
+    expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(mock.calls).toHaveLength(2) // discovery + selected model; no host fallback
+    expect(hub.usage.query().events).toHaveLength(1)
+    expect(hub.usage.query().events[0]).toMatchObject({ providerId: "ok", status: "error" })
+  })
+
+  it("G102 streams a tiny ping and measures first text without changing the default", async () => {
+    await api("/api/providers/str/models/refresh", { method: "POST" })
+    const response = await api("/api/models/str:deepseek-chat/ping", { method: "POST" })
+    expect(response.status).toBe(200)
+    const result = await body<{ firstTokenMs: number; latencyMs: number; text: string; prompt: string; maxOutputTokens: number; outputTokens: number; tokensPerSecond: number }>(response)
+    expect(result).toMatchObject({ text: "hello world", prompt: "ping", maxOutputTokens: 4, outputTokens: 6 })
+    expect(result.firstTokenMs).toBeGreaterThanOrEqual(0)
+    expect(result.latencyMs).toBeGreaterThanOrEqual(result.firstTokenMs)
+    expect(result.tokensPerSecond).toBeGreaterThanOrEqual(0)
+    expect(hub.providers.defaultModel()).toBe("ok:deepseek-chat")
+    const request = await upstreamBody(1)
+    expect(request.messages).toEqual([{ role: "user", content: "ping" }])
+    expect(request.max_tokens).toBe(4)
+    expect(hub.usage.summary().requests).toBe(1)
+  })
+
+  it("G102 persists defaults and rejects missing models and unauthenticated writes", async () => {
+    await api("/api/providers/str/models/refresh", { method: "POST" })
+    expect((await api("/api/models/str:deepseek-chat/default", { method: "PUT" }, null)).status).toBe(401)
+    expect((await api("/api/models/str:missing/default", { method: "PUT" })).status).toBe(404)
+    expect((await api("/api/models/str:deepseek-chat/default", { method: "PUT" })).status).toBe(200)
+    expect(hub.providers.defaultModel()).toBe("str:deepseek-chat")
+    expect(await body(await api("/api/models"))).toHaveProperty("defaultModel", "str:deepseek-chat")
+    expect((await api("/api/models/str:missing/ping", { method: "POST" })).status).toBe(404)
+    expect(mock.calls).toHaveLength(1) // discovery only; default changes never invoke the model
+  })
+
   it("lists every model and gets one by reference", async () => {
     await api("/api/providers/ok/models/refresh", { method: "POST" })
 
@@ -1454,6 +1558,7 @@ describe("GET /api/events", () => {
 describe("GET /openapi.json", () => {
   const CONTRACT_PATHS = [
     "/api/health",
+    "/api/budget/status",
     "/api/providers",
     "/api/providers/{id}",
     "/api/providers/{id}/test",
@@ -1462,6 +1567,8 @@ describe("GET /openapi.json", () => {
     "/api/catalog",
     "/api/models",
     "/api/models/{ref}",
+    "/api/models/{ref}/ping",
+    "/api/models/{ref}/default",
     "/api/pricing",
     "/api/pricing/{modelId}",
     "/api/pricing/sync",
@@ -1517,6 +1624,8 @@ describe("GET /openapi.json", () => {
       return !item.ref.startsWith("#/components/schemas/") || schemas[name] === undefined
     })
     expect(unresolved).toEqual([])
+    expect((schemas.BudgetPeriod as { properties: Record<string, unknown> }).properties).toHaveProperty("overageMicros")
+    expect((paths["/api/budget/status"] as { get: { tags: string[] } }).get.tags).toContain("budget")
 
     expect(document.security).toEqual([{ bearerAuth: [] }])
     expect((paths["/api/health"] as { get: { security: unknown[] } }).get.security).toEqual([])

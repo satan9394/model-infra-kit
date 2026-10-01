@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { BudgetPill } from "@/components/budget-pill"
 import { CostTrendChart } from "@/components/charts/cost-trend"
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
@@ -55,6 +56,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       {/* EVO-G09 A1: on first paint with a dead upstream the *first* block is this
           neutral guide; the red banner is demoted to a reaction to "重试". */}
       <UpstreamNotice message={upstreamErrors[0]} />
+      <BudgetPill showAlert />
 
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />

@@ -118,6 +118,6 @@ export async function loadModelsWithPricing(limit = 150, concurrency = 8): Promi
 
   return {
     ok: true,
-    data: { models: models.map((model) => enriched.get(model.ref) ?? model) },
+    data: { ...result.data, models: models.map((model) => enriched.get(model.ref) ?? model) },
   }
 }

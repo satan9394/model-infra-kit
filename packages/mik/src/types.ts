@@ -177,8 +177,8 @@ export interface ModelRequest {
   traceId?: string
   /** Groups multiple traces and calls under one host Agent session. */
   sessionId?: string
-  /** Ordered model references to try after a retryable failure. */
-  fallbackChain?: string[]
+  /** Ordered model references after a retryable failure; false disables all fallbacks. */
+  fallbackChain?: string[] | false
   /** Maximum wait for first model output before aborting and failing over. */
   reasoningTimeoutMs?: number
   signal?: AbortSignal
@@ -413,8 +413,8 @@ export interface UsagePage {
  * a call. Absent config means the feature is off (no query, no warning).
  */
 export interface BudgetConfig {
-  /** Threshold in USD. Must be a positive finite number; anything else is ignored. */
-  usd: number
+  /** Legacy single-window threshold in USD. Must be positive when supplied. */
+  usd?: number
   /**
    * Statistics window, defaulting to `"day"`. Boundaries are **UTC**
    * (`Date.UTC(...)` day/month starts), never the host's local midnight.
@@ -422,6 +422,12 @@ export interface BudgetConfig {
   window?: "day" | "month"
   /** Only `"warn"` is supported today; any other value is treated as invalid config. */
   onExceed?: "warn"
+  /** Read-only status limit for the UTC day, in integer micro-USD. */
+  dailyMicros?: number
+  /** Read-only status limit for the UTC calendar month, in integer micro-USD. */
+  monthlyMicros?: number
+  /** Status currency. USD is the only supported currency. */
+  currency?: "USD"
 }
 
 export interface ModelInfraConfig {

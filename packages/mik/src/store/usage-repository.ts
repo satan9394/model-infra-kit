@@ -10,6 +10,7 @@ import type {
   UsageTraceGroupBy,
   UsageTrendPoint,
 } from "../types.js"
+import type { BudgetUsageTotals } from "../usage/budget.js"
 import { RESERVED_TAG_KEYS } from "../usage/tags.js"
 import { asNumber, asString, toSqlValue, type SqlDriver, type SqlValue } from "./driver.js"
 import { fromMicroUsd, localDateKey, localHourKey, startOfLocalDay, toMicroUsd } from "./money.js"
@@ -450,6 +451,41 @@ export class UsageRepository {
       )
       .get(appId, from, to)
     return asNumber(row?.cost_micro)
+  }
+
+  /**
+   * Integer budget totals over one UTC range, including retained daily
+   * rollups. Rollup dates are local calendar keys, so any included archive is
+   * explicitly marked as having limited UTC allocation precision.
+   */
+  budgetTotals(appId: string, from: number, to: number): BudgetUsageTotals {
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+      return { spentMicros: 0, unpricedRequests: 0, archivedRequests: 0, historicalAllocationLimited: false }
+    }
+    const detail = this.driver
+      .prepare(
+        `SELECT
+          COALESCE(SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)), 0) AS spent_micro,
+          COALESCE(SUM(CASE WHEN COALESCE(pricing_source, 'missing') = 'missing' THEN 1 ELSE 0 END), 0) AS unpriced_requests
+         FROM usage_events WHERE app_id = ? AND ts >= ? AND ts < ?`,
+      )
+      .get(appId, from, to)
+    const rollup = this.driver
+      .prepare(
+        `SELECT
+          COALESCE(SUM(cost_microusd), 0) AS spent_micro,
+          COALESCE(SUM(request_count), 0) AS archived_requests
+         FROM usage_daily_rollups
+         WHERE app_id = ? AND date >= ? AND date <= ?`,
+      )
+      .get(appId, localDateKey(from), localDateKey(to - 1))
+    const archivedRequests = asNumber(rollup?.archived_requests)
+    return {
+      spentMicros: asNumber(detail?.spent_micro) + asNumber(rollup?.spent_micro),
+      unpricedRequests: asNumber(detail?.unpriced_requests),
+      archivedRequests,
+      historicalAllocationLimited: archivedRequests > 0,
+    }
   }
 
   summary(query: UsageQuery = {}): UsageSummary {

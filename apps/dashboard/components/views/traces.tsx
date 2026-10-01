@@ -1,3 +1,5 @@
+import { TraceWaterfall } from "@/components/trace-waterfall"
+import { traceTimeline } from "@/lib/trace-timeline"
 import Link from "next/link"
 import { Card, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { FilterPanel } from "@/components/filter-panel"
@@ -146,35 +148,11 @@ export default async function TracesView({ params }: { params: SearchParams }) {
           ) : (
             <div className="overflow-x-auto p-4">
               <div className="mb-3 flex flex-wrap justify-between gap-2 text-[11px] text-subtle">
-                <span>时间跨度 {formatMs(active.durationMs)} · 显示 {events.length} / {formatInt(active.requests)} 次调用</span>
+                <span>时间跨度 {formatMs(traceTimeline(events)[0]?.spanMs)} · 显示 {events.length} / {formatInt(active.requests)} 次调用</span>
                 {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} 次较早调用已归档</span> : null}
               </div>
-              <div className="mb-2 ml-[150px] h-px bg-surface-muted" />
-              <div className="min-w-[640px] space-y-2">
-                {events.map((event) => {
-                  const start = events[0]?.ts ?? event.ts
-                  const finish = events.at(-1)?.ts ?? event.ts
-                  const span = Math.max(1, finish - start)
-                  const left = Math.max(0, Math.min(96, ((event.ts - start) / span) * 100))
-                  const width = Math.max(3, Math.min(100 - left, ((event.latencyMs ?? 1) / span) * 100))
-                  return (
-                    <div key={event.requestId} className="grid grid-cols-[140px_minmax(180px,1fr)_minmax(200px,0.9fr)] items-center gap-3 rounded-lg border border-border bg-surface-muted px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="truncate font-mono text-[11px] text-foreground/80">{event.modelActual}</div>
-                        <div className="font-mono text-[10px] text-subtle/85">{formatDateTime(event.ts)}</div>
-                      </div>
-                      <div className="relative h-5 rounded bg-surface" aria-label={`${event.modelActual} latency ${formatMs(event.latencyMs)}`}>
-                        <div className="absolute top-1 h-3 rounded bg-info/80" style={{ left: `${left}%`, width: `${width}%` }} />
-                      </div>
-                      <div className="flex flex-wrap justify-between gap-x-3 text-[10px] text-subtle">
-                        <span>{formatMs(event.latencyMs)}</span>
-                        <span>{formatInt(event.usage.reasoning)} reasoning</span>
-                        <span className="font-mono text-foreground/80">{formatUsdSpan(event.cost.low, event.cost.high)}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
+              <p className="text-xs text-subtle">Reasoning {formatInt(events.reduce((sum, event) => sum + event.usage.reasoning, 0))}</p>
             </div>
           )}
         </Card>

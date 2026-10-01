@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
-import type { ProviderConfig } from "../types.js"
+import type { BudgetConfig, ProviderConfig } from "../types.js"
 import { defaultDbPath } from "../util/paths.js"
 import { writeGuarded } from "../util/pipe.js"
 import { redact } from "../util/redact.js"
@@ -33,12 +33,41 @@ export interface CliConfigFile {
    * (flag → env → file). Before this field existed the flag was accepted and dropped.
    */
   cacheDir?: string
+  /** Optional advisory daily/monthly budget limits loaded from this file. */
+  budget?: BudgetConfig
   /**
    * Consumed by `mik init` only. Keeping it out of the regular command path is
    * deliberate: a config file that re-seeded providers on every run would
    * resurrect a provider the user had just removed.
    */
   initialProviders?: ProviderConfig[]
+}
+
+function readBudgetConfig(value: unknown): BudgetConfig | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const source = value as Record<string, unknown>
+  // Keep an explicitly malformed field from disappearing and changing the
+  // meaning of a sibling legacy field (for example, invalid dailyMicros must
+  // not silently fall back to `usd`).
+  if (Object.hasOwn(source, "currency") && source.currency !== "USD") return undefined
+  if (Object.hasOwn(source, "window") && source.window !== "day" && source.window !== "month") return undefined
+  if (Object.hasOwn(source, "onExceed") && source.onExceed !== "warn") return undefined
+  if (
+    (Object.hasOwn(source, "dailyMicros") &&
+      (!Number.isSafeInteger(source.dailyMicros) || (source.dailyMicros as number) <= 0)) ||
+    (Object.hasOwn(source, "monthlyMicros") &&
+      (!Number.isSafeInteger(source.monthlyMicros) || (source.monthlyMicros as number) <= 0))
+  ) {
+    return undefined
+  }
+  const budget: BudgetConfig = {}
+  if (typeof source.usd === "number" && Number.isFinite(source.usd)) budget.usd = source.usd
+  if (source.window === "day" || source.window === "month") budget.window = source.window
+  if (source.onExceed === "warn") budget.onExceed = source.onExceed
+  if (Number.isSafeInteger(source.dailyMicros) && (source.dailyMicros as number) >= 0) budget.dailyMicros = source.dailyMicros as number
+  if (Number.isSafeInteger(source.monthlyMicros) && (source.monthlyMicros as number) >= 0) budget.monthlyMicros = source.monthlyMicros as number
+  if (source.currency === "USD") budget.currency = source.currency
+  return Object.keys(budget).length > 0 ? budget : undefined
 }
 
 export interface CliContext {
@@ -165,6 +194,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     if (typeof record.appId === "string" && record.appId) config.appId = record.appId
     if (typeof record.db === "string" && record.db) config.db = record.db
     if (typeof record.cacheDir === "string" && record.cacheDir) config.cacheDir = record.cacheDir
+    config.budget = readBudgetConfig(record.budget)
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     return config
   } catch (error) {
@@ -257,6 +287,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     cacheDir,
     syncCatalog: !offline && needsCatalogSync(parsed),
     pricingFetch: offline ? offlineFetch : undefined,
+    budget: config.budget,
     // Only the `warning:` frame is localized; a warning's *message* may come from
     // a third-party library (`llm-pricing`) and is deliberately passed through
     // untranslated — see the G14 report for that known cross-layer debt.

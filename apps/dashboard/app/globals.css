@@ -238,3 +238,7 @@
 @media (prefers-reduced-motion: reduce) {
   .nav-link { transition: none; }
 }
+
+@media (hover: none) {
+  .model-actions { opacity: 1; }
+}

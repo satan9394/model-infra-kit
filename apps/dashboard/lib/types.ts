@@ -254,6 +254,7 @@ export interface ProviderPayload {
 }
 
 export interface ModelsPayload {
+  defaultModel?: string | null
   models: ModelInfo[]
 }
 

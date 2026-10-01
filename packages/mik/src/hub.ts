@@ -30,6 +30,7 @@ import type {
   UsageEvent,
 } from "./types.js"
 import { UsageService, budgetBaseMicros, isUsableBudget, type BudgetDeps } from "./usage/service.js"
+import { checkBudgetStatus, type BudgetStatus } from "./usage/budget.js"
 import { sanitizeTags } from "./usage/tags.js"
 import { redact } from "./util/redact.js"
 
@@ -263,7 +264,11 @@ function budgetDepsFor(
   context: { store: Store; appId: string; warn: (message: string, error?: unknown) => void },
 ): BudgetDeps | undefined {
   if (!budget) return undefined
-  if (!isUsableBudget(budget)) return { ...budget }
+  // Micro-USD limits are status-only by design. Preserve the legacy warning
+  // path for an explicitly supplied legacy field, but do not warn about a
+  // valid micros-only status configuration during init.
+  const hasLegacyFields = Object.hasOwn(budget, "usd") || Object.hasOwn(budget, "window") || Object.hasOwn(budget, "onExceed")
+  if (!isUsableBudget(budget)) return hasLegacyFields ? { ...budget } : undefined
   const window = budget.window ?? "day"
   const now = Date.now()
   return {
@@ -326,6 +331,7 @@ export class ModelInfra {
   private readonly fallbackChain: string[]
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
+  private readonly budgetConfig: BudgetConfig | undefined
   private closePromise: Promise<void> | undefined
   private baseUrlValue: string
 
@@ -346,6 +352,7 @@ export class ModelInfra {
     fallbackChain: string[]
     reasoningTimeoutMs: number | undefined
     keyCooldownMs: number
+    budgetConfig: BudgetConfig | undefined
     syncCatalog: boolean
   }) {
     this.appId = deps.appId
@@ -365,6 +372,7 @@ export class ModelInfra {
     this.fallbackChain = deps.fallbackChain
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
+    this.budgetConfig = deps.budgetConfig
 
     const forward = createMikFetch({
       // Checked here as well as in `resolveModel`: the adapter resolves the
@@ -421,6 +429,12 @@ export class ModelInfra {
   get catalog(): ModelCatalogService {
     this.assertOpen("catalog")
     return this.canonicalCatalog
+  }
+
+  /** Read the advisory daily/monthly budget status without affecting routing. */
+  budgetStatus(now = Date.now()): BudgetStatus {
+    this.assertOpen("budgetStatus()")
+    return checkBudgetStatus(this.usageService, this.budgetConfig, now)
   }
 
   /**
@@ -546,6 +560,7 @@ export class ModelInfra {
       fallbackChain,
       reasoningTimeoutMs,
       keyCooldownMs,
+      budgetConfig: config.budget,
       syncCatalog: config.syncCatalog ?? true,
     })
   }
@@ -608,9 +623,10 @@ export class ModelInfra {
 
   private routeCandidates(
     primary: ResolvedModelRef,
-    requestFallbacks: string[] | undefined,
+    requestFallbacks: string[] | false | undefined,
   ): Array<{ resolved: ResolvedModelRef; modelRef: string }> {
     const candidates = [{ resolved: primary, modelRef: `${primary.providerId}:${primary.modelId}` }]
+    if (requestFallbacks === false) return candidates
     const seen = new Set([candidates[0]!.modelRef])
     for (const reference of [...(requestFallbacks ?? []), ...this.fallbackChain]) {
       if (typeof reference !== "string" || !reference.trim() || seen.has(reference.trim())) continue

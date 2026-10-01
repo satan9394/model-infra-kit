@@ -63,7 +63,17 @@ export {
   type ModelPricingTierSource,
 } from "./pricing/index.js"
 
-export { UsageService, type UsageServiceDeps } from "./usage/index.js"
+export {
+  UsageService,
+  checkBudgetStatus,
+  type BudgetPeriod,
+  type BudgetStatus,
+  type BudgetStatusLevel,
+  type BudgetUsageReader,
+  type BudgetUsageSnapshot,
+  type BudgetUsageTotals,
+  type UsageServiceDeps,
+} from "./usage/index.js"
 export { KeyPool, normalizeRefs, type KeyPoolSelection } from "./router/key-pool.js"
 
 export {

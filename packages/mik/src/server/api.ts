@@ -1,10 +1,15 @@
 import { PROTOCOL_PACKAGES } from "../registry/presets.js"
-import type { CostInfo, Protocol, ProviderConfig, TokenUsage, UsageEvent } from "../types.js"
+import { lookup } from "node:dns/promises"
+import { performance } from "node:perf_hooks"
+import { splitModelRef } from "../registry/registry.js"
+import type { CostInfo, Protocol, ProviderConfig, StreamEvent, TokenUsage, UsageEvent } from "../types.js"
 import { costBound } from "../usage/service.js"
-import { redactDeep } from "../util/redact.js"
+import { redact, redactDeep } from "../util/redact.js"
 import { HttpError, type ServerContext } from "./context.js"
-import { parseUsageQuery, readJsonBody, sendJson } from "./http.js"
+import { parseUsageQuery, readJsonBody, sendJson, statusForCode } from "./http.js"
+import { assertSafeOutboundUrl } from "./outbound.js"
 import type { Router } from "./router.js"
+import { registerBudgetRoutes } from "./routes/budget.js"
 import { SseStream } from "./sse.js"
 
 function isProtocol(value: unknown): value is Protocol {
@@ -21,51 +26,6 @@ function stringRecord(value: unknown, field: string): Record<string, string> {
     output[key] = item
   }
   return output
-}
-
-/**
- * SSRF guard for the outbound endpoints (`provider test`, `models refresh`,
- * `pricing sync`). Only `http`/`https` is allowed, and the host must not be a
- * link-local or cloud-metadata address (169.254.0.0/16, fe80::/10, 0.0.0.0,
- * `[::]`). Loopback stays allowed: local mocks and dev servers are legitimate.
- */
-function assertSafeOutboundUrl(value: string | undefined, what: string): void {
-  if (value === undefined || value.trim() === "") return
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    throw new HttpError(400, `"${what}" is not a valid URL.`, "INVALID_REQUEST")
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new HttpError(400, `"${what}" must use http(s), not "${url.protocol}".`, "INVALID_REQUEST")
-  }
-  if (isForbiddenAddress(url.hostname)) {
-    throw new HttpError(
-      400,
-      `"${what}" points at a link-local or cloud-metadata address and is refused.`,
-      "INVALID_REQUEST",
-    )
-  }
-}
-
-/** Literal address blocked by the SSRF guard. Hostnames resolve to allow-listed names. */
-function isForbiddenAddress(host: string): boolean {
-  const value = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host
-  const lower = value.toLowerCase()
-  if (lower === "0.0.0.0" || lower === "::" || lower === "::0") return true
-  // IPv4-mapped IPv6 (`::ffff:a.b.c.d`) is the same address as the quad.
-  if (lower.startsWith("::ffff:")) return isForbiddenAddress(lower.slice(7))
-  if (lower.includes(":")) {
-    // fe80::/10 → the first hextet is fe8x–febx. `::1` (loopback) is allowed.
-    return /^fe[89ab][0-9a-f]/.test(lower)
-  }
-  const parts = lower.split(".")
-  if (parts.length !== 4) return false
-  const octets = parts.map((part) => Number(part))
-  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false
-  // Cloud metadata / link-local: 169.254.0.0/16. Loopback 127.0.0.0/8 is allowed.
-  return octets[0] === 169 && octets[1] === 254
 }
 
 /** The mutable provider fields an HTTP body may set. Unknown keys are ignored. */
@@ -122,6 +82,118 @@ const TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"]
 
 /** A missing cost is `missing`, exactly as an unmetered hub call is. */
 const MISSING_COST = (model: string): CostInfo => ({ usd: 0, low: 0, high: 0, basis: "unknown", source: "missing", pricingModel: model })
+
+const MODEL_PING_PROMPT = "ping"
+const MODEL_PING_MAX_OUTPUT_TOKENS = 4
+const MODEL_PING_TIMEOUT_MS = 10_000
+
+function discoveredModel(ctx: ServerContext, rawRef: string): { ref: string; providerId: string } {
+  const ref = rawRef.trim()
+  const parsed = splitModelRef(ref)
+  if (!parsed) {
+    throw new HttpError(400, `Invalid model reference "${ref}". Expected "provider:model".`, "INVALID_REQUEST")
+  }
+  const model = ctx.hub.models.get(ref)
+  if (!model) throw new HttpError(404, `No discovered model matches "${ref}".`, "MODEL_NOT_FOUND")
+  const provider = ctx.hub.providers.get(parsed.providerId)
+  if (!provider) throw new HttpError(404, `Provider "${parsed.providerId}" is not configured.`, "PROVIDER_NOT_FOUND")
+  assertSafeOutboundUrl(provider.baseUrl, `provider "${parsed.providerId}" baseUrl`)
+  return { ref: model.ref, providerId: parsed.providerId }
+}
+
+function pingStreamError(event: Extract<StreamEvent, { type: "error" }>): HttpError {
+  const status = event.error.code === "ABORTED" ? 504 : statusForCode(event.error.code)
+  return new HttpError(status, redact(event.error.message), event.error.code)
+}
+
+async function pingModel(ctx: ServerContext, rawRef: string): Promise<void> {
+  const target = discoveredModel(ctx, rawRef)
+  const baseUrl = ctx.hub.providers.get(target.providerId)?.baseUrl
+  let dnsMs: number | null = null
+  let dnsNote = "DNS lookup unavailable: no explicit provider base URL."
+  if (baseUrl) {
+    const started = performance.now()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        lookup(new URL(baseUrl).hostname.replace(/^\[|\]$/g, "")),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("DNS timeout")), 1000) }),
+      ])
+      dnsMs = Math.round((performance.now() - started) * 100) / 100
+      dnsNote = "Separate OS DNS preflight lookup; may use cache. Not the SDK connection DNS phase."
+    } catch {
+      dnsNote = "Separate DNS preflight lookup failed or timed out; model request still attempted."
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+  const startedAt = Date.now()
+  const signal = AbortSignal.timeout(MODEL_PING_TIMEOUT_MS)
+  const chunks: string[] = []
+  let firstTokenMs: number | null = null
+  let usage: TokenUsage | undefined
+  let finished = false
+
+  try {
+    for await (const event of ctx.hub.stream({
+      model: target.ref,
+      messages: [{ role: "user", content: MODEL_PING_PROMPT }],
+      maxTokens: MODEL_PING_MAX_OUTPUT_TOKENS,
+      fallbackChain: false,
+      signal,
+    })) {
+      switch (event.type) {
+        case "text_delta":
+          if (event.text.length > 0 && firstTokenMs === null) firstTokenMs = Date.now() - startedAt
+          chunks.push(event.text)
+          break
+        case "step_finish":
+          usage = event.usage
+          break
+        case "usage":
+          usage = event.usage
+          break
+        case "finish":
+          finished = true
+          if (!usage) usage = event.response.usage
+          break
+        case "error":
+          throw pingStreamError(event)
+        default:
+          break
+      }
+    }
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    if (signal.aborted) throw new HttpError(504, "Model ping timed out.", "TIMEOUT")
+    const message = error instanceof Error ? error.message : String(error)
+    throw new HttpError(502, redact(message) || "Model ping failed.", "PROVIDER")
+  }
+
+  if (!finished) throw new HttpError(502, "Model ping ended without a completed response.", "PROVIDER")
+
+  const latencyMs = Math.max(0, Date.now() - startedAt)
+  const outputTokens = usage?.output ?? 0
+  const reasoningTokens = usage?.reasoning ?? 0
+  const visibleOutputTokens = Math.max(0, outputTokens - reasoningTokens)
+  const postFirstTokenMs = firstTokenMs === null ? 0 : latencyMs - firstTokenMs
+  const tokensPerSecond =
+    firstTokenMs !== null && postFirstTokenMs > 0 ? visibleOutputTokens / (postFirstTokenMs / 1000) : firstTokenMs === null ? null : 0
+
+  sendJson(ctx.res, 200, {
+    ref: target.ref,
+    prompt: MODEL_PING_PROMPT,
+    maxOutputTokens: MODEL_PING_MAX_OUTPUT_TOKENS,
+    latencyMs,
+    firstTokenMs,
+    dnsMs,
+    dnsNote,
+    outputTokens,
+    reasoningTokens,
+    tokensPerSecond,
+    text: redact(chunks.join("")),
+  })
+}
 
 function requiredText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
@@ -271,6 +343,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
 }
 
 export function registerApiRoutes(router: Router): void {
+  registerBudgetRoutes(router)
   router
     .add("GET", "/api/health", (ctx) => {
       const pricing = ctx.hub.pricing.state()
@@ -357,7 +430,7 @@ export function registerApiRoutes(router: Router): void {
 
     .add("GET", "/api/models", (ctx) => {
       const provider = ctx.url.searchParams.get("provider") ?? undefined
-      sendJson(ctx.res, 200, { models: ctx.hub.models.list(provider) })
+      sendJson(ctx.res, 200, { models: ctx.hub.models.list(provider), defaultModel: ctx.hub.providers.defaultModel() })
     })
 
     .add("GET", "/api/models/:ref", (ctx) => {
@@ -365,6 +438,16 @@ export function registerApiRoutes(router: Router): void {
       const model = ctx.hub.models.get(ref)
       if (!model) throw new HttpError(404, `No model matches "${ref}".`, "MODEL_NOT_FOUND")
       sendJson(ctx.res, 200, { model })
+    })
+
+    .add("PUT", "/api/models/:ref/default", (ctx) => {
+      const target = discoveredModel(ctx, ctx.params.ref!)
+      ctx.hub.providers.setDefaultModel(target.ref)
+      sendJson(ctx.res, 200, { defaultModel: target.ref })
+    })
+
+    .add("POST", "/api/models/:ref/ping", async (ctx) => {
+      await pingModel(ctx, ctx.params.ref!)
     })
 
     .add("GET", "/api/pricing", (ctx) => {

@@ -1,5 +1,5 @@
 import { LiveRefresh } from "@/components/live-refresh"
-import { ModelsClient } from "@/components/models-client"
+import { ModelsClient } from "@/components/views/models"
 import { PageHeader } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
 import { loadModelCatalog, loadModelsWithPricing, loadShell } from "@/lib/server-data"
@@ -25,6 +25,7 @@ export default async function ModelsPage() {
       <UpstreamNotice message={errors[0]} />
       <ModelsClient
         models={catalog.ok ? catalog.data.models : shell.models}
+        defaultModel={catalog.ok ? catalog.data.defaultModel : undefined}
         providers={shell.providers}
         catalogModels={modelCatalog.ok ? modelCatalog.data.models : []}
         catalogBindings={modelCatalog.ok ? modelCatalog.data.bindings : []}
