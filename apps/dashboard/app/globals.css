@@ -32,6 +32,14 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Touch users have no hover gesture to reveal provider controls. */
+@media (hover: none) {
+  .provider-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 :root {
   color-scheme: light;
 }

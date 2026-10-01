@@ -10,7 +10,7 @@ import type {
   ProviderCreatePayload,
   ProviderUpdatePayload,
 } from "@/lib/provider-presets"
-import { formatDateTime, formatMs } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 import type { ModelInfo, ProviderRecord, ProviderStatus } from "@/lib/types"
 import { Badge, EmptyState } from "@/components/ui"
 
@@ -25,7 +25,22 @@ interface RowState {
 }
 
 const actionBtnClass =
-  "inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-foreground transition-all hover:border-border-strong hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+
+function ActionIcon({ action, spinning = false }: { action: "test" | "sync" | "models" | "edit" | "delete"; spinning?: boolean }) {
+  const paths = {
+    test: "M13 2 3 14h8l-1 8 11-12h-8l1-8Z",
+    sync: "M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 3M4.7 14.9a8 8 0 0 0 13.2 3",
+    models: "m12 3 9 5-9 5-9-5 9-5ZM3 8v8l9 5 9-5V8M12 13v8M7.5 5.5l9 5",
+    edit: "m16 3 5 5-12 12-6 1 1-6L16 3ZM14 5l5 5",
+    delete: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
+  }
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={`size-4 ${spinning ? "motion-safe:animate-spin" : ""}`}>
+      <path d={paths[action]} />
+    </svg>
+  )
+}
 
 export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) {
   const router = useRouter()
@@ -200,7 +215,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
               </div>
             </div>
             <p className="mt-1 text-xs text-subtle">
-              对标 CC Switch 现代桌面流线质感：品牌快速识别、健康延迟监测与轻量悬停控制。
+              管理供应商端点，测试连接并同步可用模型。
             </p>
           </div>
 
@@ -229,93 +244,106 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
             }
           />
         ) : (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="space-y-3">
             {providers.map((provider) => {
               const row = rows[provider.id] ?? {}
               const modelRackId = `provider-models-${encodeURIComponent(provider.id)}`
               const brand = getProviderBrand(provider.id, provider.presetId, provider.protocol)
 
               // Status determination
-              const isTested = Boolean(row.status)
               const isOnline = row.status?.ok === true
               const isOffline = row.status && !row.status.ok
 
               return (
                 <article
                   key={provider.id}
-                  className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-xs transition-all hover:border-border-strong hover:shadow-md"
+                  className="group/provider relative overflow-hidden rounded-xl border border-border bg-surface p-3.5 transition-all duration-200 hover:border-border-strong hover:shadow-xs motion-reduce:transition-none"
                 >
-                  {/* Left Brand Active Indicator Bar */}
                   <span
-                    className={`absolute inset-y-0 left-0 w-1 transition-colors ${
-                      provider.enabled ? "bg-primary" : "bg-border-strong/60"
-                    }`}
                     aria-hidden="true"
+                    className={`pointer-events-none absolute inset-0 bg-gradient-to-r to-transparent transition-opacity duration-300 motion-reduce:transition-none ${provider.enabled ? "from-primary/10 opacity-100" : "opacity-0"}`}
                   />
-
-                  <div>
-                    {/* Top Row: Brand Avatar, Name, Protocol, Latency, and Switch */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 pl-2">
-                      <div className="flex min-w-0 items-center gap-3">
+                  <div className="relative">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
                         <div
-                          className="flex size-10 shrink-0 items-center justify-center rounded-xl font-mono text-xs font-bold text-white shadow-xs"
+                          className="flex size-9 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-bold text-white"
                           style={{ backgroundColor: brand.color }}
                           aria-hidden="true"
                         >
                           {brand.shortTag}
                         </div>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-semibold tracking-tight text-foreground" title={provider.name || provider.id}>
                               {provider.name || provider.id}
                             </h3>
                             <Badge tone="info">{provider.protocol ?? "openai-compatible"}</Badge>
+                            <code className="truncate font-mono text-[11px] text-subtle" title={provider.id}>{provider.id}</code>
                           </div>
-                          <div className="mt-0.5 flex items-center gap-2">
-                            <code className="truncate font-mono text-[11px] text-subtle">{provider.id}</code>
-                            {/* Health Indicator Dot */}
-                            <span className="flex items-center gap-1.5 text-[11px] font-medium text-subtle">
-                              <span
-                                className={`size-2 rounded-full transition-colors ${
-                                  row.testing
-                                    ? "animate-pulse bg-warn"
-                                    : isOnline
-                                      ? "bg-positive shadow-[0_0_8px_rgba(16,185,129,0.5)]"
-                                      : isOffline
-                                        ? "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.5)]"
-                                        : "bg-subtle/60"
-                                }`}
-                                aria-hidden="true"
-                              />
-                              <span>
-                                {row.testing
-                                  ? "测速中"
-                                  : isOnline
-                                    ? "在线"
-                                    : isOffline
-                                      ? "异常"
-                                      : "未测速"}
-                              </span>
-                            </span>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                            {provider.baseUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => void copyBaseUrl(provider)}
+                                className="min-w-0 max-w-full truncate rounded text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                aria-label={`复制 ${provider.id} 的 Base URL`}
+                                title={provider.baseUrl}
+                              >
+                                {copiedId === provider.id ? "已复制 ✓" : provider.baseUrl}
+                              </button>
+                            ) : <span>默认官方端点</span>}
+                            <code className="min-w-0 max-w-full truncate text-subtle" title={provider.apiKeyRef || "未配置 (免鉴权)"}>
+                              {provider.apiKeyRef || "未配置 (免鉴权)"}
+                            </code>
                           </div>
                         </div>
                       </div>
 
-                      {/* Top Right: Latency Pill & Enabled Switch */}
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                        <div role="status" className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${
+                          row.testing ? "border-warning/30 bg-warning/10 text-warning"
+                            : isOnline ? "border-positive/30 bg-positive/10 text-positive"
+                              : isOffline ? "border-danger/30 bg-danger/10 text-danger"
+                                : "border-border bg-surface-muted/50 text-subtle"
+                        }`}>
+                          <span aria-hidden="true" className={`size-1.5 rounded-full bg-current ${row.testing || isOnline || isOffline ? "motion-safe:animate-pulse shadow-[0_0_8px_currentColor]" : ""}`} />
+                          {row.testing ? "测速中" : isOnline ? "在线" : isOffline ? "异常" : "未测速"}
+                        </div>
                         {typeof row.status?.latencyMs === "number" ? (
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-[11px] font-bold tracking-tight shadow-xs ${
-                              row.status.ok
-                                ? "border border-positive/30 bg-positive/10 text-positive"
-                                : "border border-danger/30 bg-danger/10 text-danger"
+                            className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[11px] tabular-nums ${
+                              row.status.latencyMs < 300
+                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                : row.status.latencyMs < 500
+                                  ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                  : row.status.latencyMs < 800
+                                    ? "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                    : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
                             }`}
                             aria-label="网络延迟"
                           >
-                            <span>⚡</span>
-                            <span>{formatMs(row.status.latencyMs)}</span>
+                            {Math.round(row.status.latencyMs)}ms
                           </span>
                         ) : null}
+
+                        <div className="provider-actions flex items-center gap-1 opacity-0 pointer-events-none group-hover/provider:opacity-100 group-focus-within/provider:opacity-100 group-hover/provider:pointer-events-auto group-focus-within/provider:pointer-events-auto transition-opacity duration-200 motion-reduce:transition-none">
+                          <button type="button" onClick={() => void test(provider.id)} disabled={row.testing} title="测试网络连接与测速" aria-label={row.testing ? "测速中" : "测速"} className={actionBtnClass}>
+                            <ActionIcon action="test" spinning={row.testing} />
+                          </button>
+                          <button type="button" onClick={() => void refreshModels(provider.id)} disabled={row.refreshing} title="同步最新模型目录" aria-label={row.refreshing ? "同步中" : "同步模型"} className={actionBtnClass}>
+                            <ActionIcon action="sync" spinning={row.refreshing} />
+                          </button>
+                          <button type="button" aria-expanded={Boolean(row.open)} aria-controls={modelRackId} aria-label={row.open ? "收起模型列表" : "展开模型列表"} title={row.models ? `模型列表（${row.models.length} 款）` : "模型列表"} onClick={() => void toggleModels(provider.id)} className={`${actionBtnClass} ${row.open ? "bg-primary-soft text-primary" : ""}`}>
+                            <ActionIcon action="models" />
+                          </button>
+                          <button type="button" onClick={() => setEditingProvider(provider)} title="编辑供应商配置" aria-label="编辑供应商配置" className={actionBtnClass}>
+                            <ActionIcon action="edit" />
+                          </button>
+                          <button type="button" onClick={() => void remove(provider)} disabled={busy === provider.id} title="删除该供应商" aria-label="删除该供应商" className={`${actionBtnClass} hover:bg-danger/10 hover:text-danger focus-visible:ring-danger`}>
+                            <ActionIcon action="delete" />
+                          </button>
+                        </div>
 
                         <button
                           type="button"
@@ -324,58 +352,14 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                           aria-label={`${provider.name || provider.id}：${provider.enabled ? "已启用" : "已停用"}`}
                           onClick={() => void setEnabled(provider, !provider.enabled)}
                           disabled={busy === provider.id}
-                          className="group inline-flex shrink-0 items-center gap-2 rounded-lg p-1 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+                          className="inline-flex shrink-0 items-center rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
                         >
-                          <span
-                            className={`relative h-5 w-9 rounded-full transition-colors ${
-                              provider.enabled ? "bg-positive" : "bg-border-strong"
-                            }`}
-                            aria-hidden="true"
-                          >
-                            <span
-                              className={`absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-xs transition-transform ${
-                                provider.enabled ? "translate-x-4" : "translate-x-0"
-                              }`}
-                            />
+                          <span aria-hidden="true" className={`relative h-5 w-9 rounded-full transition-colors ${provider.enabled ? "bg-positive" : "bg-border-strong"}`}>
+                            <span className={`absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-xs transition-transform motion-reduce:transition-none ${provider.enabled ? "translate-x-4" : "translate-x-0"}`} />
                           </span>
                         </button>
                       </div>
                     </div>
-
-                    {/* Metadata Strip: Base URL & API Key Ref */}
-                    <div className="mt-3.5 grid gap-2.5 rounded-xl border border-border/60 bg-surface-muted/40 p-2.5 pl-3 sm:grid-cols-2">
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-medium text-subtle">Base URL</span>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-                          <code className="truncate font-mono text-xs text-foreground/90">
-                            {provider.baseUrl || "默认官方端点"}
-                          </code>
-                          {provider.baseUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => void copyBaseUrl(provider)}
-                              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                              aria-label={`复制 ${provider.id} 的 Base URL`}
-                            >
-                              {copiedId === provider.id ? "已复制 ✓" : "复制"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-medium text-subtle">API Key 引用</span>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-                          <span className="shrink-0 text-primary" aria-hidden="true">
-                            ⌑
-                          </span>
-                          <code className="truncate font-mono text-xs text-foreground/90">
-                            {provider.apiKeyRef || "未配置 (免鉴权)"}
-                          </code>
-                        </div>
-                      </div>
-                    </div>
-
                     {/* Status Notice message if any */}
                     {row.status?.message ? (
                       <p
@@ -396,20 +380,21 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                         {row.error}
                       </p>
                     ) : null}
-
-                    {/* Model Rack Collapsible Area */}
-                    {row.open ? (
-                      <div
-                        id={modelRackId}
-                        className="mt-3 overflow-hidden rounded-xl border border-border/80 bg-surface-muted/50 p-3"
-                      >
+                    <div
+                      id={modelRackId}
+                      inert={!row.open}
+                      aria-hidden={!row.open}
+                      className={`grid transition-[grid-template-rows,opacity] duration-200 motion-reduce:transition-none ${row.open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="mt-3 rounded-lg border border-border/80 bg-surface-muted/50 p-3">
                         {row.loadingModels ? (
                           <p role="status" className="text-xs text-subtle">
                             正在读取模型目录…
                           </p>
                         ) : (row.models?.length ?? 0) === 0 ? (
                           <p className="text-xs leading-5 text-subtle">
-                            暂无已发现模型。点击下方「同步模型」拉取最新目录。
+                            暂无已发现模型。点击「同步模型」图标拉取最新目录。
                           </p>
                         ) : (
                           <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto pr-1">
@@ -427,73 +412,10 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                             ))}
                           </div>
                         )}
+                        </div>
                       </div>
-                    ) : null}
-                  </div>
-
-                  {/* Bottom Action Footer: Model Rack Pill & Lightweight Action Toolbar */}
-                  <footer className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 pl-2">
-                    <button
-                      type="button"
-                      aria-expanded={Boolean(row.open)}
-                      aria-controls={modelRackId}
-                      onClick={() => void toggleModels(provider.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border/80 bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <span>📦</span>
-                      <span>
-                        {row.models ? `${row.models.length} 款模型` : "模型列表"}
-                      </span>
-                      <span className="text-[10px] text-subtle" aria-hidden="true">
-                        {row.open ? "▴" : "▾"}
-                      </span>
-                    </button>
-
-                    {/* Lightweight Hover Actions */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void test(provider.id)}
-                        disabled={row.testing}
-                        title="测试网络连接与测速"
-                        className={`${actionBtnClass} text-primary`}
-                      >
-                        <span>⚡</span>
-                        <span>{row.testing ? "测速中" : "测速"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void refreshModels(provider.id)}
-                        disabled={row.refreshing}
-                        title="同步最新模型目录"
-                        className={actionBtnClass}
-                      >
-                        <span>🔄</span>
-                        <span>{row.refreshing ? "同步中" : "同步"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setEditingProvider(provider)}
-                        title="编辑供应商配置"
-                        className={actionBtnClass}
-                      >
-                        <span>✏️</span>
-                        <span>编辑</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void remove(provider)}
-                        disabled={busy === provider.id}
-                        title="删除该供应商"
-                        className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-surface px-2 py-1.5 text-xs font-medium text-danger transition-all hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-50"
-                      >
-                        <span>🗑️</span>
-                      </button>
                     </div>
-                  </footer>
+                  </div>
                 </article>
               )
             })}
