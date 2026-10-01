@@ -5,72 +5,60 @@ import { usePathname } from "next/navigation"
 import { useTheme } from "@/components/theme-provider"
 import type { ThemePreference } from "@/lib/theme"
 
-const LINKS: ReadonlyArray<{ href: string; label: string; hint: string }> = [
-  { href: "/", label: "概览", hint: "成本 / 请求 / token" },
-  { href: "/trends", label: "趋势", hint: "按天堆叠与成本" },
-  { href: "/traces", label: "Agent 任务", hint: "Session / Trace 成本链路" },
-  { href: "/providers", label: "供应商", hint: "连接与模型" },
-  { href: "/models", label: "模型目录", hint: "能力与价格" },
-  { href: "/pricing", label: "价格表", hint: "手动价与同步" },
-  { href: "/logs", label: "请求日志", hint: "分页与详情" },
-]
+const LINKS = [
+  { href: "/", label: "概览", hint: "成本与用量", icon: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z" },
+  { href: "/trends", label: "趋势", hint: "每日用量变化", icon: "M3 3v18h18 M6 15l4-5 4 3 6-8" },
+  { href: "/traces", label: "Agent 任务", hint: "Session / Trace 成本链路", icon: "M5 4v12a4 4 0 0 0 4 4h7 M5 8h11 M16 5l3 3-3 3 M16 17l3 3-3 3" },
+  { href: "/logs", label: "请求日志", hint: "逐次请求与成本", icon: "M8 3h8l4 4v14H4V3h4 M8 11h8 M8 15h8 M8 7h3" },
+  { href: "/providers", label: "供应商", hint: "连接与模型", icon: "M8 3v5 M16 3v5 M5 8h14v3a7 7 0 0 1-14 0V8 M12 18v3" },
+  { href: "/models", label: "模型目录", hint: "能力与价格", icon: "m12 3 9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 16l9 5 9-5" },
+  { href: "/pricing", label: "价格表", hint: "手动价与同步", icon: "M3 3h8l10 10-8 8L3 11V3z M7 7h.01" },
+] as const
+
+function NavIcon({ path }: { path: string }) {
+  return <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={path} /></svg>
+}
 
 export function Nav() {
   const pathname = usePathname()
   const { preference, setPreference } = useTheme()
   const themeOptions: ReadonlyArray<{ value: ThemePreference; icon: string; label: string }> = [
-    { value: "light", icon: "☀️", label: "浅色" },
-    { value: "dark", icon: "🌙", label: "深色" },
-    { value: "system", icon: "💻", label: "跟随系统" },
+    { value: "light", icon: "M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5.6 5.6 7 7 M17 17l1.4 1.4 M5.6 18.4 7 17 M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0", label: "浅色" },
+    { value: "dark", icon: "M20.8 13A9 9 0 0 1 11 3.2 9 9 0 1 0 20.8 13Z", label: "深色" },
+    { value: "system", icon: "M3 4h18v13H3z M8 21h8 M12 17v4", label: "跟随系统" },
   ]
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border/80 bg-background/90 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3">
-        <Link href="/" className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold tracking-wide text-foreground">mik</span>
-          <span className="text-xs text-subtle">用量看板</span>
-        </Link>
-        <nav className="flex flex-wrap items-center gap-1">
-          {LINKS.map((link) => {
-            const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                title={link.hint}
-                className={
-                  active
-                    ? "rounded-md bg-primary-soft px-3 py-1.5 text-sm font-medium text-primary"
-                    : "rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-                }
-              >
-                {link.label}
+    <aside className="dashboard-nav">
+      <Link href="/" className="dashboard-brand" aria-label="mik 用量看板首页">
+        <span className="brand-mark" aria-hidden="true"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17V7l5 5 4-5v10 M17 7v10 M21 7v10" /></svg></span>
+        <span><span className="block text-xl font-semibold tracking-tight">mik<span className="ml-1.5 text-sm font-normal text-subtle">console</span></span><span className="brand-caption">模型用量与成本</span></span>
+      </Link>
+      <nav className="dashboard-nav-links" aria-label="主导航">
+        <p className="nav-group-label">观测</p>
+        {LINKS.map((link, index) => {
+          const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)
+          return (
+            <div key={link.href} className="nav-item">
+              {index === 4 ? <p className="nav-group-label mt-7">管理</p> : null}
+              <Link href={link.href} title={link.hint} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "nav-link-active" : ""}`}>
+                <NavIcon path={link.icon} /><span>{link.label}</span>
+                {active ? <span className="nav-active-dot" aria-hidden="true" /> : null}
               </Link>
-            )
-          })}
-        </nav>
-        <div className="ml-auto flex items-center gap-0.5 rounded-lg border border-border bg-surface p-1" role="group" aria-label="颜色主题">
+            </div>
+          )
+        })}
+      </nav>
+      <div className="nav-footer">
+        <div className="nav-product-note"><span className="block font-medium text-foreground">model-infra-kit</span><span className="mt-1 block">每一次调用，都有迹可循。</span></div>
+        <div className="theme-switch" role="group" aria-label="颜色主题">
           {themeOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-label={`${option.label}主题`}
-              aria-pressed={preference === option.value}
-              title={option.label}
-              onClick={() => setPreference(option.value)}
-              className={
-                preference === option.value
-                  ? "inline-flex items-center gap-1 rounded-md bg-surface-active px-2 py-1.5 text-xs font-medium text-foreground shadow-sm"
-                  : "inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-              }
-            >
-              <span aria-hidden="true">{option.icon}</span>
-              <span className="hidden sm:inline">{option.label}</span>
+            <button key={option.value} type="button" aria-label={`${option.label}主题`} aria-pressed={preference === option.value} title={option.label} onClick={() => setPreference(option.value)} className={`theme-option ${preference === option.value ? "theme-option-active" : ""}`}>
+              <NavIcon path={option.icon} /><span>{option.label === "跟随系统" ? "系统" : option.label}</span>
             </button>
           ))}
         </div>
       </div>
-    </header>
+    </aside>
   )
 }

@@ -13,16 +13,17 @@ export function RangePicker({ range, params }: { range: ResolvedRange; params: S
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex overflow-hidden rounded-md border border-border">
+      <div className="range-presets" role="group" aria-label="日期范围">
         {RANGE_PRESETS.filter((preset) => preset.value !== "custom").map((preset) => (
           <button
             key={preset.value}
             type="button"
+            aria-pressed={range.preset === preset.value}
             onClick={() => router.push(withRange(params, { range: preset.value as RangePreset }))}
             className={
               range.preset === preset.value
-                ? "bg-surface-active px-3 py-1.5 text-xs font-medium text-foreground"
-                : "px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+                ? "range-preset range-preset-active"
+                : "range-preset"
             }
           >
             {preset.label}
@@ -38,20 +39,22 @@ export function RangePicker({ range, params }: { range: ResolvedRange; params: S
       >
         <input
           type="date"
+          aria-label="开始日期"
           value={from}
           onChange={(event: ChangeEvent<HTMLInputElement>) => setFrom(event.target.value)}
-          className="rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="filter-control"
         />
         <span className="text-xs text-subtle/85">~</span>
         <input
           type="date"
+          aria-label="结束日期"
           value={to}
           onChange={(event: ChangeEvent<HTMLInputElement>) => setTo(event.target.value)}
-          className="rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="filter-control"
         />
         <button
           type="submit"
-          className="rounded-md border border-border-strong bg-surface-muted px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="filter-action"
         >
           应用
         </button>
@@ -100,11 +103,11 @@ export function FilterBar({
     : models.filter((model) => providerIds.size === 0 || providerIds.has(model.providerId))
 
   const selectClass =
-    "rounded-md border border-border bg-surface-control px-2 py-1.5 text-xs text-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
+    "filter-control filter-select"
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select value={currentProvider} onChange={(event) => push({ provider: event.target.value, model: "" })} className={selectClass}>
+      <select aria-label="供应商筛选" value={currentProvider} onChange={(event) => push({ provider: event.target.value, model: "" })} className={selectClass}>
         <option value="">全部供应商</option>
         {providers.map((provider) => (
           <option key={provider.id} value={provider.id}>
@@ -112,7 +115,7 @@ export function FilterBar({
           </option>
         ))}
       </select>
-      <select value={currentModel} onChange={(event) => push({ model: event.target.value })} className={selectClass}>
+      <select aria-label="模型筛选" value={currentModel} onChange={(event) => push({ model: event.target.value })} className={selectClass}>
         <option value="">全部模型</option>
         {visibleModels.map((model) => (
           <option key={model.ref} value={model.modelId}>
@@ -121,7 +124,7 @@ export function FilterBar({
         ))}
       </select>
       {status ? (
-        <select value={currentStatus} onChange={(event) => push({ status: event.target.value })} className={selectClass}>
+        <select aria-label="请求状态筛选" value={currentStatus} onChange={(event) => push({ status: event.target.value })} className={selectClass}>
           <option value="">全部状态</option>
           <option value="ok">成功</option>
           <option value="error">失败</option>

@@ -43,10 +43,10 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       <PageHeader
         title="概览"
         description={
-          <span>
-            按日期区间看成本与用量 · 应用 <code className="text-foreground/80">{shell.health?.appId ?? "—"}</code> ·
-            供应商 <code className="text-foreground/80">{shell.health?.providers ?? "—"}</code> ·
-            模型 <code className="text-foreground/80">{shell.health?.models ?? "—"}</code>
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span>应用 <code className="text-foreground/80">{shell.health?.appId ?? "—"}</code></span>
+            <span><span className="tabular-nums">{shell.health?.providers ?? "—"}</span> 个供应商</span>
+            <span><span className="tabular-nums">{shell.health?.models ?? "—"}</span> 个模型</span>
           </span>
         }
         actions={<LiveRefresh topics={["usage.recorded", "catalog.updated", "pricing.updated"]} ticker />}
@@ -77,6 +77,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
             needs a cell-level anchor and a genuinely spread row to prove it. */}
         <StatCard
           label="总花费"
+          featured
           testId="overview-cost-span"
           value={formatUsdSpan(summaryData?.costLowUsd, summaryData?.costHighUsd)}
           hint={
@@ -96,65 +97,72 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           tone={summaryData && summaryData.failures > 0 ? "warn" : "neutral"}
         />
         <StatCard
-          label="token 总量"
+          label="Token 总量"
           value={formatCompact(summaryData ? tokenTotal(summaryData.tokens) : undefined)}
           hint={
             summaryData
-              ? `input ${formatCompact(summaryData.tokens.input)} · output ${formatCompact(summaryData.tokens.output)}`
+              ? `输入 ${formatCompact(summaryData.tokens.input)} · 输出 ${formatCompact(summaryData.tokens.output)}`
               : "等待数据"
           }
-        />
-        <StatCard
-          label="缓存命中率"
-          value={formatPercent(summaryData?.cacheHitRate)}
-          hint={summaryData ? `cache_read ${formatCompact(summaryData.tokens.cacheRead)} / cache_write ${formatCompact(summaryData.tokens.cacheWrite)}` : "等待数据"}
-          tone="info"
-        />
-        <StatCard
-          label="平均延迟"
-          value={formatMs(summaryData?.avgLatencyMs)}
-          hint="按请求加权（服务端计算）"
-        />
-        <StatCard
-          label="首 token 延迟"
-          value={formatMs(summaryData?.firstTokenMs)}
-          hint="仅统计有上报的请求"
         />
       </CardGrid>
 
       {!hasUsage && upstreamErrors.length === 0 ? (
-        <div className="mt-4">
+        <div className="mt-5">
           <EmptyState
             title="该区间还没有用量数据"
-            description={
-              <>
-                看板显示的是 <code>mik serve</code> 里这个 appId 的真实用量。可以用假数据填满页面：
-                <code className="ml-1">pnpm --filter @mik/dashboard seed</code>。
-              </>
-            }
+            description="先完成一次模型调用，或调整日期和筛选条件。看板只显示当前应用记录的用量。"
           />
         </div>
       ) : null}
 
-      <div className="mt-4">
+      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <Card
           title={`成本趋势（${range.label}）`}
-          subtitle="按天聚合，来自 GET /api/usage/trends"
+          subtitle="按天聚合的成本点估计；记录区间见上方总花费"
+          className="min-w-0"
           actions={
             <Link
               href={`/trends${rangeQueryString(range)}`}
-              className="text-xs text-primary hover:text-info"
+              className="rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              看 token 明细 →
+              查看用量明细
             </Link>
           }
         >
-          <CostTrendChart points={points} />
+          <CostTrendChart points={points} height={280} />
+        </Card>
+        <Card title="运行表现" subtitle="当前区间的缓存与响应效率">
+          <dl className="divide-y divide-border/70">
+            <div className="pb-5">
+              <dt className="text-xs text-muted-foreground">缓存命中率</dt>
+              <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-primary">
+                {formatPercent(summaryData?.cacheHitRate)}
+              </dd>
+              <dd className="mt-1 text-xs leading-5 text-subtle">
+                {summaryData ? `读取 ${formatCompact(summaryData.tokens.cacheRead)} · 写入 ${formatCompact(summaryData.tokens.cacheWrite)}` : "等待数据"}
+              </dd>
+            </div>
+            <div className="py-5">
+              <dt className="text-xs text-muted-foreground">平均延迟</dt>
+              <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+                {formatMs(summaryData?.avgLatencyMs)}
+              </dd>
+              <dd className="mt-1 text-xs leading-5 text-subtle">按请求加权计算</dd>
+            </div>
+            <div className="pt-5">
+              <dt className="text-xs text-muted-foreground">首 Token 延迟</dt>
+              <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+                {formatMs(summaryData?.firstTokenMs)}
+              </dd>
+              <dd className="mt-1 text-xs leading-5 text-subtle">仅统计有上报的请求</dd>
+            </div>
+          </dl>
         </Card>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card title="按供应商" subtitle="GET /api/usage/by-provider" padded={false}>
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card title="供应商用量" subtitle="查看各供应商的调用与记录成本" padded={false} className="min-w-0">
           {providerBuckets.length === 0 ? (
             <div className="p-4">
               <EmptyState title="没有供应商数据" description="该区间内没有请求，或供应商过滤把结果清空了。" />
@@ -177,9 +185,9 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                         {bucket.key || "（未标注）"}
                       </Link>
                     </Td>
-                    <Td className="text-right font-mono tabular-nums">{formatInt(bucket.requests)}</Td>
-                    <Td className="text-right font-mono tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
-                    <Td className="text-right font-mono tabular-nums">
+                    <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
+                    <Td className="text-right tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
+                    <Td className="whitespace-nowrap text-right tabular-nums">
                       {formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
                     </Td>
                   </tr>
@@ -189,7 +197,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           )}
         </Card>
 
-        <Card title="按模型" subtitle="GET /api/usage/by-model" padded={false}>
+        <Card title="模型用量" subtitle="查看各模型的调用与记录成本" padded={false} className="min-w-0">
           {modelBuckets.length === 0 ? (
             <div className="p-4">
               <EmptyState title="没有模型数据" description="该区间内没有请求，或模型过滤把结果清空了。" />
@@ -212,9 +220,9 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                         {bucket.key || "（未标注）"}
                       </Link>
                     </Td>
-                    <Td className="text-right font-mono tabular-nums">{formatInt(bucket.requests)}</Td>
-                    <Td className="text-right font-mono tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
-                    <Td className="text-right font-mono tabular-nums">
+                    <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
+                    <Td className="text-right tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
+                    <Td className="whitespace-nowrap text-right tabular-nums">
                       {formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
                     </Td>
                   </tr>
@@ -226,13 +234,13 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       </div>
 
       {shell.health ? (
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-subtle">
+        <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-subtle">
           <Badge tone={shell.health.pricing.status === "fresh" ? "ok" : "warn"}>
             pricing {shell.health.pricing.status}
           </Badge>
-          <span>
-            uptime {Math.round(shell.health.uptimeMs / 1000)}s · OpenAI 兼容入口{" "}
-            <code className="text-muted-foreground">{shell.health.baseUrl}</code>
+          <span className="min-w-0 break-words">
+            运行 {Math.round(shell.health.uptimeMs / 1000)}s · OpenAI 兼容入口{" "}
+            <code className="break-all text-muted-foreground">{shell.health.baseUrl}</code>
           </span>
         </div>
       ) : null}

@@ -6,12 +6,16 @@ import { mikServerUrl } from "@/lib/config"
 export default function MainLayout({ children }: { children: ReactNode }) {
   const serverUrl = mikServerUrl()
   return (
-    <>
+    <div className="dashboard-shell">
+      <a href="#main-content" className="skip-link">跳转到主要内容</a>
       <Nav />
-      <main className="mx-auto w-full max-w-7xl px-5 pb-20 pt-6">{children}</main>
-      <footer className="mx-auto w-full max-w-7xl px-5 pb-8 text-xs text-subtle">
-        数据源 <code className="text-muted-foreground">{serverUrl}</code>（MIK_SERVER_URL）· 看板不直连 SQLite
-      </footer>
-    </>
+      <div className="dashboard-workspace">
+        <main id="main-content" tabIndex={-1} className="dashboard-content">{children}</main>
+        <footer className="dashboard-footer">
+          <span>model-infra-kit <span className="mx-2 text-border-strong">/</span> 用量看板</span>
+          <span>数据源 <code className="text-muted-foreground">{serverUrl}</code></span>
+        </footer>
+      </div>
+    </div>
   )
 }

@@ -14,13 +14,13 @@ const TOOLTIP_STYLE = {
   boxShadow: "0 12px 32px var(--color-shadow)",
 } as const
 
-/** Daily cost over the selected window. */
-export function CostTrendChart({ points, height = 260 }: { points: UsageTrendPoint[]; height?: number }) {
+/** Daily recorded point estimate over the selected window. */
+export function CostTrendChart({ points, height = 280 }: { points: UsageTrendPoint[]; height?: number }) {
   if (points.length === 0) {
     return (
       <EmptyState
         title="该区间没有成本数据"
-        description="先产生一次调用（或运行 seed 脚本写入假数据），这里就会出现按天的成本曲线。"
+        description="完成模型调用后，这里会显示每天的成本变化。也可以调整日期区间查看已有记录。"
       />
     )
   }
@@ -28,30 +28,49 @@ export function CostTrendChart({ points, height = 260 }: { points: UsageTrendPoi
   const data = points.map((point) => ({ ...point, label: formatDay(point.date) }))
 
   return (
-    <div style={{ width: "100%", height }}>
+    <div className="min-w-0 text-xs" style={{ width: "100%", height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+        <AreaChart data={data} margin={{ top: 14, right: 16, bottom: 0, left: 0 }} accessibilityLayer>
           <defs>
             <linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--color-chart-cost)" stopOpacity={0.34} />
-              <stop offset="100%" stopColor="var(--color-chart-cost)" stopOpacity={0.02} />
+              <stop offset="0%" stopColor="var(--color-chart-cost)" stopOpacity={0.16} />
+              <stop offset="100%" stopColor="var(--color-chart-cost)" stopOpacity={0.01} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="var(--color-chart-grid)" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "var(--color-chart-grid)" }} minTickGap={16} />
+          <CartesianGrid stroke="var(--color-chart-grid)" strokeDasharray="3 5" vertical={false} />
+          <XAxis
+            dataKey="label"
+            tickLine={false}
+            axisLine={false}
+            tick={{ fill: "var(--color-chart-axis)", fontSize: 11 }}
+            tickMargin={12}
+            minTickGap={24}
+          />
           <YAxis
             tickFormatter={(value: unknown) => formatUsd(Number(value), 2)}
             tickLine={false}
-            axisLine={{ stroke: "var(--color-chart-grid)" }}
-            width={70}
+            axisLine={false}
+            tick={{ fill: "var(--color-chart-axis)", fontSize: 11 }}
+            tickMargin={8}
+            width={64}
           />
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
             labelStyle={{ color: "var(--color-chart-axis)" }}
-            formatter={(value: unknown) => [formatUsd(Number(value)), "成本"]}
+            formatter={(value: unknown) => [formatUsd(Number(value)), "成本点估计"]}
             labelFormatter={(label: unknown) => String(label)}
+            cursor={{ stroke: "var(--color-chart-cost)", strokeDasharray: "3 5", strokeOpacity: 0.4 }}
           />
-          <Area type="monotone" dataKey="costUsd" name="成本" stroke="var(--color-chart-cost)" strokeWidth={2} fill="url(#costFill)" />
+          <Area
+            type="monotone"
+            dataKey="costUsd"
+            name="成本点估计"
+            stroke="var(--color-chart-cost)"
+            strokeWidth={2.5}
+            fill="url(#costFill)"
+            activeDot={{ r: 4, stroke: "var(--color-surface)", strokeWidth: 2 }}
+            isAnimationActive={false}
+          />
         </AreaChart>
       </ResponsiveContainer>
     </div>

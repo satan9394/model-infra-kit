@@ -15,10 +15,10 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+    <div className="page-header mb-7 flex flex-wrap items-center justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="text-[28px] font-semibold tracking-tight text-foreground">{title}</h1>
+        {description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -41,17 +41,17 @@ export function Card({
   padded?: boolean
 }) {
   return (
-    <section className={`rounded-xl border border-border/80 bg-surface shadow-sm ${className}`}>
+    <section className={`min-w-0 rounded-2xl border border-border bg-surface ${className}`}>
       {title || actions ? (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
           <div>
-            <h2 className="text-sm font-medium text-foreground">{title}</h2>
-            {subtitle ? <p className="mt-0.5 text-xs text-subtle">{subtitle}</p> : null}
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+            {subtitle ? <p className="mt-1 text-xs leading-5 text-subtle">{subtitle}</p> : null}
           </div>
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </header>
       ) : null}
-      <div className={padded ? "p-4" : ""}>{children}</div>
+      <div className={padded ? "p-5" : ""}>{children}</div>
     </section>
   )
 }
@@ -81,6 +81,7 @@ export function StatCard({
   hint,
   tone = "neutral",
   testId,
+  featured = false,
 }: {
   label: string
   value: ReactNode
@@ -92,6 +93,7 @@ export function StatCard({
    * cell cannot be satisfied by the same string elsewhere on the page.
    */
   testId?: string
+  featured?: boolean
 }) {
   const accent: Record<Tone, string> = {
     neutral: "text-foreground",
@@ -102,10 +104,10 @@ export function StatCard({
     muted: "text-muted-foreground",
   }
   return (
-    <div className="rounded-xl border border-border/80 bg-surface px-4 py-4 shadow-sm">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className={`mt-1 font-mono text-xl font-semibold tracking-tight tabular-nums ${accent[tone]}`} data-testid={testId}>{value}</div>
-      {hint ? <div className="mt-1 text-[11px] leading-5 text-subtle">{hint}</div> : null}
+    <div className={`stat-card ${featured ? "stat-card-featured" : ""}`}>
+      <div className="text-sm font-medium text-muted-foreground">{label}</div>
+      <div className={`stat-value mt-3 text-[30px] font-semibold leading-tight tracking-tight tabular-nums ${featured ? "text-primary" : accent[tone]}`} data-testid={testId}>{value}</div>
+      {hint ? <div className="mt-3 text-xs leading-5 text-subtle">{hint}</div> : null}
     </div>
   )
 }
@@ -140,7 +142,7 @@ export function ErrorBanner({ message, hint }: { message: string; hint?: ReactNo
 
 export function TableWrap({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="max-w-full overflow-x-auto rounded-b-2xl">
       <table className="dashboard-table w-full min-w-full border-collapse text-sm">{children}</table>
     </div>
   )
@@ -149,7 +151,7 @@ export function TableWrap({ children }: { children: ReactNode }) {
 export function Th({ children, className = "" }: { children?: ReactNode; className?: string }) {
   return (
     <th
-      className={`whitespace-nowrap border-b border-border/70 px-3 py-2 text-left text-xs font-medium text-subtle ${className}`}
+      className={`whitespace-nowrap border-b border-border/70 bg-surface-muted/50 px-5 py-3 text-left text-xs font-medium text-subtle ${className}`}
     >
       {children}
     </th>
@@ -157,7 +159,7 @@ export function Th({ children, className = "" }: { children?: ReactNode; classNa
 }
 
 export function Td({ children, className = "" }: { children?: ReactNode; className?: string }) {
-  return <td className={`border-b border-border/70 px-3 py-2 align-top text-foreground/80 ${className}`}>{children}</td>
+  return <td className={`border-b border-border/60 px-5 py-3.5 align-top text-foreground/80 ${className}`}>{children}</td>
 }
 
 export function KeyValue({ label, children }: { label: string; children: ReactNode }) {
@@ -171,5 +173,5 @@ export function KeyValue({ label, children }: { label: string; children: ReactNo
 
 export function CardGrid({ children, cols = 3 }: { children: ReactNode; cols?: 2 | 3 | 4 }) {
   const map = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-2 lg:grid-cols-3", 4: "sm:grid-cols-2 lg:grid-cols-4" } as const
-  return <div className={`grid grid-cols-1 gap-3 ${map[cols]}`}>{children}</div>
+  return <div className={`grid grid-cols-1 gap-4 ${map[cols]}`}>{children}</div>
 }
