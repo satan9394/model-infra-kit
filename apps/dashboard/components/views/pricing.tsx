@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import { LiveRefresh } from "@/components/live-refresh"
 import { PricingClient } from "@/components/pricing-client"
 import { PageHeader } from "@/components/ui"
@@ -9,6 +10,8 @@ export interface ViewProps {
 }
 
 export default async function PricingView({ embedded }: ViewProps = {}) {
+  const { t } = await getI18n()
+
   const [pricing, shell] = await Promise.all([loadPricing(), loadShell()])
 
   const errors = [...shell.errors]
@@ -17,13 +20,13 @@ export default async function PricingView({ embedded }: ViewProps = {}) {
   return (
     <>
       <PageHeader
-        title="价格表"
-        description="目录同步状态与手动覆盖价。手动价在 mik 内优先级最高，撤销后回落到上游目录。"
+        title={t("s136")}
+        description={t("s324")}
         actions={<LiveRefresh topics={["pricing.updated"]} />}
       />
       {/* EVO-G09 A1: neutral guide first, error banner only after a failed retry. */}
       <UpstreamNotice message={errors[0]} />
-      {!embedded ? null : <p className="mb-4 text-xs text-subtle">嵌入视图 · 价格与同步状态</p>}
+      {!embedded ? null : <p className="mb-4 text-xs text-subtle"> {t("s325")} </p>}
       <PricingClient
         state={pricing.ok ? pricing.data.state : null}
         overrides={pricing.ok ? pricing.data.overrides : []}

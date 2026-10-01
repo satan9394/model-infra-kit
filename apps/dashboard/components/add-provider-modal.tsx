@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import {
   buildCreateProviderPayload,
@@ -23,6 +25,8 @@ export function AddProviderModal({
   onClose: () => void
   onCreate: (payload: ProviderCreatePayload) => Promise<string | null>
 }) {
+  const { t } = useI18n()
+
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [draft, setDraft] = useState<ProviderDraft>(() => emptyProviderDraft())
   const [selectedPreset, setSelectedPreset] = useState<ProviderPresetId>("custom")
@@ -30,6 +34,7 @@ export function AddProviderModal({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const dialog = dialogRef.current
     if (!dialog) return
     if (!dialog.open) dialog.showModal()
@@ -38,6 +43,7 @@ export function AddProviderModal({
     if (input) input.focus()
     return () => {
       if (dialog.open) dialog.close()
+      trigger?.focus()
     }
   }, [])
 
@@ -74,7 +80,7 @@ export function AddProviderModal({
   }
 
   return (
-    <dialog
+    <dialog role="dialog" aria-modal="true"
       ref={dialogRef}
       aria-labelledby="add-provider-title"
       className="m-auto max-h-[min(92vh,52rem)] w-[min(100%-2rem,46rem)] overflow-y-auto rounded-2xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm"
@@ -90,19 +96,15 @@ export function AddProviderModal({
               <span className="flex size-6 items-center justify-center rounded-md bg-primary-soft text-xs font-semibold text-primary">
                 +
               </span>
-              <h2 id="add-provider-title" className="text-lg font-semibold tracking-tight text-foreground">
-                添加供应商
-              </h2>
+              <h2 id="add-provider-title" className="text-lg font-semibold tracking-tight text-foreground"> {t("s0")} </h2>
             </div>
-            <p className="mt-1 text-xs text-subtle">
-              从预设模板快速建立，或手动填写网关端点。密钥只保存环境引用，永不落库。
-            </p>
+            <p className="mt-1 text-xs text-subtle"> {t("s1")} </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            aria-label="关闭添加窗口"
+            aria-label={t("s2")}
             className="rounded-lg p-1.5 text-lg leading-none text-subtle hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
           >
             ×
@@ -113,8 +115,8 @@ export function AddProviderModal({
           {/* Preset Selector */}
           <fieldset>
             <legend className="mb-2.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
-              <span>快速服务模板</span>
-              <span className="text-[11px] font-normal text-subtle">点击即可自动预填端点与协议</span>
+              <span> {t("s3")} </span>
+              <span className="text-[11px] font-normal text-subtle"> {t("s4")} </span>
             </legend>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
               {PROVIDER_PRESETS.map((preset) => {
@@ -146,10 +148,10 @@ export function AddProviderModal({
                     </div>
                     <div className="mt-2">
                       <span className={`block truncate text-xs font-semibold ${selected ? "text-primary" : "text-foreground"}`}>
-                        {preset.label}
+                        {t(preset.label)}
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-subtle">
-                        {preset.hint}
+                        {t(preset.hint)}
                       </span>
                     </div>
                   </button>
@@ -174,30 +176,22 @@ export function AddProviderModal({
                 aria-describedby="provider-id-help"
                 required
               />
-              <span id="provider-id-help" className="mt-1 block text-[10px] font-normal text-subtle">
-                1–64 位字母、数字、点、下划线或短横线（创建后不可修改）。
-              </span>
+              <span id="provider-id-help" className="mt-1 block text-[10px] font-normal text-subtle"> {t("s5")} </span>
             </label>
 
-            <label className="text-xs font-medium text-muted-foreground">
-              显示名称
-              <input
+            <label className="text-xs font-medium text-muted-foreground"> {t("s6")} <input
                 className={inputClass}
                 value={draft.name}
                 onChange={(event) => updateDraft({ name: event.target.value })}
-                placeholder="例如：Production OpenAI Gateway"
+                placeholder={t("s7")}
                 autoComplete="off"
               />
-              <span className="mt-1 block text-[10px] font-normal text-subtle">
-                在监控看板与列表中展示的易读名称。
-              </span>
+              <span className="mt-1 block text-[10px] font-normal text-subtle"> {t("s8")} </span>
             </label>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              协议
-              <select
+            <label className="text-xs font-medium text-muted-foreground"> {t("s9")} <select
                 className={inputClass}
                 value={draft.protocol}
                 onChange={(event) => updateDraft({ protocol: event.target.value })}
@@ -208,14 +202,10 @@ export function AddProviderModal({
                   </option>
                 ))}
               </select>
-              <span className="mt-1 block text-[10px] font-normal text-subtle">
-                决定下游适配器与模型目录发现方式。
-              </span>
+              <span className="mt-1 block text-[10px] font-normal text-subtle"> {t("s10")} </span>
             </label>
 
-            <label className="text-xs font-medium text-muted-foreground">
-              API Key 引用
-              <input
+            <label className="text-xs font-medium text-muted-foreground"> {t("s11")} <input
                 className={`${inputClass} font-mono text-xs`}
                 value={draft.apiKeyRef}
                 onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
@@ -224,8 +214,7 @@ export function AddProviderModal({
                 spellCheck={false}
               />
               <span className="mt-1 block text-[10px] font-normal text-subtle">
-                <code>env:NAME</code> 或 <code>file:path</code>，禁止填写密钥明文。
-              </span>
+                <code>env:NAME</code> {t("s12")} <code>file:path</code> {t("s13")} </span>
             </label>
           </div>
 
@@ -239,9 +228,7 @@ export function AddProviderModal({
               autoComplete="url"
               spellCheck={false}
             />
-            <span className="mt-1 block text-[10px] font-normal text-subtle">
-              供应商 API 端点，留空则回落至协议默认官方端点。
-            </span>
+            <span className="mt-1 block text-[10px] font-normal text-subtle"> {t("s14")} </span>
           </label>
 
           {/* Enabled Switch */}
@@ -253,18 +240,14 @@ export function AddProviderModal({
               className="size-4 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
             <div>
-              <span className="block font-semibold text-foreground">创建后立即启用</span>
-              <span className="mt-0.5 block text-[11px] text-subtle">
-                启用后将立即参与模型的路由与用量采集；之后随时可暂停。
-              </span>
+              <span className="block font-semibold text-foreground"> {t("s15")} </span>
+              <span className="mt-0.5 block text-[11px] text-subtle"> {t("s16")} </span>
             </div>
           </label>
 
           {/* Advanced Headers */}
           <details className="rounded-xl border border-border bg-surface-muted/30">
-            <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-              高级选项：自定义 HTTP 请求头（Headers JSON）
-            </summary>
+            <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"> {t("s17")} </summary>
             <div className="border-t border-border p-4">
               <label htmlFor="provider-headers" className="text-xs font-medium text-muted-foreground">
                 Headers（JSON）
@@ -277,38 +260,33 @@ export function AddProviderModal({
                 spellCheck={false}
                 placeholder='{ "HTTP-Referer": "https://example.com" }'
               />
-              <p className="mt-1.5 text-[11px] text-subtle">
-                输入键值对均为字符串的 JSON 对象；留空等同于 <code>{"{}"}</code>。
+              <p className="mt-1.5 text-[11px] text-subtle"> {t("s18")} <code>{"{}"}</code>。
               </p>
             </div>
           </details>
 
           {error ? (
             <p role="alert" className="rounded-xl border border-danger/35 bg-danger/10 px-4 py-2.5 text-xs font-medium text-danger">
-              {error}
+              {t(error)}
             </p>
           ) : null}
         </div>
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-muted/60 px-6 py-4">
-          <p className="text-[11px] text-subtle">
-            数据将持久化至当前应用的 SQLite 数据库中。
-          </p>
+          <p className="text-[11px] text-subtle"> {t("s19")} </p>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
               className="rounded-lg border border-border-strong px-4 py-2 text-xs font-medium text-foreground hover:bg-surface-hover disabled:opacity-50"
-            >
-              取消
-            </button>
+            > {t("s20")} </button>
             <button
               type="submit"
               disabled={saving}
               className="rounded-lg border border-primary bg-primary px-4 py-2 text-xs font-semibold text-surface shadow-xs hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
             >
-              {saving ? "创建中…" : "创建供应商"}
+              {saving ? t("s21") : t("s22")}
             </button>
           </div>
         </footer>

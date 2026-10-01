@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import { TraceWaterfall } from "@/components/trace-waterfall"
 import { traceTimeline } from "@/lib/trace-timeline"
 import Link from "next/link"
@@ -36,6 +37,8 @@ function selectedGroup(groups: UsageTraceGroup[], groupBy: "trace" | "session", 
 }
 
 export default async function TracesView({ params }: { params: SearchParams }) {
+  const { t } = await getI18n()
+
   const range = resolveRange(params)
   const filters = readFilters(params)
   const groupBy = first(params.groupBy) === "session" ? "session" : "trace"
@@ -66,15 +69,15 @@ export default async function TracesView({ params }: { params: SearchParams }) {
   return (
     <>
       <PageHeader
-        title="Agent 任务链路"
-        description="按 sessionId 或 traceId 汇总多轮模型调用的成本、思考 Token 与耗时；单次请求明细按时间排列。"
+        title={t("s326")}
+        description={t("s327")}
         actions={<LiveRefresh topics={["usage.recorded"]} />}
       />
       <UpstreamNotice message={errors[0]} />
       <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
-        <span className="mr-1 text-xs text-subtle">聚合维度</span>
+        <span className="mr-1 text-xs text-subtle"> {t("s328")} </span>
         <Link
           href={linkFor(params, range, "trace")}
           aria-current={groupBy === "trace" ? "page" : undefined}
@@ -89,20 +92,20 @@ export default async function TracesView({ params }: { params: SearchParams }) {
         >
           Session
         </Link>
-        <span className="ml-auto text-xs text-subtle">{range.label} · 成本按整数微美元累计</span>
+        <span className="ml-auto text-xs text-subtle">{t(range.label)} {t("s329")} </span>
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="任务组" value={formatInt(groups.length)} hint={groupBy === "trace" ? "按 traceId" : "按 sessionId"} />
-        <StatCard label="模型调用" value={formatInt(totalRequests)} hint="包含已归档的调用" />
-        <StatCard label="Thinking Token" value={formatInt(totalReasoning)} hint="reasoning token 合计" />
+        <StatCard label={t("s330")} value={formatInt(groups.length)} hint={groupBy === "trace" ? t("s331") : t("s332")} />
+        <StatCard label={t("s333")} value={formatInt(totalRequests)} hint={t("s334")} />
+        <StatCard label="Thinking Token" value={formatInt(totalReasoning)} hint={t("s335")} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
-        <Card title={groupBy === "trace" ? "Trace 成本" : "Session 成本"} subtitle="选择一组查看可用的逐次调用时间线" padded={false}>
+        <Card title={groupBy === "trace" ? t("s336") : t("s337")} subtitle={t("s338")} padded={false}>
           {groups.length === 0 ? (
             <div className="p-4">
-              <EmptyState title="还没有 Agent 链路" description="通过 ModelRequest.traceId / sessionId，或 HTTP 端点的 trace_id / user 字段归属调用。" />
+              <EmptyState title={t("s339")} description={t("s340")} />
             </div>
           ) : (
             <div className="max-h-[680px] divide-y divide-border overflow-y-auto">
@@ -123,10 +126,10 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                       <span className="font-mono text-xs tabular-nums text-positive">{formatUsdSpan(group.costLowUsd, group.costHighUsd)}</span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-subtle">
-                      <span>{formatInt(group.requests)} 次调用</span>
+                      <span>{formatInt(group.requests)} {t("s341")} </span>
                       <span>{formatInt(group.tokens.reasoning)} Thinking Token</span>
                       <span>{formatMs(group.durationMs)}</span>
-                      {group.archivedRequests > 0 ? <span>{formatInt(group.archivedRequests)} 条已归档</span> : null}
+                      {group.archivedRequests > 0 ? <span>{formatInt(group.archivedRequests)} {t("s342")} </span> : null}
                     </div>
                     <div className="mt-1 text-[10px] text-subtle/85">{formatDateTime(group.startedAt)} → {formatDateTime(group.endedAt)}</div>
                   </Link>
@@ -137,19 +140,19 @@ export default async function TracesView({ params }: { params: SearchParams }) {
         </Card>
 
         <Card
-          title={active ? `${groupBy === "trace" ? "Trace" : "Session"} · ${groupBy === "trace" ? active.traceId : active.sessionId}` : "调用时间线"}
-          subtitle={active ? `${formatUsdSpan(active.costLowUsd, active.costHighUsd)} · ${formatInt(active.tokens.reasoning)} Thinking Token · ${formatInt(active.requests)} 次调用` : "先从左侧选择一个任务组"}
+          title={active ? `${groupBy === "trace" ? "Trace" : "Session"} · ${groupBy === "trace" ? active.traceId : active.sessionId}` : t("s343")}
+          subtitle={active ? t("s344", formatUsdSpan(active.costLowUsd, active.costHighUsd), formatInt(active.tokens.reasoning), formatInt(active.requests)) : t("s345")}
           padded={false}
         >
           {!active ? (
-            <div className="p-4"><EmptyState title="选择 Agent 任务" description="这里会显示每次模型调用的开始时间、延迟、成本与 reasoning token。" /></div>
+            <div className="p-4"><EmptyState title={t("s346")} description={t("s347")} /></div>
           ) : events.length === 0 ? (
-            <div className="p-4"><EmptyState title="没有保留的请求明细" description={`${formatInt(active.archivedRequests)} 次调用仍计入上方聚合成本；每日归档后不再保留单次调用时间线。`} /></div>
+            <div className="p-4"><EmptyState title={t("s348")} description={t("s349", formatInt(active.archivedRequests))} /></div>
           ) : (
             <div className="overflow-x-auto p-4">
               <div className="mb-3 flex flex-wrap justify-between gap-2 text-[11px] text-subtle">
-                <span>时间跨度 {formatMs(traceTimeline(events)[0]?.spanMs)} · 显示 {events.length} / {formatInt(active.requests)} 次调用</span>
-                {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} 次较早调用已归档</span> : null}
+                <span> {t("s350")} {formatMs(traceTimeline(events)[0]?.spanMs)} {t("s351")} {events.length} / {formatInt(active.requests)} {t("s341")} </span>
+                {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} {t("s352")} </span> : null}
               </div>
               <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
               <p className="text-xs text-subtle">Reasoning {formatInt(events.reduce((sum, event) => sum + event.usage.reasoning, 0))}</p>

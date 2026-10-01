@@ -1,3 +1,4 @@
+import { message } from "./i18n/core.ts"
 /**
  * Date-range and filter handling for the query string.
  *
@@ -11,10 +12,10 @@
 export type RangePreset = "today" | "7d" | "30d" | "custom"
 
 export const RANGE_PRESETS: ReadonlyArray<{ value: RangePreset; label: string }> = [
-  { value: "today", label: "今日" },
-  { value: "7d", label: "近 7 天" },
-  { value: "30d", label: "近 30 天" },
-  { value: "custom", label: "自定义" },
+  { value: "today", label: message("s407") },
+  { value: "7d", label: message("s408") },
+  { value: "30d", label: message("s409") },
+  { value: "custom", label: message("s400") },
 ]
 
 export interface ResolvedRange {
@@ -66,11 +67,11 @@ export function startOfLocalDay(ts: number): number {
 function presetLabel(preset: RangePreset, range: ResolvedRange): string {
   switch (preset) {
     case "today":
-      return "今日"
+      return message("s407")
     case "7d":
-      return "近 7 天"
+      return message("s408")
     case "30d":
-      return "近 30 天"
+      return message("s409")
     default:
       return `${range.fromInput} ~ ${range.toInput}`
   }

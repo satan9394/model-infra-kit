@@ -1,11 +1,12 @@
+import { message } from "./i18n/core.ts"
 import type { ModelInfo } from "./types.ts"
 
 export const CAPABILITY_FILTERS = [
-  { key: "reasoning", label: "Reasoning / 推理" },
-  { key: "vision", label: "Vision / 视觉" },
-  { key: "tools", label: "Function Calling / 工具" },
-  { key: "long", label: "Long Context / 长上下文" },
-  { key: "fast", label: "Fast / 快速" },
+  { key: "reasoning", label: message("s388") },
+  { key: "vision", label: message("s389") },
+  { key: "tools", label: message("s390") },
+  { key: "long", label: message("s391") },
+  { key: "fast", label: message("s392") },
 ] as const
 export type CapabilityFilter = typeof CAPABILITY_FILTERS[number]["key"]
 

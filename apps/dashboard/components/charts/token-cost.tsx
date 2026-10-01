@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import {
   Area,
   CartesianGrid,
@@ -36,11 +38,13 @@ const SERIES = [
  * right axis, so a cheap day with a large token count stays visible.
  */
 export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoint[]; height?: number }) {
+  const { t } = useI18n()
+
   if (points.length === 0) {
     return (
       <EmptyState
-        title="该区间没有趋势数据"
-        description="趋势图按天聚合 input / output / cache_read / cache_write 与成本，空区间不画线。"
+        title={t("s40")}
+        description={t("s41")}
       />
     )
   }
@@ -80,7 +84,7 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
             contentStyle={TOOLTIP_STYLE}
             labelStyle={{ color: "var(--color-chart-axis)" }}
             formatter={(value: unknown, name: unknown) =>
-              name === "成本" ? [formatUsd(Number(value)), "成本"] : [formatCompact(Number(value)), String(name)]
+              name === t("s42") ? [formatUsd(Number(value)), t("s42")] : [formatCompact(Number(value)), String(name)]
             }
           />
           <Legend wrapperStyle={{ fontSize: 12, color: "var(--color-chart-axis)" }} />
@@ -98,7 +102,7 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
               strokeWidth={1.5}
             />
           ))}
-          <Line yAxisId="cost" type="monotone" dataKey="costUsd" name="成本" stroke="var(--color-chart-cost)" strokeWidth={2} dot={false} />
+          <Line yAxisId="cost" type="monotone" dataKey="costUsd" name={t("s42")} stroke="var(--color-chart-cost)" strokeWidth={2} dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

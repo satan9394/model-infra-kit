@@ -1,3 +1,6 @@
+"use client"
+
+import { useI18n } from "@/lib/i18n/provider"
 import type { ReactNode } from "react"
 
 /**
@@ -131,10 +134,12 @@ export function EmptyState({
 }
 
 export function ErrorBanner({ message, hint }: { message: string; hint?: ReactNode }) {
+  const { t } = useI18n()
+
   return (
     <div className="mb-4 rounded-lg border border-danger/35 bg-danger/10 px-4 py-3">
-      <p className="text-sm font-medium text-danger">上游 mik serve 不可用</p>
-      <p className="mt-1 break-all font-mono text-xs text-danger/80">{message}</p>
+      <p className="text-sm font-medium text-danger"> {t("s235")} </p>
+      <p className="mt-1 break-all font-mono text-xs text-danger/80">{t(message)}</p>
       {hint ? <div className="mt-2 text-xs text-danger/80">{hint}</div> : null}
     </div>
   )

@@ -473,9 +473,11 @@ export const COMMANDS: readonly CommandSpec[] = [
   {
     name: "pricing",
     summary: "Inspect, sync and override model prices",
-    usage: "mik pricing <list|sync|set> [options]",
+    usage: "mik pricing <list|sync|set|export|import> [options]",
     actions: [
       { name: "list", summary: "Show manual price overrides and the catalogue state", usage: "mik pricing list" },
+      { name: "export", summary: "Export cached integer prices with a checksum", usage: "mik pricing export --output <path>", flags: [{ name: "output", type: "string", description: "Snapshot output file", descriptionKey: "help.flag.snapshotOutput" }] },
+      { name: "import", summary: "Import a validated offline price snapshot", usage: "mik pricing import --file <path>", flags: [{ name: "file", type: "string", description: "Snapshot input file", descriptionKey: "help.flag.snapshotFile" }] },
       {
         name: "sync",
         summary: "Refresh the price catalogue from the network",

@@ -1,3 +1,4 @@
+import { message as localizedMessage } from "./i18n/core.ts"
 /**
  * Server-side client for the `mik serve` API.
  *
@@ -35,16 +36,16 @@ function describeTransportError(error: unknown, url: string): string {
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error
   const code = (cause as NodeJS.ErrnoException | undefined)?.code
   if (code === "ECONNREFUSED") {
-    return `无法连接 mik serve（${url}）：请先运行 \`mik serve\`，或用 MIK_SERVER_URL 指向正确的地址。`
+    return localizedMessage("s382", url)
   }
   if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
-    return `无法解析 mik serve 主机（${url}）：检查 MIK_SERVER_URL。`
+    return localizedMessage("s383", url)
   }
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-    return `请求 mik serve 超时（${url}）：服务可能未启动或过慢。`
+    return localizedMessage("s384", url)
   }
   const message = error instanceof Error ? error.message : String(error)
-  return `请求 mik serve 失败（${url}）：${message}`
+  return localizedMessage("s385", url, message)
 }
 
 /** One raw call. Throws `MikUnavailableError` for any failure, including a non-2xx. */
@@ -78,7 +79,7 @@ export async function mikRaw(path: string, options: MikCallOptions = {}): Promis
     } catch {
       // Not the OpenAI error envelope; the raw text is the best available hint.
     }
-    throw new MikUnavailableError(`mik serve 返回 ${response.status}：${message}`, {
+    throw new MikUnavailableError(localizedMessage("s386", response.status, message), {
       url,
       status: response.status,
       code,
@@ -93,7 +94,7 @@ export async function mikJson<T>(path: string, options: MikCallOptions = {}): Pr
   try {
     return (await response.json()) as T
   } catch (error) {
-    throw new MikUnavailableError(`mik serve 的响应不是合法 JSON（${response.url || path}）。`, {
+    throw new MikUnavailableError(localizedMessage("s387", response.url || path), {
       url: response.url || path,
       cause: error,
     })

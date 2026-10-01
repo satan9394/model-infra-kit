@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import Link from "next/link"
 import { BudgetPill } from "@/components/budget-pill"
 import { CostTrendChart } from "@/components/charts/cost-trend"
@@ -16,6 +17,8 @@ export interface ViewProps {
 }
 
 export default async function OverviewView({ params, embedded }: ViewProps) {
+  const { t } = await getI18n()
+
   const range = resolveRange(params)
   const filters = readFilters(params)
   const query = usageQuery(range, filters)
@@ -42,12 +45,12 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
   return (
     <>
       <PageHeader
-        title="概览"
+        title={t("s125")}
         description={
           <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span>应用 <code className="text-foreground/80">{shell.health?.appId ?? "—"}</code></span>
-            <span><span className="tabular-nums">{shell.health?.providers ?? "—"}</span> 个供应商</span>
-            <span><span className="tabular-nums">{shell.health?.models ?? "—"}</span> 个模型</span>
+            <span> {t("s60")} <code className="text-foreground/80">{shell.health?.appId ?? "—"}</code></span>
+            <span><span className="tabular-nums">{shell.health?.providers ?? "—"}</span> {t("s289")} </span>
+            <span><span className="tabular-nums">{shell.health?.models ?? "—"}</span> {t("s290")} </span>
           </span>
         }
         actions={<LiveRefresh topics={["usage.recorded", "catalog.updated", "pricing.updated"]} ticker />}
@@ -61,9 +64,8 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
-        <p className="mb-4 text-xs text-subtle">
-          嵌入视图 · 区间 {range.label}
-          {filters.provider || filters.model ? ` · 已套用筛选` : ""}
+        <p className="mb-4 text-xs text-subtle"> {t("s250")} {t(range.label)}
+          {filters.provider || filters.model ? t("s291") : ""}
         </p>
       )}
 
@@ -78,33 +80,33 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
             every row is point-priced, which is why "the cell prints the band"
             needs a cell-level anchor and a genuinely spread row to prove it. */}
         <StatCard
-          label="总花费"
+          label={t("s292")}
           featured
           testId="overview-cost-span"
           value={formatUsdSpan(summaryData?.costLowUsd, summaryData?.costHighUsd)}
           hint={
             summaryData
-              ? `区间 ${formatUsd(summaryData.costLowUsd)} ~ ${formatUsd(summaryData.costHighUsd)}`
-              : "等待数据"
+              ? t("s293", formatUsd(summaryData.costLowUsd), formatUsd(summaryData.costHighUsd))
+              : t("s294")
           }
         />
         <StatCard
-          label="请求数"
+          label={t("s295")}
           value={formatInt(summaryData?.requests)}
           hint={
             summaryData
-              ? `成功 ${formatInt(summaryData.successes)} / 失败 ${formatInt(summaryData.failures)} · 成功率 ${formatPercent(summaryData.successRate)}`
-              : "等待数据"
+              ? t("s296", formatInt(summaryData.successes), formatInt(summaryData.failures), formatPercent(summaryData.successRate))
+              : t("s294")
           }
           tone={summaryData && summaryData.failures > 0 ? "warn" : "neutral"}
         />
         <StatCard
-          label="Token 总量"
+          label={t("s297")}
           value={formatCompact(summaryData ? tokenTotal(summaryData.tokens) : undefined)}
           hint={
             summaryData
-              ? `输入 ${formatCompact(summaryData.tokens.input)} · 输出 ${formatCompact(summaryData.tokens.output)}`
-              : "等待数据"
+              ? t("s298", formatCompact(summaryData.tokens.input), formatCompact(summaryData.tokens.output))
+              : t("s294")
           }
         />
       </CardGrid>
@@ -112,71 +114,69 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       {!hasUsage && upstreamErrors.length === 0 ? (
         <div className="mt-5">
           <EmptyState
-            title="该区间还没有用量数据"
-            description="先完成一次模型调用，或调整日期和筛选条件。看板只显示当前应用记录的用量。"
+            title={t("s299")}
+            description={t("s300")}
           />
         </div>
       ) : null}
 
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <Card
-          title={`成本趋势（${range.label}）`}
-          subtitle="按天聚合的成本点估计；记录区间见上方总花费"
+          title={t("s301", t(range.label))}
+          subtitle={t("s302")}
           className="min-w-0"
           actions={
             <Link
               href={`/trends${rangeQueryString(range)}`}
               className="rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              查看用量明细
-            </Link>
+            > {t("s303")} </Link>
           }
         >
           <CostTrendChart points={points} height={280} />
         </Card>
-        <Card title="运行表现" subtitle="当前区间的缓存与响应效率">
+        <Card title={t("s304")} subtitle={t("s305")}>
           <dl className="divide-y divide-border/70">
             <div className="pb-5">
-              <dt className="text-xs text-muted-foreground">缓存命中率</dt>
+              <dt className="text-xs text-muted-foreground"> {t("s306")} </dt>
               <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-primary">
                 {formatPercent(summaryData?.cacheHitRate)}
               </dd>
               <dd className="mt-1 text-xs leading-5 text-subtle">
-                {summaryData ? `读取 ${formatCompact(summaryData.tokens.cacheRead)} · 写入 ${formatCompact(summaryData.tokens.cacheWrite)}` : "等待数据"}
+                {summaryData ? t("s307", formatCompact(summaryData.tokens.cacheRead), formatCompact(summaryData.tokens.cacheWrite)) : t("s294")}
               </dd>
             </div>
             <div className="py-5">
-              <dt className="text-xs text-muted-foreground">平均延迟</dt>
+              <dt className="text-xs text-muted-foreground"> {t("s308")} </dt>
               <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
                 {formatMs(summaryData?.avgLatencyMs)}
               </dd>
-              <dd className="mt-1 text-xs leading-5 text-subtle">按请求加权计算</dd>
+              <dd className="mt-1 text-xs leading-5 text-subtle"> {t("s309")} </dd>
             </div>
             <div className="pt-5">
-              <dt className="text-xs text-muted-foreground">首 Token 延迟</dt>
+              <dt className="text-xs text-muted-foreground"> {t("s310")} </dt>
               <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
                 {formatMs(summaryData?.firstTokenMs)}
               </dd>
-              <dd className="mt-1 text-xs leading-5 text-subtle">仅统计有上报的请求</dd>
+              <dd className="mt-1 text-xs leading-5 text-subtle"> {t("s311")} </dd>
             </div>
           </dl>
         </Card>
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Card title="供应商用量" subtitle="查看各供应商的调用与记录成本" padded={false} className="min-w-0">
+        <Card title={t("s312")} subtitle={t("s313")} padded={false} className="min-w-0">
           {providerBuckets.length === 0 ? (
             <div className="p-4">
-              <EmptyState title="没有供应商数据" description="该区间内没有请求，或供应商过滤把结果清空了。" />
+              <EmptyState title={t("s314")} description={t("s315")} />
             </div>
           ) : (
             <TableWrap>
               <thead>
                 <tr>
-                  <Th>供应商</Th>
-                  <Th className="text-right">请求</Th>
+                  <Th> {t("s87")} </Th>
+                  <Th className="text-right"> {t("s316")} </Th>
                   <Th className="text-right">token</Th>
-                  <Th className="text-right">成本</Th>
+                  <Th className="text-right"> {t("s42")} </Th>
                 </tr>
               </thead>
               <tbody>
@@ -184,7 +184,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                   <tr key={bucket.key}>
                     <Td>
                       <Link href={`?provider=${encodeURIComponent(bucket.key)}`} className="text-foreground hover:text-info">
-                        {bucket.key || "（未标注）"}
+                        {bucket.key || t("s317")}
                       </Link>
                     </Td>
                     <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
@@ -199,19 +199,19 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           )}
         </Card>
 
-        <Card title="模型用量" subtitle="查看各模型的调用与记录成本" padded={false} className="min-w-0">
+        <Card title={t("s318")} subtitle={t("s319")} padded={false} className="min-w-0">
           {modelBuckets.length === 0 ? (
             <div className="p-4">
-              <EmptyState title="没有模型数据" description="该区间内没有请求，或模型过滤把结果清空了。" />
+              <EmptyState title={t("s320")} description={t("s321")} />
             </div>
           ) : (
             <TableWrap>
               <thead>
                 <tr>
-                  <Th>模型</Th>
-                  <Th className="text-right">请求</Th>
+                  <Th> {t("s177")} </Th>
+                  <Th className="text-right"> {t("s316")} </Th>
                   <Th className="text-right">token</Th>
-                  <Th className="text-right">成本</Th>
+                  <Th className="text-right"> {t("s42")} </Th>
                 </tr>
               </thead>
               <tbody>
@@ -219,7 +219,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                   <tr key={bucket.key}>
                     <Td>
                       <Link href={`?model=${encodeURIComponent(bucket.key)}`} className="text-foreground hover:text-info">
-                        {bucket.key || "（未标注）"}
+                        {bucket.key || t("s317")}
                       </Link>
                     </Td>
                     <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
@@ -240,8 +240,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           <Badge tone={shell.health.pricing.status === "fresh" ? "ok" : "warn"}>
             pricing {shell.health.pricing.status}
           </Badge>
-          <span className="min-w-0 break-words">
-            运行 {Math.round(shell.health.uptimeMs / 1000)}s · OpenAI 兼容入口{" "}
+          <span className="min-w-0 break-words"> {t("s322")} {Math.round(shell.health.uptimeMs / 1000)} {t("s323")} {" "}
             <code className="break-all text-muted-foreground">{shell.health.baseUrl}</code>
           </span>
         </div>

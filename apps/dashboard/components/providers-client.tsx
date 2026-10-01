@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { AddProviderModal } from "@/components/add-provider-modal"
@@ -43,6 +45,8 @@ function ActionIcon({ action, spinning = false }: { action: "test" | "sync" | "m
 }
 
 export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) {
+  const { t } = useI18n()
+
   const router = useRouter()
   const [rows, setRows] = useState<Record<string, RowState>>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -83,7 +87,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
       error: result.ok ? undefined : result.error,
     })
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${id}：发现 ${result.data.models.length} 个可用模型` })
+      setNotice({ tone: "ok", text: t("s182", id, result.data.models.length) })
     } else {
       setNotice({ tone: "bad", text: `${id}：${result.error}` })
     }
@@ -112,7 +116,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
     })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${provider.id} 已${enabled ? "启用" : "停用"}` })
+      setNotice({ tone: "ok", text: t("s183", provider.id, enabled ? t("s184") : t("s185")) })
       router.refresh()
     } else {
       setNotice({ tone: "bad", text: `${provider.id}：${result.error}` })
@@ -128,7 +132,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
       body: payload,
     })
     if (!result.ok) return result.error
-    setNotice({ tone: "ok", text: `${provider.id} 配置已保存` })
+    setNotice({ tone: "ok", text: t("s186", provider.id) })
     setEditingProvider(null)
     router.refresh()
     return null
@@ -141,7 +145,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
     const result = await apiCall("/providers", { method: "POST", body: payload })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${payload.id} 已创建并保存` })
+      setNotice({ tone: "ok", text: t("s187", payload.id) })
       setIsAddModalOpen(false)
       router.refresh()
       return null
@@ -150,12 +154,12 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
   }
 
   const remove = async (provider: ProviderRecord) => {
-    if (!window.confirm(`确认删除供应商 ${provider.id}？已采集的调用用量和日志仍会保留。`)) return
+    if (!window.confirm(t("s188", provider.id))) return
     setBusy(provider.id)
     const result = await apiCall(`/providers/${encodeURIComponent(provider.id)}`, { method: "DELETE" })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${provider.id} 已删除` })
+      setNotice({ tone: "ok", text: t("s189", provider.id) })
       router.refresh()
     } else {
       setNotice({ tone: "bad", text: `${provider.id}：${result.error}` })
@@ -169,7 +173,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
       setCopiedId(provider.id)
       window.setTimeout(() => setCopiedId((current) => (current === provider.id ? null : current)), 1600)
     } catch {
-      setNotice({ tone: "bad", text: `无法复制 ${provider.id} 的 Base URL，请检查浏览器剪贴板权限。` })
+      setNotice({ tone: "bad", text: t("s190", provider.id) })
     }
   }
 
@@ -187,7 +191,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
               : "border-danger/35 bg-danger/10 text-danger"
           }`}
         >
-          <span>{notice.text}</span>
+          <span>{t(notice.text)}</span>
           <button
             type="button"
             onClick={() => setNotice(null)}
@@ -203,20 +207,16 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border/80 pb-4">
           <div>
             <div className="flex items-center gap-2.5">
-              <h2 id="providers-heading" className="text-base font-semibold tracking-tight text-foreground">
-                已配置供应商
-              </h2>
+              <h2 id="providers-heading" className="text-base font-semibold tracking-tight text-foreground"> {t("s191")} </h2>
               <div
                 className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                aria-label={`${providers.length} 个供应商，${enabledCount} 个已启用`}
+                aria-label={t("s192", providers.length, enabledCount)}
               >
-                <Badge tone="neutral">{providers.length} 个</Badge>
-                <span className="text-[11px] text-subtle">{enabledCount} 个已启用</span>
+                <Badge tone="neutral">{providers.length} {t("s193")} </Badge>
+                <span className="text-[11px] text-subtle">{enabledCount} {t("s194")} </span>
               </div>
             </div>
-            <p className="mt-1 text-xs text-subtle">
-              管理供应商端点，测试连接并同步可用模型。
-            </p>
+            <p className="mt-1 text-xs text-subtle"> {t("s195")} </p>
           </div>
 
           <button
@@ -225,22 +225,20 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
             className="inline-flex items-center gap-1.5 rounded-xl border border-primary bg-primary px-3.5 py-2 text-xs font-semibold text-surface shadow-xs transition-transform hover:opacity-90 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             <span className="text-sm font-bold leading-none">+</span>
-            <span>添加供应商</span>
+            <span> {t("s0")} </span>
           </button>
         </header>
 
         {providers.length === 0 ? (
           <EmptyState
-            title="还没有配置供应商"
-            description="点击上方「+ 添加供应商」或从预设模板建立端点。密钥只保存引用，不会进入看板。"
+            title={t("s196")}
+            description={t("s197")}
             action={
               <button
                 type="button"
                 onClick={() => setIsAddModalOpen(true)}
                 className="rounded-xl border border-border-strong bg-surface px-4 py-2 text-xs font-medium text-foreground shadow-xs hover:bg-surface-hover"
-              >
-                开始配置
-              </button>
+              > {t("s198")} </button>
             }
           />
         ) : (
@@ -287,14 +285,14 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                                 type="button"
                                 onClick={() => void copyBaseUrl(provider)}
                                 className="min-w-0 max-w-full truncate rounded text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                                aria-label={`复制 ${provider.id} 的 Base URL`}
+                                aria-label={t("s199", provider.id)}
                                 title={provider.baseUrl}
                               >
-                                {copiedId === provider.id ? "已复制 ✓" : provider.baseUrl}
+                                {copiedId === provider.id ? t("s200") : provider.baseUrl}
                               </button>
-                            ) : <span>默认官方端点</span>}
-                            <code className="min-w-0 max-w-full truncate text-subtle" title={provider.apiKeyRef || "未配置 (免鉴权)"}>
-                              {provider.apiKeyRef || "未配置 (免鉴权)"}
+                            ) : <span> {t("s201")} </span>}
+                            <code className="min-w-0 max-w-full truncate text-subtle" title={provider.apiKeyRef || t("s202")}>
+                              {provider.apiKeyRef || t("s202")}
                             </code>
                           </div>
                         </div>
@@ -308,7 +306,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                                 : "border-border bg-surface-muted/50 text-subtle"
                         }`}>
                           <span aria-hidden="true" className={`size-1.5 rounded-full bg-current ${row.testing || isOnline || isOffline ? "motion-safe:animate-pulse shadow-[0_0_8px_currentColor]" : ""}`} />
-                          {row.testing ? "测速中" : isOnline ? "在线" : isOffline ? "异常" : "未测速"}
+                          {row.testing ? t("s203") : isOnline ? t("s204") : isOffline ? t("s205") : t("s206")}
                         </div>
                         {typeof row.status?.latencyMs === "number" ? (
                           <span
@@ -321,26 +319,26 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                                     ? "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400"
                                     : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
                             }`}
-                            aria-label="网络延迟"
+                            aria-label={t("s207")}
                           >
                             {Math.round(row.status.latencyMs)}ms
                           </span>
                         ) : null}
 
                         <div className="provider-actions flex items-center gap-1 opacity-0 pointer-events-none group-hover/provider:opacity-100 group-focus-within/provider:opacity-100 group-hover/provider:pointer-events-auto group-focus-within/provider:pointer-events-auto transition-opacity duration-200 motion-reduce:transition-none">
-                          <button type="button" onClick={() => void test(provider.id)} disabled={row.testing} title="测试网络连接与测速" aria-label={row.testing ? "测速中" : "测速"} className={actionBtnClass}>
+                          <button type="button" onClick={() => void test(provider.id)} disabled={row.testing} title={t("s208")} aria-label={row.testing ? t("s203") : t("s209")} className={actionBtnClass}>
                             <ActionIcon action="test" spinning={row.testing} />
                           </button>
-                          <button type="button" onClick={() => void refreshModels(provider.id)} disabled={row.refreshing} title="同步最新模型目录" aria-label={row.refreshing ? "同步中" : "同步模型"} className={actionBtnClass}>
+                          <button type="button" onClick={() => void refreshModels(provider.id)} disabled={row.refreshing} title={t("s210")} aria-label={row.refreshing ? t("s211") : t("s212")} className={actionBtnClass}>
                             <ActionIcon action="sync" spinning={row.refreshing} />
                           </button>
-                          <button type="button" aria-expanded={Boolean(row.open)} aria-controls={modelRackId} aria-label={row.open ? "收起模型列表" : "展开模型列表"} title={row.models ? `模型列表（${row.models.length} 款）` : "模型列表"} onClick={() => void toggleModels(provider.id)} className={`${actionBtnClass} ${row.open ? "bg-primary-soft text-primary" : ""}`}>
+                          <button type="button" aria-expanded={Boolean(row.open)} aria-controls={modelRackId} aria-label={row.open ? t("s213") : t("s214")} title={row.models ? t("s215", row.models.length) : t("s216")} onClick={() => void toggleModels(provider.id)} className={`${actionBtnClass} ${row.open ? "bg-primary-soft text-primary" : ""}`}>
                             <ActionIcon action="models" />
                           </button>
-                          <button type="button" onClick={() => setEditingProvider(provider)} title="编辑供应商配置" aria-label="编辑供应商配置" className={actionBtnClass}>
+                          <button type="button" onClick={() => setEditingProvider(provider)} title={t("s217")} aria-label={t("s217")} className={actionBtnClass}>
                             <ActionIcon action="edit" />
                           </button>
-                          <button type="button" onClick={() => void remove(provider)} disabled={busy === provider.id} title="删除该供应商" aria-label="删除该供应商" className={`${actionBtnClass} hover:bg-danger/10 hover:text-danger focus-visible:ring-danger`}>
+                          <button type="button" onClick={() => void remove(provider)} disabled={busy === provider.id} title={t("s218")} aria-label={t("s218")} className={`${actionBtnClass} hover:bg-danger/10 hover:text-danger focus-visible:ring-danger`}>
                             <ActionIcon action="delete" />
                           </button>
                         </div>
@@ -349,7 +347,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                           type="button"
                           role="switch"
                           aria-checked={provider.enabled}
-                          aria-label={`${provider.name || provider.id}：${provider.enabled ? "已启用" : "已停用"}`}
+                          aria-label={`${provider.name || provider.id}：${provider.enabled ? t("s219") : t("s220")}`}
                           onClick={() => void setEnabled(provider, !provider.enabled)}
                           disabled={busy === provider.id}
                           className="inline-flex shrink-0 items-center rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
@@ -371,13 +369,12 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                       </p>
                     ) : null}
                     {row.status?.checkedAt ? (
-                      <p className="mt-1 pl-2 text-[10px] text-subtle">
-                        最近检测：{formatDateTime(row.status.checkedAt)}
+                      <p className="mt-1 pl-2 text-[10px] text-subtle"> {t("s221")} {formatDateTime(row.status.checkedAt)}
                       </p>
                     ) : null}
                     {row.error ? (
                       <p role="alert" className="mt-2 break-words pl-2 text-xs font-medium text-danger">
-                        {row.error}
+                        {t(row.error)}
                       </p>
                     ) : null}
                     <div
@@ -389,19 +386,15 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                       <div className="min-h-0 overflow-hidden">
                         <div className="mt-3 rounded-lg border border-border/80 bg-surface-muted/50 p-3">
                         {row.loadingModels ? (
-                          <p role="status" className="text-xs text-subtle">
-                            正在读取模型目录…
-                          </p>
+                          <p role="status" className="text-xs text-subtle"> {t("s222")} </p>
                         ) : (row.models?.length ?? 0) === 0 ? (
-                          <p className="text-xs leading-5 text-subtle">
-                            暂无已发现模型。点击「同步模型」图标拉取最新目录。
-                          </p>
+                          <p className="text-xs leading-5 text-subtle"> {t("s223")} </p>
                         ) : (
                           <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto pr-1">
                             {row.models?.map((model) => (
                               <span
                                 key={model.ref}
-                                title={`来源：${model.source}${model.contextWindow ? `；上下文 ${model.contextWindow}` : ""}`}
+                                title={t("s224", model.source, model.contextWindow ? t("s225", model.contextWindow) : "")}
                                 className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-0.5 shadow-2xs"
                               >
                                 <code className="truncate font-mono text-[11px] text-foreground/90">

@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { ErrorBanner } from "@/components/ui"
@@ -19,6 +21,8 @@ import { ErrorBanner } from "@/components/ui"
 export const MIK_SERVE_COMMAND = "mik serve"
 
 export function UpstreamNotice({ message }: { message?: string }) {
+  const { t } = useI18n()
+
   const router = useRouter()
   const [retried, setRetried] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -50,13 +54,9 @@ export function UpstreamNotice({ message }: { message?: string }) {
         data-testid="upstream-guide"
         className="rounded-lg border border-info/40 bg-info/10 px-4 py-3"
       >
-        <p className="text-sm font-medium text-info">
-          先启动上游：<code className="font-mono">mik serve</code>
+        <p className="text-sm font-medium text-info"> {t("s236")} <code className="font-mono">mik serve</code>
         </p>
-        <p className="mt-1 text-xs leading-5 text-info/90">
-          看板只通过 HTTP 读 <code>mik serve</code>（默认 127.0.0.1:3211），从不打开 SQLite 文件。
-          在仓库根目录先运行下面这条命令，再回来刷新本页。
-        </p>
+        <p className="mt-1 text-xs leading-5 text-info/90"> {t("s237")} <code>mik serve</code> {t("s238")} </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <code className="rounded border border-info/40 bg-surface-control px-2 py-1 font-mono text-xs text-info">
             {MIK_SERVE_COMMAND}
@@ -66,7 +66,7 @@ export function UpstreamNotice({ message }: { message?: string }) {
             onClick={() => void copy()}
             className="rounded border border-info/40 px-2 py-1 text-xs text-info hover:border-info hover:text-info"
           >
-            {copied ? "已复制" : "复制命令"}
+            {copied ? t("s239") : t("s240")}
           </button>
           <button
             type="button"
@@ -74,25 +74,20 @@ export function UpstreamNotice({ message }: { message?: string }) {
             disabled={pending}
             className="rounded border border-info/40 px-2 py-1 text-xs text-info hover:border-info hover:text-info disabled:opacity-60"
           >
-            {pending ? "重试中…" : "我已启动，重试"}
+            {pending ? t("s241") : t("s242")}
           </button>
         </div>
         <p className="mt-2 break-all font-mono text-[11px] text-info/75">{message}</p>
-        <p className="mt-1 text-[11px] text-info/75">
-          端口不是默认值？用 <code>MIK_SERVER_URL</code> 指向你的地址。装包环境（
-          <code>npm i model-infra-kit</code>）拿不到看板，见 README「看板」一节。
-        </p>
+        <p className="mt-1 text-[11px] text-info/75"> {t("s243")} <code>MIK_SERVER_URL</code> {t("s244")} <code>npm i model-infra-kit</code> {t("s245")} </p>
       </section>
 
       {retried && !pending ? (
         <div className="mt-3" data-testid="upstream-error">
           <ErrorBanner
-            message={message}
+            message={t(message ?? "")}
             hint={
-              <>
-                仍连不上：确认 <code>mik serve</code> 已在运行（默认 127.0.0.1:3211），再用{" "}
-                <code>netstat -ano | findstr :3211</code> 核对端口。
-              </>
+              <> {t("s246")} <code>mik serve</code> {t("s247")} {" "}
+                <code>netstat -ano | findstr :3211</code> {t("s248")} </>
             }
           />
         </div>

@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { formatDay, formatUsd } from "@/lib/format"
 import type { UsageTrendPoint } from "@/lib/types"
@@ -16,11 +18,13 @@ const TOOLTIP_STYLE = {
 
 /** Daily recorded point estimate over the selected window. */
 export function CostTrendChart({ points, height = 280 }: { points: UsageTrendPoint[]; height?: number }) {
+  const { t } = useI18n()
+
   if (points.length === 0) {
     return (
       <EmptyState
-        title="该区间没有成本数据"
-        description="完成模型调用后，这里会显示每天的成本变化。也可以调整日期区间查看已有记录。"
+        title={t("s37")}
+        description={t("s38")}
       />
     )
   }
@@ -57,14 +61,14 @@ export function CostTrendChart({ points, height = 280 }: { points: UsageTrendPoi
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
             labelStyle={{ color: "var(--color-chart-axis)" }}
-            formatter={(value: unknown) => [formatUsd(Number(value)), "成本点估计"]}
+            formatter={(value: unknown) => [formatUsd(Number(value)), t("s39")]}
             labelFormatter={(label: unknown) => String(label)}
             cursor={{ stroke: "var(--color-chart-cost)", strokeDasharray: "3 5", strokeOpacity: 0.4 }}
           />
           <Area
             type="monotone"
             dataKey="costUsd"
-            name="成本点估计"
+            name={t("s39")}
             stroke="var(--color-chart-cost)"
             strokeWidth={2.5}
             fill="url(#costFill)"

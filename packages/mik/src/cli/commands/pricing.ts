@@ -1,4 +1,6 @@
 import type { PricingOverride } from "../../store/pricing-repository.js"
+import { readFile, writeFile } from "node:fs/promises"
+import { resolve } from "node:path"
 import { flagBool, flagNumber, flagString, type ParsedCli } from "../args.js"
 import { contextLang, invocationLang, requireArg, withContext, type RunOptions } from "../context.js"
 import { CliRuntimeError, CliUsageError } from "../errors.js"
@@ -119,6 +121,27 @@ async function runSet(parsed: ParsedCli, options: RunOptions): Promise<number> {
 
 export async function runPricing(parsed: ParsedCli, options: RunOptions): Promise<number> {
   switch (parsed.action?.name) {
+    case "export":
+    case "import": {
+      const exporting = parsed.action.name === "export"
+      const flag = exporting ? "output" : "file"
+      const path = flagString(parsed.values, flag)
+      if (!path) throw new CliUsageError(tr(invocationLang(options), "cli.flagRequired", flag), parsed.action.usage)
+      return withContext(parsed, options, async (context) => {
+        const lang = contextLang(context, options)
+        const target = resolve(options.cwd ?? process.cwd(), path)
+        if (exporting) {
+          const json = context.hub.pricing.exportSnapshot()
+          await writeFile(target, json, { encoding: "utf8", flag: "wx" })
+          context.io.out(tr(lang, "pricing.snapshot.exported", JSON.parse(json).entriesCount))
+        } else {
+          const result = context.hub.pricing.importSnapshot(await readFile(target, "utf8"))
+          if (result.errors.length) throw new CliRuntimeError(tr(lang, "pricing.snapshot.invalid"))
+          context.io.out(tr(lang, "pricing.snapshot.imported", result.imported))
+        }
+        return 0
+      })
+    }
     case "list":
       return runList(parsed, options)
     case "sync":

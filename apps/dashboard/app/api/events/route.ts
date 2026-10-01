@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import { NextResponse, type NextRequest } from "next/server"
 import { mikServerToken, mikServerUrl } from "@/lib/config"
 
@@ -14,6 +15,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest): Promise<Response> {
+  const { t } = await getI18n()
   const target = `${mikServerUrl()}/api/events`
   const headers: Record<string, string> = { accept: "text/event-stream", "cache-control": "no-cache" }
   const token = mikServerToken()
@@ -31,14 +33,14 @@ export async function GET(request: NextRequest): Promise<Response> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return NextResponse.json(
-      { error: { message: `无法连接 mik serve（${mikServerUrl()}）：${message}`, code: "MIK_UNREACHABLE" } },
+      { error: { message: t("s371", mikServerUrl(), message), code: "MIK_UNREACHABLE" } },
       { status: 502 },
     )
   }
 
   if (!upstream.ok || !upstream.body) {
     return NextResponse.json(
-      { error: { message: `mik serve 的 /api/events 返回 ${upstream.status}。`, code: "MIK_EVENTS_FAILED" } },
+      { error: { message: t("s372", upstream.status), code: "MIK_EVENTS_FAILED" } },
       { status: 502 },
     )
   }

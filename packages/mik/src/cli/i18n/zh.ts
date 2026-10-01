@@ -399,4 +399,11 @@ export const zh: Record<string, string> = {
   "help.details.provider.add.2": "CLI 会明确告知这一点，而不会存储任何内容。",
   "help.details.pricing.sync.0": "需要网络访问；--offline 会让它立即失败。--dry-run 不写 SQLite 阶梯价格。",
   "help.details.pricing.set.0": "必须至少给出 --input 或 --output 之一。",
+  "cmd.pricing.export.summary": "导出带校验和的整数价格快照",
+  "cmd.pricing.import.summary": "导入经过校验的离线价格快照",
+  "help.flag.snapshotOutput": "快照输出文件",
+  "help.flag.snapshotFile": "快照输入文件",
+  "pricing.snapshot.exported": "已导出 %s 条模型价格。",
+  "pricing.snapshot.imported": "已导入 %s 条模型价格；保留手动价格。",
+  "pricing.snapshot.invalid": "价格快照无效；未修改任何价格。",
 }

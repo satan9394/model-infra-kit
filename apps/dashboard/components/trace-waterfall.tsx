@@ -1,11 +1,15 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { useRef, useState } from "react"
 import { traceTimeline } from "@/lib/trace-timeline"
 import { formatInt, formatMs, formatUsdSpan } from "@/lib/format"
 import type { UsageEvent } from "@/lib/types"
 
 export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query: string }) {
+  const { t } = useI18n()
+
   const container = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState(false)
   const [notice, setNotice] = useState("")
@@ -14,15 +18,15 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
     try {
       const url = `${location.origin}/api/mik/usage/logs?${query}`
       await navigator.clipboard.writeText(`curl '${url.replaceAll("'", "'\\''")}'`)
-      setNotice("已复制 / Copied")
-    } catch { setNotice("复制失败 / Copy failed") }
+      setNotice(t("s226"))
+    } catch { setNotice(t("s227")) }
   }
   return <div ref={container} className="bg-surface p-4 text-foreground" data-testid="trace-waterfall">
     <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
-      <span className="text-subtle">TTFT · 灰 / gray · 推理估算 / estimated reasoning · 紫 / purple · 输出 / output · 绿 / green</span>
-      <button onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? "折叠 / Collapse" : "全展开 / Expand all"}</button>
-      <button onClick={() => void container.current?.requestFullscreen().catch(() => setNotice("全屏不可用 / Fullscreen unavailable"))}>全屏 / Fullscreen</button>
-      <button onClick={() => void copy()}>复制链路 cURL</button>
+      <span className="text-subtle"> {t("s228")} </span>
+      <button onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? t("s229") : t("s230")}</button>
+      <button onClick={() => void container.current?.requestFullscreen().catch(() => setNotice(t("s231")))}> {t("s232")} </button>
+      <button onClick={() => void copy()}> {t("s233")} </button>
       <span role="status">{notice}</span>
     </div>
     <div className="overflow-x-auto">
@@ -38,7 +42,7 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
               </span>
             </span>
           </summary>
-          <p className="mt-2 break-all text-xs text-subtle">{event.providerId} · {event.status} · TTFT {formatMs(event.firstTokenMs)} · 总耗时 {formatMs(event.latencyMs)} · Prompt {formatInt(event.usage.input)} / Reasoning {formatInt(event.usage.reasoning)} / Completion {formatInt(event.usage.output)} · {formatUsdSpan(event.cost.low, event.cost.high)} · {event.traceId}</p>
+          <p className="mt-2 break-all text-xs text-subtle">{event.providerId} · {event.status} · TTFT {formatMs(event.firstTokenMs)} {t("s234")} {formatMs(event.latencyMs)} · Prompt {formatInt(event.usage.input)} / Reasoning {formatInt(event.usage.reasoning)} / Completion {formatInt(event.usage.output)} · {formatUsdSpan(event.cost.low, event.cost.high)} · {event.traceId}</p>
         </details>)}
       </div>
     </div>

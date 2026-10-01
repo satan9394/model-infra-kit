@@ -45,6 +45,18 @@ export class PricingCacheRepository {
       )
       .run(tier.providerId, tier.modelId, tier.source, tier.version, JSON.stringify(tier.rates), Number.isFinite(updatedAt) ? updatedAt : Date.now())
   }
+
+  listStrict(): ModelPricingTier[] {
+    return this.driver.prepare("SELECT * FROM pricing_cache ORDER BY model_id, provider_id").all().map((row) => {
+      const tier = toTier(row)
+      if (!tier || tier.version !== 1 || !Number.isFinite(Date.parse(tier.updatedAt))) throw new Error("Invalid cached price tier")
+      return tier
+    })
+  }
+
+  clear(): void {
+    this.driver.prepare("DELETE FROM pricing_cache").run()
+  }
 }
 
 function toTier(row: Record<string, unknown>): ModelPricingTier | null {

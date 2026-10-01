@@ -1,3 +1,4 @@
+import { message } from "./i18n/core.ts"
 import type { Protocol } from "./types"
 
 export const PROVIDER_PROTOCOLS = [
@@ -20,7 +21,7 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://api.deepseek.com/v1",
     apiKeyRef: "env:DEEPSEEK_API_KEY",
     presetId: "deepseek",
-    hint: "深度求索",
+    hint: message("s393"),
   },
   {
     id: "openai",
@@ -31,7 +32,7 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://api.openai.com/v1",
     apiKeyRef: "env:OPENAI_API_KEY",
     presetId: "openai",
-    hint: "GPT 系列",
+    hint: message("s394"),
   },
   {
     id: "anthropic",
@@ -42,7 +43,7 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://api.anthropic.com/v1",
     apiKeyRef: "env:ANTHROPIC_API_KEY",
     presetId: "anthropic",
-    hint: "Claude 系列",
+    hint: message("s395"),
   },
   {
     id: "google",
@@ -53,7 +54,7 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     apiKeyRef: "env:GOOGLE_GENERATIVE_AI_API_KEY",
     presetId: "google",
-    hint: "Gemini 系列",
+    hint: message("s396"),
   },
   {
     id: "openrouter",
@@ -64,27 +65,27 @@ export const PROVIDER_PRESETS = [
     baseUrl: "https://openrouter.ai/api/v1",
     apiKeyRef: "env:OPENROUTER_API_KEY",
     presetId: "openrouter",
-    hint: "多模型路由",
+    hint: message("s397"),
   },
   {
     id: "ollama",
-    label: "Ollama (本地)",
+    label: message("s398"),
     providerId: "ollama",
     name: "Ollama (Local)",
     protocol: "openai-compatible",
     baseUrl: "http://localhost:11434/v1",
     apiKeyRef: "",
-    hint: "本地运行",
+    hint: message("s399"),
   },
   {
     id: "custom",
-    label: "自定义",
+    label: message("s400"),
     providerId: "",
     name: "",
     protocol: "openai-compatible",
     baseUrl: "",
     apiKeyRef: "",
-    hint: "手动配置",
+    hint: message("s401"),
   },
 ] as const
 
@@ -166,16 +167,16 @@ export function parseProviderHeaders(value: string): ProviderDraftResult<Record<
   try {
     parsed = JSON.parse(value.trim() || "{}")
   } catch {
-    return { ok: false, error: "Headers 必须是有效的 JSON 对象。" }
+    return { ok: false, error: message("s402") }
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { ok: false, error: "Headers 必须是键和值均为字符串的 JSON 对象。" }
+    return { ok: false, error: message("s403") }
   }
 
   const entries = Object.entries(parsed)
   if (entries.some(([, item]) => typeof item !== "string")) {
-    return { ok: false, error: "Headers 的每个值都必须是字符串。" }
+    return { ok: false, error: message("s404") }
   }
   return { ok: true, value: Object.fromEntries(entries) as Record<string, string> }
 }
@@ -183,10 +184,10 @@ export function parseProviderHeaders(value: string): ProviderDraftResult<Record<
 function readDraft(draft: ProviderDraft): ProviderDraftResult<ProviderUpdatePayload & { id: string }> {
   const id = draft.id.trim()
   if (!isValidProviderId(id)) {
-    return { ok: false, error: "ID 需为 1–64 位字母、数字、点、下划线或短横线，且不能包含冒号。" }
+    return { ok: false, error: message("s405") }
   }
   if (!isProviderProtocol(draft.protocol)) {
-    return { ok: false, error: "请选择有效的供应商协议。" }
+    return { ok: false, error: message("s406") }
   }
   const headers = parseProviderHeaders(draft.headersJson)
   if (!headers.ok) return headers

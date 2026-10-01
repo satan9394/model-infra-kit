@@ -426,4 +426,11 @@ export const en: Record<string, string> = {
   "help.details.provider.add.2": "variable and the CLI says so instead of storing anything.",
   "help.details.pricing.sync.0": "Requires network access; --offline makes this fail fast. --dry-run skips SQLite tier writes.",
   "help.details.pricing.set.0": "At least one of --input or --output is required.",
+  "cmd.pricing.export.summary": "Export cached integer prices with a checksum",
+  "cmd.pricing.import.summary": "Import a validated offline price snapshot",
+  "help.flag.snapshotOutput": "Snapshot output file",
+  "help.flag.snapshotFile": "Snapshot input file",
+  "pricing.snapshot.exported": "Exported %s model prices.",
+  "pricing.snapshot.imported": "Imported %s model prices; manual overrides preserved.",
+  "pricing.snapshot.invalid": "Invalid price snapshot; no prices were changed.",
 }

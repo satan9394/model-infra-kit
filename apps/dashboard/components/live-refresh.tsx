@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { LiveBadge, useHubEvents } from "@/lib/use-events"
@@ -25,6 +27,8 @@ export function LiveRefresh({
   ticker?: boolean
   debounceMs?: number
 }) {
+  const { t } = useI18n()
+
   const router = useRouter()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshes, setRefreshes] = useState(0)
@@ -72,16 +76,12 @@ export function LiveRefresh({
     <div className="flex flex-wrap items-center gap-2">
       <LiveBadge state={state} />
       {ticker ? (
-        <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-muted-foreground">
-          本次会话新增 <span className="font-mono text-foreground">{session.requests}</span> 次调用 ·
-          <span className="font-mono text-foreground"> {formatUsd(session.costMicros / 1_000_000)}</span>
-          {session.lastModel ? <span className="text-subtle"> · 最近 {session.lastModel}</span> : null}
+        <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-muted-foreground"> {t("s71")} <span className="font-mono text-foreground">{session.requests}</span> {t("s72")} <span className="font-mono text-foreground"> {formatUsd(session.costMicros / 1_000_000)}</span>
+          {session.lastModel ? <span className="text-subtle"> {t("s73")} {session.lastModel}</span> : null}
         </span>
       ) : null}
       {refreshes > 0 ? (
-        <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-subtle">
-          已自动刷新 {refreshes} 次
-        </span>
+        <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-subtle"> {t("s74")} {refreshes} {t("s75")} </span>
       ) : null}
       <button
         type="button"
@@ -90,10 +90,8 @@ export function LiveRefresh({
           router.refresh()
         }}
         className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
-      >
-        手动刷新
-      </button>
-      {state.error ? <span className="text-[11px] text-warning">{state.error}</span> : null}
+      > {t("s76")} </button>
+      {state.error ? <span className="text-[11px] text-warning">{t(state.error)}</span> : null}
     </div>
   )
 }

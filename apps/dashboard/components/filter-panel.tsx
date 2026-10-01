@@ -1,3 +1,6 @@
+"use client"
+
+import { useI18n } from "@/lib/i18n/provider"
 import type { ReactNode } from "react"
 import { FilterBar, RangePicker } from "@/components/filters"
 import type { ModelInfo, ProviderRecord } from "@/lib/types"
@@ -19,8 +22,10 @@ export function FilterPanel({
   status?: boolean
   extra?: ReactNode
 }) {
+  const { t } = useI18n()
+
   return (
-    <div className="filter-panel" role="region" aria-label="用量筛选">
+    <div className="filter-panel" role="region" aria-label={t("s56")}>
       <RangePicker key={`${range.fromInput}:${range.toInput}`} range={range} params={params} />
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
         <FilterBar providers={providers} models={models} params={params} status={status} />

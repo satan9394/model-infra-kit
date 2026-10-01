@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import { TokenCostChart } from "@/components/charts/token-cost"
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
@@ -13,6 +14,8 @@ export interface ViewProps {
 }
 
 export default async function TrendsView({ params, embedded }: ViewProps) {
+  const { t } = await getI18n()
+
   const range = resolveRange(params)
   const filters = readFilters(params)
   const query = usageQuery(range, filters)
@@ -41,8 +44,8 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
   return (
     <>
       <PageHeader
-        title="趋势"
-        description="按天堆叠 input / output / cache_read / cache_write，成本用右侧轴折线表示"
+        title={t("s127")}
+        description={t("s353")}
         actions={<LiveRefresh topics={["usage.recorded"]} />}
       />
 
@@ -52,11 +55,11 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
       ) : (
-        <p className="mb-4 text-xs text-subtle">嵌入视图 · 区间 {range.label}</p>
+        <p className="mb-4 text-xs text-subtle"> {t("s250")} {t(range.label)}</p>
       )}
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="区间 token 合计" value={formatCompact(totals ? tokenTotal(totals.tokens) : undefined)} hint={`${points.length} 个有数据的天`} />
+        <StatCard label={t("s354")} value={formatCompact(totals ? tokenTotal(totals.tokens) : undefined)} hint={t("s355", points.length)} />
         {/* EVO-G89: the recorded band, never the deprecated point estimate
             `costUsd` (unpriced and folded requests contribute 0 to all three, so
             the point bounds nothing). Identical while the band is a point.
@@ -67,43 +70,43 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
             band from the point estimate. Same mechanism as `overview-cost-span`;
             the id is distinct so the cross-check between the two tiles is real. */}
         <StatCard
-          label="区间成本"
+          label={t("s356")}
           testId="trends-cost-span"
           value={formatUsdSpan(totals?.costLowUsd, totals?.costHighUsd)}
-          hint="按天聚合求和"
+          hint={t("s357")}
         />
         <StatCard
-          label="最贵的一天"
+          label={t("s358")}
           value={busiest ? formatUsdSpan(busiest.costLowUsd, busiest.costHighUsd) : "—"}
-          hint={busiest ? busiest.date : "该区间没有数据"}
+          hint={busiest ? busiest.date : t("s359")}
         />
-        <StatCard label="请求数" value={formatInt(totals?.requests)} hint="含失败请求" />
+        <StatCard label={t("s295")} value={formatInt(totals?.requests)} hint={t("s360")} />
       </div>
 
-      <Card title={`token 与成本（${range.label}）`} subtitle="GET /api/usage/trends?bucket=day">
+      <Card title={t("s361", t(range.label))} subtitle="GET /api/usage/trends?bucket=day">
         <TokenCostChart points={points} />
       </Card>
 
       <div className="mt-4">
-        <Card title="按天明细" subtitle="与图表同一份数据" padded={false}>
+        <Card title={t("s362")} subtitle={t("s363")} padded={false}>
           {points.length === 0 ? (
             <div className="p-4">
               <EmptyState
-                title="该区间没有趋势数据"
-                description="换一个日期区间，或先用 seed 脚本写入假数据。"
+                title={t("s40")}
+                description={t("s364")}
               />
             </div>
           ) : (
             <TableWrap>
               <thead>
                 <tr>
-                  <Th>日期</Th>
-                  <Th className="text-right">请求</Th>
+                  <Th> {t("s365")} </Th>
+                  <Th className="text-right"> {t("s316")} </Th>
                   <Th className="text-right">input</Th>
                   <Th className="text-right">output</Th>
                   <Th className="text-right">cache_read</Th>
                   <Th className="text-right">cache_write</Th>
-                  <Th className="text-right">成本</Th>
+                  <Th className="text-right"> {t("s42")} </Th>
                 </tr>
               </thead>
               <tbody>

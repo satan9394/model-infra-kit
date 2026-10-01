@@ -1,5 +1,7 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { apiCall } from "@/lib/client-api"
@@ -40,6 +42,8 @@ export function PricingClient({
   overrides: PricingOverride[]
   models: ModelInfo[]
 }) {
+  const { t } = useI18n()
+
   const router = useRouter()
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [busy, setBusy] = useState<string | null>(null)
@@ -55,7 +59,7 @@ export function PricingClient({
     const result = await apiCall<{ state: PricingState }>("/pricing/sync", { method: "POST" })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `价格目录已同步：${result.data.state.status}（来源 ${result.data.state.source ?? "—"}）` })
+      setNotice({ tone: "ok", text: t("s150", result.data.state.status, result.data.state.source ?? "—") })
       router.refresh()
     } else {
       setNotice({ tone: "bad", text: result.error })
@@ -70,7 +74,7 @@ export function PricingClient({
       cacheWritePerM: parseRate(payload.cacheWritePerM),
     }
     if (Object.values(rates).some((value) => value === null)) {
-      setNotice({ tone: "bad", text: "价格必须是非负数字。" })
+      setNotice({ tone: "bad", text: t("s151") })
       return
     }
     const body: Record<string, unknown> = {}
@@ -78,7 +82,7 @@ export function PricingClient({
     if (payload.displayName.trim()) body.displayName = payload.displayName.trim()
     // S3: mik 要求至少给出一个单价，否则 400。
     if (Object.keys(body).filter((key) => key !== "displayName").length === 0) {
-      setNotice({ tone: "bad", text: "至少填写一个单价（input 或 output）。" })
+      setNotice({ tone: "bad", text: t("s152") })
       return
     }
 
@@ -86,7 +90,7 @@ export function PricingClient({
     const result = await apiCall(`/pricing/${encodeURIComponent(modelId)}`, { method: "PUT", body })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${modelId} 的手动价已保存（优先级高于上游目录）` })
+      setNotice({ tone: "ok", text: t("s153", modelId) })
       setForm(EMPTY_FORM)
       router.refresh()
     } else {
@@ -95,12 +99,12 @@ export function PricingClient({
   }
 
   const remove = async (modelId: string) => {
-    if (!window.confirm(`撤销 ${modelId} 的手动价？之后会回落到上游目录。`)) return
+    if (!window.confirm(t("s154", modelId))) return
     setBusy(modelId)
     const result = await apiCall(`/pricing/${encodeURIComponent(modelId)}`, { method: "DELETE" })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${modelId} 的手动价已撤销` })
+      setNotice({ tone: "ok", text: t("s155", modelId) })
       router.refresh()
     } else {
       setNotice({ tone: "bad", text: result.error })
@@ -116,7 +120,7 @@ export function PricingClient({
       cacheReadPerM: override.cacheReadPerM === undefined ? "" : String(override.cacheReadPerM),
       cacheWritePerM: override.cacheWritePerM === undefined ? "" : String(override.cacheWritePerM),
     })
-    setNotice({ tone: "ok", text: `正在编辑 ${override.modelId}` })
+    setNotice({ tone: "ok", text: t("s156", override.modelId) })
   }
 
   return (
@@ -129,12 +133,12 @@ export function PricingClient({
               : "rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger"
           }
         >
-          {notice.text}
+          {t(notice.text)}
         </div>
       ) : null}
 
       <Card
-        title="价格目录状态"
+        title={t("s157")}
         subtitle="GET /api/pricing"
         actions={
           <button
@@ -143,38 +147,32 @@ export function PricingClient({
             disabled={busy === "__sync__"}
             className="rounded border border-border-strong bg-surface-muted px-3 py-1.5 text-xs text-foreground hover:bg-surface-active disabled:opacity-50"
           >
-            {busy === "__sync__" ? "同步中…" : "一键同步"}
+            {busy === "__sync__" ? t("s158") : t("s159")}
           </button>
         }
       >
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <Badge tone={state?.status === "fresh" ? "ok" : state?.status === "stale" ? "warn" : state?.status === "error" ? "bad" : "muted"}>
-            {state?.status ?? "未知"}
+            {state?.status ?? t("s160")}
           </Badge>
-          <span>来源 {state?.source ?? "—"}</span>
-          <span>加载于 {formatDateTime(state?.loadedAt)}</span>
+          <span> {t("s161")} {state?.source ?? "—"}</span>
+          <span> {t("s162")} {formatDateTime(state?.loadedAt)}</span>
           {stale ? (
-            <span className="rounded border border-warning/35 bg-warning/10 px-2 py-0.5 text-warning">
-              价格可能已过期（超过 24h 或同步失败），建议点「一键同步」
-            </span>
+            <span className="rounded border border-warning/35 bg-warning/10 px-2 py-0.5 text-warning"> {t("s163")} </span>
           ) : null}
         </div>
         {state?.lastError ? (
-          <p className="mt-2 break-all font-mono text-xs text-danger">上次同步错误：{state.lastError}</p>
+          <p className="mt-2 break-all font-mono text-xs text-danger"> {t("s164")} {state.lastError}</p>
         ) : null}
-        <p className="mt-2 text-[11px] text-subtle">
-          手动价（override）在 mik 内优先级最高，覆盖 models.dev / openrouter 的目录价；同步只会更新目录，不会动手动价。
-        </p>
+        <p className="mt-2 text-[11px] text-subtle"> {t("s165")} </p>
       </Card>
 
       <Card
-        title={form.modelId ? `编辑手动价 · ${form.modelId}` : "新增 / 覆盖手动价"}
-        subtitle="PUT /api/pricing/:modelId · 至少填一个单价（mik 侧 S3 校验）"
+        title={form.modelId ? t("s166", form.modelId) : t("s167")}
+        subtitle={t("s168")}
       >
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <label className="text-xs text-subtle">
-            模型 ID（provider:model 里的 model 部分）
-            <input
+          <label className="text-xs text-subtle"> {t("s169")} <input
               className={inputClass}
               list="mik-model-ids"
               value={form.modelId}
@@ -187,9 +185,7 @@ export function PricingClient({
               <option key={model.ref} value={model.modelId} />
             ))}
           </datalist>
-          <label className="text-xs text-subtle">
-            显示名（可选）
-            <input className={inputClass} value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} />
+          <label className="text-xs text-subtle"> {t("s170")} <input className={inputClass} value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} />
           </label>
           <label className="text-xs text-subtle">
             input / 1M（USD）
@@ -215,37 +211,35 @@ export function PricingClient({
             disabled={busy === form.modelId || !form.modelId.trim()}
             className="rounded-md border border-border-strong bg-surface-muted px-3 py-1.5 text-xs text-foreground hover:bg-surface-active disabled:opacity-50"
           >
-            {busy === form.modelId ? "保存中…" : "保存"}
+            {busy === form.modelId ? t("s54") : t("s171")}
           </button>
           <button
             type="button"
             onClick={() => setForm(EMPTY_FORM)}
             className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-          >
-            清空
-          </button>
+          > {t("s172")} </button>
         </div>
       </Card>
 
-      <Card title={`手动价（${overrides.length}）`} subtitle="mik 的 pricing_overrides 表" padded={false}>
+      <Card title={t("s173", overrides.length)} subtitle={t("s174")} padded={false}>
         {overrides.length === 0 ? (
           <div className="p-4">
             <EmptyState
-              title="还没有手动价"
-              description="上面的表单会写入一条 override；seed 脚本也会写入几条示例价格。"
+              title={t("s175")}
+              description={t("s176")}
             />
           </div>
         ) : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>模型</Th>
+                <Th> {t("s177")} </Th>
                 <Th className="text-right">input / 1M</Th>
                 <Th className="text-right">output / 1M</Th>
                 <Th className="text-right">cache_read / 1M</Th>
                 <Th className="text-right">cache_write / 1M</Th>
-                <Th>更新时间</Th>
-                <Th>操作</Th>
+                <Th> {t("s178")} </Th>
+                <Th> {t("s179")} </Th>
               </tr>
             </thead>
             <tbody>
@@ -266,17 +260,13 @@ export function PricingClient({
                         type="button"
                         onClick={() => edit(override)}
                         className="rounded border border-border-strong px-2 py-1 text-[11px] text-foreground/80 hover:bg-surface-muted"
-                      >
-                        编辑
-                      </button>
+                      > {t("s180")} </button>
                       <button
                         type="button"
                         onClick={() => void remove(override.modelId)}
                         disabled={busy === override.modelId}
                         className="rounded border border-danger/35 px-2 py-1 text-[11px] text-danger hover:bg-danger/10 disabled:opacity-50"
-                      >
-                        撤销
-                      </button>
+                      > {t("s181")} </button>
                     </div>
                   </Td>
                 </tr>

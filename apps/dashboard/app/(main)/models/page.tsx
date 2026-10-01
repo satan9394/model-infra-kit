@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import { LiveRefresh } from "@/components/live-refresh"
 import { ModelsClient } from "@/components/views/models"
 import { PageHeader } from "@/components/ui"
@@ -7,6 +8,8 @@ import { loadModelCatalog, loadModelsWithPricing, loadShell } from "@/lib/server
 export const dynamic = "force-dynamic"
 
 export default async function ModelsPage() {
+  const { t } = await getI18n()
+
   // Prices are only attached by `GET /api/models/:ref`, so the catalogue is
   // enriched here rather than in `loadShell` (which every page would pay for).
   const [shell, catalog, modelCatalog] = await Promise.all([loadShell(), loadModelsWithPricing(), loadModelCatalog()])
@@ -18,8 +21,8 @@ export default async function ModelsPage() {
   return (
     <>
       <PageHeader
-        title="模型目录"
-        description="标准模型事实与供应商实际端点分开呈现；下方另列供应商已发现模型与价格"
+        title={t("s134")}
+        description={t("s369")}
         actions={<LiveRefresh topics={["catalog.updated", "pricing.updated"]} />}
       />
       <UpstreamNotice message={errors[0]} />

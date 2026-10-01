@@ -1,3 +1,4 @@
+import { getI18n } from "@/lib/i18n/server"
 import { NextResponse, type NextRequest } from "next/server"
 import { mikServerToken, mikServerUrl } from "@/lib/config"
 import { isMikProxyPath } from "@/lib/proxy-path"
@@ -19,9 +20,10 @@ function errorResponse(status: number, message: string, code: string): NextRespo
 }
 
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }): Promise<NextResponse> {
+  const { t } = await getI18n()
   const { path } = await context.params
   if (!isMikProxyPath(path)) {
-    return errorResponse(400, "非法的代理路径。", "INVALID_PROXY_PATH")
+    return errorResponse(400, t("s373"), "INVALID_PROXY_PATH")
   }
 
   const target = `${mikServerUrl()}/api/${path.map((segment) => encodeURIComponent(segment)).join("/")}${request.nextUrl.search}`
@@ -44,7 +46,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ path: 
     upstream = await fetch(target, { method, headers, body, cache: "no-store", signal: AbortSignal.timeout(15_000) })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return errorResponse(502, `无法连接 mik serve（${mikServerUrl()}）：${message}`, "MIK_UNREACHABLE")
+    return errorResponse(502, t("s371", mikServerUrl(), message), "MIK_UNREACHABLE")
   }
 
   const text = await upstream.text()

@@ -1,3 +1,4 @@
+import { message } from "./i18n/core.ts"
 /** Presentation helpers. Pure functions, safe in both server and client code. */
 
 /**
@@ -99,10 +100,10 @@ export function formatDay(value: string | undefined | null): string {
 export function formatRelative(ts: number | undefined | null): string {
   if (typeof ts !== "number" || !Number.isFinite(ts)) return "—"
   const delta = Date.now() - ts
-  if (delta < 0) return "刚刚"
-  if (delta < 60_000) return `${Math.max(1, Math.round(delta / 1000))} 秒前`
-  if (delta < 3_600_000) return `${Math.round(delta / 60_000)} 分钟前`
-  if (delta < 86_400_000) return `${Math.round(delta / 3_600_000)} 小时前`
+  if (delta < 0) return message("s378")
+  if (delta < 60_000) return message("s379", Math.max(1, Math.round(delta / 1000)))
+  if (delta < 3_600_000) return message("s380", Math.round(delta / 60_000))
+  if (delta < 86_400_000) return message("s381", Math.round(delta / 3_600_000))
   return formatDateTime(ts)
 }
 

@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 import { formatUsdSpan } from "../lib/format.ts"
 
-const trends = readFileSync(new URL("../components/views/trends.tsx", import.meta.url), "utf8")
-const overview = readFileSync(new URL("../components/views/overview.tsx", import.meta.url), "utf8")
+const trends = readFileSync(new URL("../components/views/trends.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n")
+const overview = readFileSync(new URL("../components/views/overview.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n")
 
 test("EVO-G92: the five real dashboard cost cells render the recorded interval", () => {
   assert.match(trends, /formatUsdSpan\(busiest\.costLowUsd, busiest\.costHighUsd\)/)

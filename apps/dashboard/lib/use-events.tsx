@@ -1,5 +1,9 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+import { message } from "./i18n/core.ts"
+
+
 import { useEffect, useRef, useState } from "react"
 import type { HubEventFrame } from "@/lib/types"
 
@@ -61,7 +65,7 @@ export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
     const onPricing = handle("pricing.updated")
     const onOpen = () => setState((previous) => ({ ...previous, connected: true, error: null }))
     const onError = () =>
-      setState((previous) => ({ ...previous, connected: false, error: "事件流已断开，正在重连…" }))
+      setState((previous) => ({ ...previous, connected: false, error: message("s410") }))
 
     source.addEventListener("open", onOpen)
     source.addEventListener("error", onError)
@@ -83,6 +87,8 @@ export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
 }
 
 export function LiveBadge({ state }: { state: HubEventsState }) {
+  const { t, lang } = useI18n()
+
   const tone = state.connected
     ? "border-positive/35 bg-positive/10 text-positive"
     : "border-border-strong bg-surface-hover text-muted-foreground"
@@ -91,8 +97,8 @@ export function LiveBadge({ state }: { state: HubEventsState }) {
       <span
         className={`inline-block h-1.5 w-1.5 rounded-full ${state.connected ? "bg-positive" : "bg-subtle"}`}
       />
-      {state.connected ? "实时" : "未连接"}
-      {state.lastEventAt ? <span className="text-subtle">· {new Date(state.lastEventAt).toLocaleTimeString("zh-CN")}</span> : null}
+      {state.connected ? t("s411") : t("s412")}
+      {state.lastEventAt ? <span className="text-subtle">· {new Date(state.lastEventAt).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en-US")}</span> : null}
     </span>
   )
 }

@@ -1,5 +1,8 @@
 "use client"
 
+import { useI18n } from "@/lib/i18n/provider"
+import { message } from "@/lib/i18n/core"
+
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import { apiCall } from "@/lib/client-api"
@@ -11,11 +14,11 @@ import { ModelPingModal } from "@/components/model-ping-modal"
 import { CAPABILITY_FILTERS, matchesCapabilities, type CapabilityFilter, type ModelPingResult } from "@/lib/model-capabilities"
 
 const CAPABILITY_LABELS: ReadonlyArray<{ key: keyof ModelInfo["capabilities"]; label: string }> = [
-  { key: "text", label: "文本" },
-  { key: "image", label: "图像" },
-  { key: "toolCall", label: "工具调用" },
-  { key: "reasoning", label: "推理" },
-  { key: "structuredOutput", label: "结构化输出" },
+  { key: "text", label: message("s251") },
+  { key: "image", label: message("s252") },
+  { key: "toolCall", label: message("s253") },
+  { key: "reasoning", label: message("s254") },
+  { key: "structuredOutput", label: message("s255") },
 ]
 
 const selectClass =
@@ -34,6 +37,8 @@ export function ModelsClient({
   catalogBindings: ProviderModelBinding[]
   defaultModel?: string | null
 }) {
+  const { t } = useI18n()
+
   const router = useRouter()
   const [tags, setTags] = useState<CapabilityFilter[]>([])
   const [pingModel, setPingModel] = useState<string | null>(null)
@@ -66,14 +71,14 @@ export function ModelsClient({
     return matchesCapabilities({ modelId: model.id, ref: model.id, contextWindow: model.contextWindow, capabilities: { text: true, image: model.capabilities.vision, toolCall: model.capabilities.tools, reasoning: model.capabilities.reasoning, structuredOutput: model.capabilities.structuredOutputs } }, tags)
   })
   async function copyRef(ref: string) {
-    try { await navigator.clipboard.writeText(ref); setNotice({ tone: "ok", text: "已复制 / Copied: " + ref }) }
-    catch { setNotice({ tone: "bad", text: "复制失败 / Copy failed" }) }
+    try { await navigator.clipboard.writeText(ref); setNotice({ tone: "ok", text: t("s256") + ref }) }
+    catch { setNotice({ tone: "bad", text: t("s227") }) }
   }
   async function makeDefault(ref: string) {
     setBusy(ref)
     const result = await apiCall<{ defaultModel: string }>(`/models/${encodeURIComponent(ref)}/default`, { method: "PUT" })
     setBusy(null)
-    if (result.ok) { setChosenDefault(result.data.defaultModel); setNotice({ tone: "ok", text: "默认模型 / Default: " + result.data.defaultModel }) }
+    if (result.ok) { setChosenDefault(result.data.defaultModel); setNotice({ tone: "ok", text: t("s257") + result.data.defaultModel }) }
     else setNotice({ tone: "bad", text: result.error })
   }
   function measured(result: ModelPingResult) {
@@ -85,7 +90,7 @@ export function ModelsClient({
     const result = await apiCall<{ models: ModelInfo[] }>(`/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST" })
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: `${providerId}：发现 ${result.data.models.length} 个模型` })
+      setNotice({ tone: "ok", text: t("s258", providerId, result.data.models.length) })
       router.refresh()
     } else {
       setNotice({ tone: "bad", text: `${providerId}：${result.error}` })
@@ -95,31 +100,31 @@ export function ModelsClient({
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-border bg-surface p-4">
-        <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="模型能力筛选 / Model capability filters">
-          {CAPABILITY_FILTERS.map(({ key, label }) => <button key={key} type="button" aria-pressed={tags.includes(key)} onClick={() => setTags((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} className={`rounded-full border px-3 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-primary ${tags.includes(key) ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"}`}>{label}</button>)}
-          {tags.length > 0 ? <button onClick={() => setTags([])} className="px-2 text-xs text-subtle">清除标签 / Clear tags</button> : null}
+        <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label={t("s259")}>
+          {CAPABILITY_FILTERS.map(({ key, label }) => <button key={key} type="button" aria-pressed={tags.includes(key)} onClick={() => setTags((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} className={`rounded-full border px-3 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-primary ${tags.includes(key) ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"}`}>{t(label)}</button>)}
+          {tags.length > 0 ? <button onClick={() => setTags([])} className="px-2 text-xs text-subtle"> {t("s260")} </button> : null}
         </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select aria-label="供应商 / Provider" value={provider} onChange={(event) => setProvider(event.target.value)} className={selectClass}>
-              <option value="">全部供应商</option>
+            <select aria-label={t("s261")} value={provider} onChange={(event) => setProvider(event.target.value)} className={selectClass}>
+              <option value=""> {t("s63")} </option>
               {providers.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name || item.id}
                 </option>
               ))}
             </select>
-            <select aria-label="其他能力 / Other capability" value={capability} onChange={(event) => setCapability(event.target.value)} className={selectClass}>
-              <option value="">全部能力</option>
+            <select aria-label={t("s262")} value={capability} onChange={(event) => setCapability(event.target.value)} className={selectClass}>
+              <option value=""> {t("s263")} </option>
               {CAPABILITY_LABELS.map((item) => (
                 <option key={item.key} value={item.key}>
-                  {item.label}
+                  {t(item.label)}
                 </option>
               ))}
             </select>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              aria-label="搜索模型 / Search models" placeholder="搜索 model / ref"
+              aria-label={t("s264")} placeholder={t("s265")}
               className={`${selectClass} w-44`}
             />
             {provider ? (
@@ -129,30 +134,30 @@ export function ModelsClient({
                 disabled={busy === provider}
                 className="rounded border border-border-strong bg-surface-muted px-2 py-1.5 text-xs text-foreground hover:bg-surface-active disabled:opacity-50"
               >
-                {busy === provider ? "同步中…" : "刷新该供应商模型"}
+                {busy === provider ? t("s158") : t("s266")}
               </button>
             ) : null}
           </div>
 
-        <p className="mt-3 text-[10px] text-subtle">多选标签取交集 / Tags intersect. Fast 优先使用本次测速 TTFT ≤1000 ms；未测速时按轻量模型名称提示，不能保证速度 / Lightweight names are hints until measured.</p>
+        <p className="mt-3 text-[10px] text-subtle"> {t("s267")} </p>
       </div>
       {pingModel ? <ModelPingModal key={pingModel} refName={pingModel} onClose={() => setPingModel(null)} onResult={measured} /> : null}
-      <Card title="标准模型机架" subtitle={`${visibleCatalog.length} / ${catalogModels.length} 个标准模型；事实与供应商端点分别维护`} padded={false}>
+      <Card title={t("s268")} subtitle={t("s269", visibleCatalog.length, catalogModels.length)} padded={false}>
         {visibleCatalog.length === 0 ? (
           <div className="p-4">
-            <EmptyState title={catalogModels.length === 0 ? "内置模型机架暂不可用" : "没有匹配的标准模型"} description={catalogModels.length === 0 ? "HTTP 服务未提供 /api/catalog。" : "调整标签、供应商或搜索词 / Adjust filters."} />
+            <EmptyState title={catalogModels.length === 0 ? t("s270") : t("s271")} description={catalogModels.length === 0 ? t("s272") : t("s273")} />
           </div>
         ) : (
           <TableWrap>
             <thead>
               <tr>
-                <Th>标准模型</Th>
-                <Th>家族</Th>
-                <Th className="text-right">上下文</Th>
-                <Th className="text-right">最大输出</Th>
-                <Th>固有能力</Th>
-                <Th>供应商端点</Th>
-                <Th>事实来源</Th>
+                <Th> {t("s274")} </Th>
+                <Th> {t("s275")} </Th>
+                <Th className="text-right"> {t("s276")} </Th>
+                <Th className="text-right"> {t("s277")} </Th>
+                <Th> {t("s278")} </Th>
+                <Th> {t("s279")} </Th>
+                <Th> {t("s280")} </Th>
               </tr>
             </thead>
             <tbody>
@@ -168,16 +173,16 @@ export function ModelsClient({
                   <Td>
                     <div className="flex flex-wrap gap-1">
                       {([
-                        ["reasoning", "推理"],
-                        ["vision", "视觉"],
-                        ["audio", "音频"],
-                        ["tools", "工具"],
-                        ["structuredOutputs", "结构化输出"],
+                        ["reasoning", t("s254")],
+                        ["vision", t("s281")],
+                        ["audio", t("s282")],
+                        ["tools", t("s283")],
+                        ["structuredOutputs", t("s255")],
                       ] as const)
                         .filter(([key]) => Boolean(model.capabilities[key]))
                         .map(([key, label]) => (
                           <Badge key={key} tone={key === "reasoning" ? "info" : "neutral"}>
-                            {label}
+                            {t(label)}
                           </Badge>
                         ))}
                     </div>
@@ -220,20 +225,20 @@ export function ModelsClient({
       ) : null}
 
       <Card
-        title="模型目录"
-        subtitle={`GET /api/models · 共 ${models.length} 条，当前显示 ${visible.length} 条`}
+        title={t("s134")}
+        subtitle={t("s284", models.length, visible.length)}
         padded={false}
       >
         {models.length === 0 ? (
           <div className="p-4">
             <EmptyState
-              title="模型目录为空"
-              description="mik 还没有发现任何模型。在「供应商」页点「刷新模型」，或运行 seed 脚本写入假目录。"
+              title={t("s285")}
+              description={t("s286")}
             />
           </div>
         ) : visible.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="没有匹配的模型" description="换个供应商、能力或搜索词试试。" />
+            <EmptyState title={t("s287")} description={t("s288")} />
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">

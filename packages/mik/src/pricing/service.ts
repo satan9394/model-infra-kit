@@ -18,6 +18,8 @@ import type { CostInfo, ModelPricing, TokenUsage } from "../types.js"
 import { MODEL_METADATA } from "../catalog/snapshot.js"
 import { defaultCacheDir, expandPath } from "../util/paths.js"
 import { createFileCache } from "./cache.js"
+import { verifyCatalogIntegrity } from "./catalog.js"
+import { exportPriceSnapshot, importPriceSnapshot, priceKey, type PriceModels } from "./snapshot.js"
 import { calculateTierCostMicros, deriveModelPricingTier, type ModelPricingTier } from "./tiers.js"
 
 export interface PricingDeps {
@@ -133,11 +135,29 @@ export class PricingService {
         fetch: deps.fetch,
         onWarn: (message, error) => this.onWarn(message, error),
       })
+    for (const tier of verifyCatalogIntegrity(this.store, (message) => this.onWarn(message))) this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
+  }
+
+  exportSnapshot(): string {
+    const models: PriceModels = Object.create(null)
+    for (const tier of this.tiers.values()) models[priceKey(tier)] = tier
+    return exportPriceSnapshot(models)
+  }
+
+  importSnapshot(json: string): { imported: number; errors: string[] } {
+    const result = importPriceSnapshot(json)
+    if (result.errors.length) return { imported: 0, errors: result.errors }
+    const tiers = Object.values(result.models)
+    this.store.driver.exec("BEGIN IMMEDIATE")
     try {
-      for (const tier of this.store.pricingCache.list()) this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
+      for (const tier of tiers) this.store.pricingCache.set(tier)
+      this.store.driver.exec("COMMIT")
     } catch (error) {
-      this.onWarn("could not read the SQLite pricing cache; using the bundled catalogue", error)
+      this.store.driver.exec("ROLLBACK")
+      throw error
     }
+    for (const tier of tiers) this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
+    return { imported: tiers.length, errors: [] }
   }
 
   /** The URLs this catalogue fetches, for the HTTP surface's SSRF guard. */
@@ -327,8 +347,7 @@ export class PricingService {
   }
 
   private cachedTier(model: string, providerId?: string): ModelPricingTier | undefined {
-    const modelId = canonicalGpt6Id(model)
-    if (!modelId) return undefined
+    const modelId = canonicalGpt6Id(model) ?? model.split(":").at(-1) ?? model
     if (providerId) return this.tiers.get(tierKey(providerId, modelId))
     return [...this.tiers.values()]
       .filter((tier) => tier.modelId === modelId)
