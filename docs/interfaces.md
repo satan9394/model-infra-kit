@@ -319,11 +319,11 @@ GET  /openapi.json
 POST /v1/chat/completions      GET /v1/models
 ```
 
-**G01 默认拒绝写（安全默认）**：未配置 token（`--token` / `MIK_SERVER_TOKEN`）时，写方法（POST/PATCH/PUT/DELETE，除 `/api/health` 外，含 `/v1/chat/completions`）一律 401，消息给出如何设置 token 的指引；GET 读端点与 `/api/health` 保持公开。配置了 token 时行为不变：除 `/api/health` 外全部端点要求 `Bearer`。另外：`readJsonBody` 只接受 `application/json`（含 `+json`、charset），否则 415；`provider test` / `models refresh` / `pricing sync` 出站前校验 URL（仅 http(s)，禁链路本地/云元数据地址如 169.254.0.0/16、fe80::/10、0.0.0.0、`[::]`，loopback 127.0.0.0/8、`::1` 放行），违规 400「INVALID_REQUEST」。
+**EVO-G103（1.1.0）开发与鉴权默认**：无 Token 时仅本地回环请求放行，CLI 明确告警；非回环请求要求配置 Token。配置 Master Token 或作用域 Token 时，除 `GET /api/health` 与 CORS 预检外需要 Bearer。越权返回精确的 403 `{"error":{"message":"insufficient_scope","code":"FORBIDDEN"}}`，无效凭据返回 401。供应商管理/配置/探测要求 admin；作用域详情见文末 EVO-G103。该用户授权策略取代 G01 的无 Token 写入一律 401。另：`readJsonBody` 只接受 `application/json`（含 `+json`、charset），否则 415；`provider test` / `models refresh` / `pricing sync` 出站前校验 URL（仅 http(s)，禁链路本地/云元数据地址如 169.254.0.0/16、fe80::/10、0.0.0.0、`[::]`，loopback 127.0.0.0/8、`::1` 放行），违规 400「INVALID_REQUEST」。
 
 ### `POST /api/usage/events`（F19）
 
-宿主不想改调用链、只想统一记账时用。**鉴权**与其它端点一致（设了 token 就要求 `Bearer`）。**G01 计量防伪造**：`appId` 只允许等于本服务 `hub.appId`（缺省取 `hub.appId`），否则 400。
+宿主不想改调用链、只想统一记账时用。**鉴权**与其它端点一致（设了 token 就要求 `Bearer`）。**计量防伪造**：绑定 Token 时 appId 缺省取绑定值，单条/批量越界整单 403；未绑定 Token 时缺省取 hub.appId，保留原有上报伪造 400 行为。
 
 请求体：单条，或 `{ events: [...] }` 批量（单次上限 500 条）。
 
@@ -349,7 +349,7 @@ POST /v1/chat/completions      GET /v1/models
   isStreaming?: boolean
   sessionId?: string
   traceId?: string
-  appId?: string               // G01：只允许等于本服务 appId，缺省取服务端 appId；否则整单 400（防计量伪造）
+  appId?: string               // 只能等于有效 appId；绑定 Token 时越界整单 403，未绑定时单条越界 400
   tags?: Record<string, string> // 值经 redactDeep 脱敏后入库
 }
 ```
@@ -1041,3 +1041,120 @@ DNS is a separately timed OS lookup of the configured provider hostname before m
 Dashboard language: `mik_dashboard_lang` localStorage preference (`zh`/`en`), browser-language fallback, same-named SameSite cookie for SSR, no URL query changes. Shared paired dictionaries and `useI18n()` cover all views and helper-generated labels. Native modal dialogs trap focus, handle Escape and restore the invoking control. Existing test anchors are preserved.
 
 `/connect` reads the configured `MIK_SERVER_URL` (strips credentials/query/hash in displayed snippets), enabled providers and discovered text models. Five client snippets use the gateway token environment reference, never the provider key. `/api/playground` accepts same-origin POST `{ model, prompt, traceId }`, forwards a single streamed call to the configured `/v1/chat/completions`, and keeps the token server-side. Prompt length is limited to 8,000 characters, output to 128 tokens, timeout to 60s. Text crosses a `redact.ts` stream boundary; arbitrary upstream metadata is omitted. Browser TTFT measures first displayed redacted text, which may wait for an unfinished word. Final cost is fetched by the unique trace ID from the existing usage logs, converted once to integer micros; absent records/pricing are explicitly unavailable. No client history or credentials are persisted.
+
+<!-- release-battery-runtime-exports:v1 -->
+## EVO-G107 — 发布包运行时导出契约
+
+发版电池对实际 `npm pack` 产物执行动态导入，并将运行时（非 type-only）导出与下列机器可读清单逐项比较。数组必须保持排序；新增或删除公共运行时符号时，先更新本契约并同步对应入口说明。
+
+```json
+{
+  "format": "mik-runtime-exports/v1",
+  "entrypoints": {
+    ".": [
+      "CredentialStore",
+      "DEFAULT_MODEL_SETTING",
+      "KeyPool",
+      "MODEL_CATALOG_SOURCE",
+      "MODEL_LIST_PROTOCOLS",
+      "MODEL_METADATA",
+      "MODEL_REF_SEPARATOR",
+      "ModelCatalogService",
+      "ModelInfra",
+      "ModelInfraError",
+      "PROTOCOL_PACKAGES",
+      "PROVIDER_MODEL_BINDINGS",
+      "PROVIDER_PRESETS",
+      "PricingService",
+      "ProviderRegistry",
+      "SDK_PROTOCOLS",
+      "Store",
+      "UsageService",
+      "checkBudgetStatus",
+      "createAiBridge",
+      "createFileCache",
+      "createMikFetch",
+      "defaultCacheDir",
+      "defaultDbPath",
+      "defaultSecretPath",
+      "expandPath",
+      "getPreset",
+      "isModelInfraError",
+      "loadProviderFactory",
+      "maskSecret",
+      "modelCatalog",
+      "normalizeRefs",
+      "packageForProtocol",
+      "readOpenAiUsage",
+      "redact",
+      "redactDeep",
+      "splitModelRef",
+      "toModelInfraError"
+    ],
+    "./cli": [
+      "COMMANDS",
+      "CliRuntimeError",
+      "CliUsageError",
+      "DEFAULT_CONFIG_FILE",
+      "EXIT_FAILURE",
+      "EXIT_OK",
+      "EXIT_USAGE",
+      "GLOBAL_FLAGS",
+      "USAGE_CSV_COLUMNS",
+      "USAGE_CSV_HEADER",
+      "assertPortFree",
+      "formatDuration",
+      "formatMoney",
+      "formatPercent",
+      "formatTable",
+      "formatTimestamp",
+      "formatTokens",
+      "helpFor",
+      "isDirectInvocation",
+      "main",
+      "netstatShowsPort",
+      "offlineFetch",
+      "openContext",
+      "parseCliArgs",
+      "portInUse",
+      "probePort",
+      "usageCsv",
+      "usageCsvRow",
+      "withContext"
+    ],
+    "./server": [
+      "DEFAULT_HEARTBEAT_MS",
+      "DEFAULT_HOST",
+      "DEFAULT_PORT",
+      "EventBus",
+      "HttpError",
+      "MAX_BODY_BYTES",
+      "Router",
+      "buildOpenApiDocument",
+      "createServer",
+      "requireScope"
+    ]
+  }
+}
+```
+
+## EVO-G103 — 网关 Token 作用域与应用隔离（1.1.0）
+
+`model-infra-kit/server` 新增运行时导出 `requireScope(scope: string)`；类型导出 `GatewayScope`、`GatewayToken`、`TokenReference`。`ServerOptions.tokens?: GatewayToken[]` 支持内存多 Token；省略时读取 `MIK_SERVER_TOKENS` JSON 数组。`ServerOptions.token` 是既有 Master Token，默认 admin。显式空数组覆盖环境映射。
+
+```ts
+type GatewayScope = "*" | "admin" | "write:chat" | "write:usage" | "read:usage"
+interface GatewayToken { token: string; scopes: GatewayScope[]; appId?: string }
+interface TokenReference { tokenRef: string; scopes: GatewayScope[]; appId?: string }
+```
+
+- `write:chat`：仅 POST `/v1/chat/completions`（包含 streaming）。
+- `write:usage`：仅 POST `/api/usage/events`。
+- `read:usage`：GET 用量/详情/Trace、价格、模型目录、预算、SSE 与 OpenAPI；供应商记录/凭据管理和模型探测需要 admin。
+- `admin`/`*`：全权；appId 绑定仍适用于用量隔离。未绑定 Token 使用 hub.appId，不接受任意客户端 app 切换。
+
+CLI 的 `mik.config.json.serverTokens` 使用 `TokenReference[]`，只允许 `env:VAR` 引用，密钥本体不写文件或数据库；环境映射优先于文件引用。缺失引用、无效作用域、重复 Token、空 appId 在监听前拒绝，错误不回显配置值。直接嵌入式 createServer 使用内存 tokens 或环境映射；文件引用由 CLI 在创建服务器前解析。
+
+`requireScope` 接受只含 auth 元数据的上下文，不含 bearer 原文。缺少 auth 或权限时抛出 `HttpError(403, "insufficient_scope", "FORBIDDEN")`；server 转成精确的结构化 JSON。开发模式由 server 显式注入 admin，独立中间件调用不默认放行。
+
+应用归属经 `UsageService.withAppScope`（@internal）的实例级 AsyncLocalStorage 传递，shared hub.appId 不变。记录、汇总、趋势、分组、详情、预算均强制当前作用域；SSE 只推送有效 app 的用量事件，目录/价格通知仍为全局共享。header `x-mik-app-id` 和 query `appId`/`app_id` 只能等于有效 appId（重复参数逐项校验）；绑定 Token 的报告 body 或 batch item 越界整单 403。独立库调用保持既有显式 appId 语义。

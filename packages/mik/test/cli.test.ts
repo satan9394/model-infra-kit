@@ -982,7 +982,7 @@ describe("usage", () => {
   it("trends per day with a total row", async () => {
     const { dir, db, base } = sandbox()
     await seed(db)
-    const result = await run(["usage", "trends", "--days", "30", ...base, ...APP], dir)
+    const result = await run(["usage", "trends", "--from", "2026-09-01", "--to", "2026-09-03", ...base, ...APP], dir)
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("TOTAL")
   })
@@ -1577,12 +1577,12 @@ describe("first-call path (EVO-G15)", () => {
     expect(quiet.stdout).not.toContain("npm i @ai-sdk/")
   })
 
-  it("G55 — `serve --help` describes the real default (no token → writes 401)", async () => {
+  it("G55 — `serve --help` describes the real default (no token → loopback development)", async () => {
     const { dir } = sandbox()
     const en = await run(["serve", "--help"], dir, EN)
     expect(en.code).toBe(0)
-    expect(en.stdout).toContain("write endpoints")
-    expect(en.stdout).toContain("401")
+    expect(en.stdout).toContain("loopback development")
+    expect(en.stdout).toContain("remote requests require a token")
     expect(en.stdout).not.toContain("Require Authorization: Bearer <token> on the HTTP API\n")
   })
 
@@ -1720,7 +1720,7 @@ describe("first-call path (EVO-G15)", () => {
     const result = await serveBanner(["serve", "--port", String(port), ...base], dir)
     expect(result.code).toBe(0)
     expect(result.stdout).toContain("Listening on")
-    expect(result.stdout).toContain("Write endpoints disabled: set --token or MIK_SERVER_TOKEN to enable them.")
+    expect(result.stdout).toContain("Warning: loopback development access is open. Set MIK_SERVER_TOKEN or scoped tokens to require authentication.")
   })
 
   it("G54 — the serve banner warns about a missing provider package without blocking startup", async () => {

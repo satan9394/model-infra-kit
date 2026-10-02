@@ -196,7 +196,7 @@ describe("EVO-G58 — zh `--help` descriptions", () => {
     const out = await help(["serve", "--help"], "zh")
     expect(out).toContain("绑定主机（默认 127.0.0.1）")
     expect(out).toContain("端口已被占用时拒绝启动。")
-    expect(out).toContain("GET 端点保持开放，所有写端点一律返回 401。")
+    expect(out).toContain("本地回环开发请求保持开放；远程请求必须配置令牌。")
     expect(out).not.toContain("Refuses to start")
     expect(out).not.toContain("Bind host (default")
   })

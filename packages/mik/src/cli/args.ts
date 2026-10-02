@@ -138,7 +138,7 @@ const FLAG_TOKEN: FlagSpec = {
   type: "string",
   placeholder: "<token>",
   description:
-    "Require Authorization: Bearer <token> on write endpoints; without it (and without MIK_SERVER_TOKEN) only read endpoints are open and every write returns 401",
+    "Require Bearer authentication; without configured tokens, loopback development requests are allowed",
   descriptionKey: "help.flag.token",
 }
 const FLAG_CORS: FlagSpec = {
@@ -397,7 +397,7 @@ export const COMMANDS: readonly CommandSpec[] = [
       "Prefer the MIK_SERVER_TOKEN environment variable over --token: command-line",
       "arguments are visible to other processes. The token is never printed.",
       "Without --token (and without MIK_SERVER_TOKEN) the default policy stands:",
-      "GET endpoints stay open and every write endpoint answers 401.",
+      "Loopback development requests stay open; remote requests require a token.",
       "--cors enables browser access: '*' for any origin, or a specific origin",
       "(https://app.example). Off by default, so browser code must go through a",
       "same-origin proxy unless --cors is given.",

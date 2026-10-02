@@ -35,6 +35,8 @@ export interface CliConfigFile {
   cacheDir?: string
   /** Optional advisory daily/monthly budget limits loaded from this file. */
   budget?: BudgetConfig
+  /** Bearer values stay in environment variables; file stores only references. */
+  serverTokens?: unknown
   /**
    * Consumed by `mik init` only. Keeping it out of the regular command path is
    * deliberate: a config file that re-seeded providers on every run would
@@ -195,6 +197,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     if (typeof record.db === "string" && record.db) config.db = record.db
     if (typeof record.cacheDir === "string" && record.cacheDir) config.cacheDir = record.cacheDir
     config.budget = readBudgetConfig(record.budget)
+    if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     return config
   } catch (error) {

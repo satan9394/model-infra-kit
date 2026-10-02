@@ -539,9 +539,9 @@ describe("G101 — advisory budget status", () => {
   })
 })
 
-/** EVO-G01 — safe defaults: no-token write denial, outbound SSRF guard, usage anti-forgery. */
+/** EVO-G103 supersedes G01's no-token policy for loopback development. */
 describe("G01 — secure defaults", () => {
-  it("A1 — without a token, write endpoints are 401 with guidance; reads and health stay public", async () => {
+  it("A1 — without a token, loopback writes reach validation; reads and health stay public", async () => {
     const open = await createServer({ hub, port: 0, heartbeatMs: 0 })
     try {
       const health = await fetch(`${open.url}/api/health`)
@@ -555,13 +555,11 @@ describe("G01 — secure defaults", () => {
         headers: { "content-type": "application/json" },
         body: "{}",
       })
-      expect(write.status).toBe(401)
-      expect(write.headers.get("www-authenticate")).toContain("Bearer")
+      expect(write.status).toBe(400)
       const payload = await body<ErrorBody>(write)
-      expect(payload.error.code).toBe("AUTH")
+      expect(payload.error.code).toBe("INVALID_REQUEST")
       expect(payload.error.type).toBe("invalid_request_error")
-      expect(payload.error.message).toContain("--token")
-      expect(payload.error.message).toContain("MIK_SERVER_TOKEN")
+      expect(payload.error.message).toContain('"id"')
 
       // /v1/chat/completions is a write endpoint too.
       const chat = await fetch(`${open.url}/v1/chat/completions`, {
@@ -569,7 +567,7 @@ describe("G01 — secure defaults", () => {
         headers: { "content-type": "application/json" },
         body: "{}",
       })
-      expect(chat.status).toBe(401)
+      expect(chat.status).toBe(400)
       expect(hub.usage.query().total).toBe(0)
     } finally {
       await open.close()

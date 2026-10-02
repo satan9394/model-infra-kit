@@ -338,11 +338,12 @@ describe("EVO-G64 — the shared-database notice in `usage summary`", () => {
 
   it("A1/edge — an app whose history is entirely folded is still counted", async () => {
     const { dir, db, base } = sandbox()
-    await seedApp(db, "cli-app", [{ id: "c-1", usd: 0.005, input: 100 }])
-    await seedApp(db, "old-app", [{ id: "o-1", usd: 0.01, input: 100, ts: Date.now() - 5 * 86_400_000 }])
+    const now = Date.parse("2026-09-06T12:00:00.000Z")
+    await seedApp(db, "cli-app", [{ id: "c-1", usd: 0.005, input: 100, ts: now }])
+    await seedApp(db, "old-app", [{ id: "o-1", usd: 0.01, input: 100, ts: now - 5 * 86_400_000 }])
 
     const store = await Store.open({ path: db })
-    new UsageService({ store, appId: "old-app", enabled: true }).rollupAndPrune(Date.now())
+    new UsageService({ store, appId: "old-app", enabled: true }).rollupAndPrune(now)
     store.close()
 
     // `usage_events` no longer holds a single `old-app` row — only

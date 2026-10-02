@@ -265,6 +265,12 @@ await server.close()
 `Store.open({ path?, driver? })` → `{ providers, models, pricing, usage, settings, driver, close() }`。
 `createServer(options)` → `{ url, port, host, sseClients, close() }`；`port: 0` 取随机端口；`token` 一旦设置，除 `GET /api/health` 外都需要 `Authorization: Bearer <token>`。
 
+1.1.0 支持内存配置 `tokens: [{ token, scopes: ["write:chat"], appId: "my-app" }]`，或环境变量 `MIK_SERVER_TOKENS`（同结构 JSON 数组）。Master `token` 保持 `admin` 权限；`admin`/`*` 全权，`write:chat` 仅聊天与流式生成，`write:usage` 仅上报事件，`read:usage` 查询账单、价格、模型目录、预算和 SSE。供应商管理和探测端点需要 admin。越权返回 `403 {"error":{"message":"insufficient_scope","code":"FORBIDDEN"}}`；无效凭据返回 401。
+
+CLI 配置文件只写引用：`"serverTokens": [{ "tokenRef": "env:MY_APP_TOKEN", "scopes": ["write:chat"], "appId": "my-app" }]`。Token 不写入数据库或配置文件。缺失引用、未知作用域、重复 Token 或空 appId 在监听前拒绝。环境映射优先于文件引用。
+
+绑定 appId 的 Token 自动隔离生成/流式用量、上报、查询、预算与 SSE；`x-mik-app-id` 或查询 appId 与绑定值冲突则返回 403。未绑定的 Token 使用 hub.appId。供应商、模型目录和价格仍为全局共享配置。无任何 Token 时本地回环开发请求放行，CLI 显示警告；远程请求仍要求配置 Token。
+
 ---
 
 ## 9. 错误

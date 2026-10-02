@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import type { Store } from "../store/database.js"
 import type { BudgetUsageTotals } from "./budget.js"
 import type {
@@ -179,6 +180,7 @@ export interface UsageServiceDeps {
 export class UsageService {
   private readonly store: Store
   private readonly appId: string
+  private readonly requestApp = new AsyncLocalStorage<string>()
   private readonly enabled: boolean
   private readonly onEvent: ((event: UsageEvent) => void) | undefined
   private readonly onWarn: ((message: string, error?: unknown) => void) | undefined
@@ -276,7 +278,12 @@ export class UsageService {
 
   /** The app every query defaults to. Additive convenience, not part of the contract. */
   get currentAppId(): string {
-    return this.appId
+    return this.requestApp.getStore() ?? this.appId
+  }
+
+  /** @internal Request-local attribution; never mutate the shared hub's appId. */
+  withAppScope<T>(appId: string, callback: () => T): T {
+    return this.requestApp.run(appId, callback)
   }
 
   /** Whether writes are persisted. Additive convenience, not part of the contract. */
@@ -302,7 +309,7 @@ export class UsageService {
    */
   record(event: Omit<UsageEvent, "appId"> & { appId?: string }): boolean {
     if (!this.enabled) return false
-    const stored: UsageEvent = { ...event, appId: event.appId ?? this.appId }
+    const stored: UsageEvent = { ...event, appId: this.requestApp.getStore() ?? event.appId ?? this.appId }
     if (!this.store.usage.insert(stored)) return false
     this.noteBudget(stored)
     try {
@@ -319,7 +326,7 @@ export class UsageService {
    * Passing `appId: ""` deliberately disables the filter (all apps).
    */
   private scoped(query?: UsageQuery): UsageQuery {
-    return { ...query, appId: query?.appId ?? this.appId }
+    return { ...query, appId: this.requestApp.getStore() ?? query?.appId ?? this.appId }
   }
 
   summary(query?: UsageQuery): UsageSummary {
@@ -328,7 +335,7 @@ export class UsageService {
 
   /** Read integer budget totals, including any retained daily rollups. */
   budgetTotals(from: number, to: number): BudgetUsageTotals {
-    return this.store.usage.budgetTotals(this.appId, from, to)
+    return this.store.usage.budgetTotals(this.currentAppId, from, to)
   }
 
   /**
@@ -405,7 +412,7 @@ export class UsageService {
   get(requestId: string, options?: { appId?: string }): UsageEvent | null {
     const event = this.store.usage.get(requestId)
     if (!event) return null
-    const scope = options?.appId ?? this.appId
+    const scope = this.requestApp.getStore() ?? options?.appId ?? this.appId
     if (scope === "") return event
     return event.appId === scope ? event : null
   }

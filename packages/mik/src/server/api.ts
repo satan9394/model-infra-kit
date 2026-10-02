@@ -302,9 +302,9 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
 
   // A report may only carry this server's own appId; anything else would let a
   // client write rows into another app's bucket (usage forgery).
-  const appId = optionalText(body.appId, "appId") ?? hub.appId
-  if (appId !== hub.appId) {
-    throw new EventRejection(`"appId" must equal the server's appId ("${hub.appId}").`)
+  const appId = optionalText(body.appId, "appId") ?? hub.usage.currentAppId
+  if (appId !== hub.usage.currentAppId) {
+    throw new EventRejection('"appId" must equal the authenticated appId.')
   }
 
   const status = body.status === undefined || body.status === null ? "ok" : body.status
@@ -568,8 +568,11 @@ export function registerApiRoutes(router: Router): void {
       // A single report is the body itself, so this check is what makes a
       // forged `appId` fail the whole request (A3); batch items carrying their
       // own `appId` are guarded per item in `buildReportedEvent`.
-      if (body.appId !== undefined && body.appId !== ctx.hub.appId) {
-        throw new HttpError(400, `"appId" must equal this server's appId ("${ctx.hub.appId}").`, "INVALID_REQUEST")
+      if (body.appId !== undefined && body.appId !== ctx.hub.usage.currentAppId) {
+        throw new HttpError(ctx.auth?.appId ? 403 : 400, ctx.auth?.appId ? "insufficient_scope" : '"appId" must equal this server\'s appId.', ctx.auth?.appId ? "FORBIDDEN" : "INVALID_REQUEST")
+      }
+      if (ctx.auth?.appId && Array.isArray(body.events) && body.events.some((event) => event && typeof event === "object" && "appId" in event && event.appId !== ctx.appId)) {
+        throw new HttpError(403, "insufficient_scope", "FORBIDDEN")
       }
       // A single event and a batch are the same code path: the body *is* the
       // one-element report when it has no `events` key.
@@ -617,6 +620,7 @@ export function registerApiRoutes(router: Router): void {
       stream.open()
       stream.startHeartbeat()
       const unsubscribe = ctx.bus.subscribe((event) => {
+        if (event.type === "usage.recorded" && (event.data as UsageEvent).appId !== ctx.appId) return
         /**
          * EVO-G75: the bus republishes whatever the caller handed to
          * `UsageService.record()`. The normal paths (`hub.generate/stream/fetch`,

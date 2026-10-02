@@ -9,6 +9,9 @@ import type { SseStream } from "./sse.js"
  */
 export interface ServerContext {
   hub: ModelInfra
+  /** Token metadata only; the bearer secret never reaches handlers. */
+  auth?: { scopes: string[]; appId?: string }
+  appId?: string
   /** Fan-out for `GET /api/events`; fed by the taps in `events.ts`. */
   bus: EventBus
   req: IncomingMessage

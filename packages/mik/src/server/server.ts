@@ -5,8 +5,8 @@ import type { ModelInfra } from "../hub.js"
 import { registerApiRoutes } from "./api.js"
 import { HttpError, type ServerContext } from "./context.js"
 import { acquireEventBus } from "./events.js"
+import { authenticate, endpointScope, requireScope, resolveTokens, validateTokens, type GatewayToken } from "./auth.js"
 import {
-  bearerToken,
   pathSegments,
   resolveCors,
   safeEqual,
@@ -34,6 +34,8 @@ export interface ServerOptions {
   host?: string
   /** When set, every endpoint except `GET /api/health` needs it as a bearer token. */
   token?: string
+  /** In-memory tokens. When omitted, MIK_SERVER_TOKENS is a JSON array. */
+  tokens?: GatewayToken[]
   /** Off by default. `true` allows any origin; pass options to narrow it. */
   cors?: boolean | CorsOptions
   /** SSE heartbeat interval in milliseconds. Defaults to 15000. */
@@ -114,11 +116,6 @@ function isPublicRoute(segments: string[]): boolean {
   return segments.length === 2 && segments[0] === "api" && segments[1] === "health"
 }
 
-/** The methods that mutate state behind the `/api` and `/v1` surfaces. */
-function isWriteMethod(method: string): boolean {
-  return method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE"
-}
-
 /**
  * Start the HTTP surface of a hub: the OpenAI-compatible endpoints under `/v1`,
  * the metering REST API under `/api`, the event stream and the OpenAPI document.
@@ -132,6 +129,11 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
   const host = options.host ?? DEFAULT_HOST
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS
   const token = options.token?.trim() || undefined
+  const tokens = options.tokens === undefined ? resolveTokens(undefined, process.env) : validateTokens(options.tokens)
+  if (token) {
+    if (tokens.some((entry) => safeEqual(entry.token, token))) throw new HttpError(400, "Duplicate gateway token configuration.")
+    tokens.push({ token, scopes: ["admin"] })
+  }
   const cors = resolveCors(options.cors)
 
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -155,7 +157,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
   const router = new Router()
   registerApiRoutes(router)
   router.add("GET", "/openapi.json", (ctx) => {
-    sendJson(ctx.res, 200, buildOpenApiDocument({ origin: ctx.origin, secured: token !== undefined }))
+    sendJson(ctx.res, 200, buildOpenApiDocument({ origin: ctx.origin, secured: tokens.length > 0 }))
   })
   router.add("POST", "/v1/chat/completions", handleChatCompletions)
   router.add("GET", "/v1/models", handleListModels)
@@ -175,23 +177,22 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
       }
 
       const segments = pathSegments(url)
-      if (token) {
+      let principal: GatewayToken | undefined
+      if (tokens.length > 0) {
         if (!isPublicRoute(segments)) {
-          const presented = bearerToken(req)
-          if (!presented || !safeEqual(presented, token)) {
+          principal = authenticate(req, tokens)
+          if (!principal) {
             sendError(res, 401, "Missing or invalid credentials.", "AUTH", {
               "www-authenticate": 'Bearer realm="model-infra-kit"',
             })
             return
           }
         }
-      } else if (isWriteMethod(method) && !isPublicRoute(segments)) {
-        // Safe by default: without a token the write surface is disabled and
-        // the answer carries the way out. GET reads and /api/health stay open.
+      } else if (!isPublicRoute(segments) && !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "")) {
         sendError(
           res,
           401,
-          "Write endpoints are disabled because no token is configured. Set --token or MIK_SERVER_TOKEN to enable them.",
+          "Remote requests require a configured gateway token.",
           "AUTH",
           { "www-authenticate": 'Bearer realm="model-infra-kit"' },
         )
@@ -221,8 +222,15 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
         heartbeatMs,
         startedAt,
         trackSse,
+        auth: principal ? { scopes: principal.scopes, appId: principal.appId } : { scopes: ["admin"] },
+        appId: principal?.appId ?? hub.appId,
       }
-      await match.route.handler(ctx)
+      if (!isPublicRoute(segments)) requireScope(endpointScope(method, segments))(ctx)
+      const requestedApps = [...url.searchParams.getAll("appId"), ...url.searchParams.getAll("app_id")]
+      const headerApp = req.headers["x-mik-app-id"]
+      if (headerApp !== undefined) requestedApps.push(...(Array.isArray(headerApp) ? headerApp : [headerApp]))
+      if (requestedApps.some((value) => value !== ctx.appId)) throw new HttpError(403, "insufficient_scope", "FORBIDDEN")
+      await hub.usage.withAppScope(ctx.appId!, () => match.route!.handler(ctx))
     } catch (error) {
       const mapped = toHttpError(error)
       // A streamed response already committed its status; all that is left is
@@ -231,7 +239,9 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
         if (!res.writableEnded) res.end()
         return
       }
-      sendError(res, mapped.status, mapped.message, mapped.code)
+      if (mapped.status === 403 && mapped.code === "FORBIDDEN") {
+        sendJson(res, 403, { error: { message: "insufficient_scope", code: "FORBIDDEN" } })
+      } else sendError(res, mapped.status, mapped.message, mapped.code)
     }
   }
 

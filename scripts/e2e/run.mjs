@@ -107,6 +107,9 @@ function cleanEnv(extra = {}) {
     "MIK_DB",
     "MIK_APP_ID",
     "MIK_CONFIG",
+    "MIK_LANG",
+    "MIK_SERVER_TOKENS",
+    "MIK_SERVER_TOKEN",
     "MIK_EXAMPLE_ONLINE_PRICING",
   ]) {
     delete env[key]
@@ -116,7 +119,8 @@ function cleanEnv(extra = {}) {
   // The harness is a tool, not a user: pin its language so the assertions below
   // never depend on the machine's OS locale (a zh-CN host would otherwise render
   // Chinese and flip the English help assertions). EVO-G12/G26.
-  env.MIK_LANG = "en"
+  env.LC_ALL = "en_US.UTF-8"
+  env.LANG = "en_US.UTF-8"
   return { ...env, ...extra }
 }
 

@@ -296,7 +296,7 @@ export const en: Record<string, string> = {
   "serve.listening": "Listening on %s",
   "serve.baseUrl": "OpenAI-compatible base URL: %s",
   "serve.tokenRequired": "Bearer token required (value not shown).",
-  "serve.writeDisabled": "Write endpoints disabled: set --token or MIK_SERVER_TOKEN to enable them.",
+  "serve.writeDisabled": "Warning: loopback development access is open. Set MIK_SERVER_TOKEN or scoped tokens to require authentication.",
   "serve.warn.missingPackage": "warning: the provider package %s is missing — write endpoints will return 502. Install it with: npm i %s",
   "serve.corsOrigin": "CORS allowed: %s",
   "serve.corsAny": "CORS allowed for any origin.",
@@ -369,7 +369,7 @@ export const en: Record<string, string> = {
   "help.flag.servePort": "Listen port (default 3211)",
   "help.flag.host": "Bind host (default 127.0.0.1)",
   "help.flag.token":
-    "Require Authorization: Bearer <token> on write endpoints; without it (and without MIK_SERVER_TOKEN) only read endpoints are open and every write returns 401",
+    "Require Bearer authentication; without configured tokens, loopback development requests are allowed",
   "help.flag.cors":
     "Allow cross-origin browser access; use '*' for any origin, or a specific origin like https://app.example (default: off)",
   "help.flag.dashboardPort": "Dashboard port (default 3210)",
@@ -414,7 +414,7 @@ export const en: Record<string, string> = {
   "help.details.serve.1": "Prefer the MIK_SERVER_TOKEN environment variable over --token: command-line",
   "help.details.serve.2": "arguments are visible to other processes. The token is never printed.",
   "help.details.serve.3": "Without --token (and without MIK_SERVER_TOKEN) the default policy stands:",
-  "help.details.serve.4": "GET endpoints stay open and every write endpoint answers 401.",
+  "help.details.serve.4": "Loopback development requests stay open; remote requests require a token.",
   "help.details.serve.5": "--cors enables browser access: '*' for any origin, or a specific origin",
   "help.details.serve.6": "(https://app.example). Off by default, so browser code must go through a",
   "help.details.serve.7": "same-origin proxy unless --cors is given.",

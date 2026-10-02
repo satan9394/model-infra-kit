@@ -8,6 +8,7 @@ import { assertPortFree } from "../ports.js"
 import { tr, type Lang } from "../i18n.js"
 import { missingPackagesForProtocols } from "../packages.js"
 import type { CorsOptions } from "../../server/http.js"
+import { resolveTokens, type GatewayToken } from "../../server/auth.js"
 
 export interface ServerHandle {
   url: string
@@ -19,6 +20,7 @@ export interface ServerOptions {
   port?: number
   host?: string
   token?: string
+  tokens?: GatewayToken[]
   cors?: boolean | CorsOptions
 }
 
@@ -123,7 +125,8 @@ export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<
   return withContext(parsed, options, async (context) => {
     const lang = contextLang(context, options)
     const module = await loadServerModule(import.meta.url, lang)
-    const handle = await module.createServer({ hub: context.hub, port, host, token, cors })
+    const tokens = resolveTokens(context.config.serverTokens, env)
+    const handle = await module.createServer({ hub: context.hub, port, host, token, tokens, cors })
     context.io.out(tr(lang, "serve.listening", handle.url))
     context.io.out(tr(lang, "serve.baseUrl", context.hub.baseUrl))
     // EVO-G15 (G54): a configured provider whose `@ai-sdk/*` peer is missing
@@ -134,9 +137,8 @@ export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<
     )) {
       context.io.out(tr(lang, "serve.warn.missingPackage", missingPackage, missingPackage))
     }
-    // EVO-G15 (G55): the default policy rejects writes, and the banner must say
-    // so in every run — a piped/CI run is exactly where the 401 used to surprise.
-    if (token) context.io.out(tr(lang, "serve.tokenRequired"))
+    // Always disclose open loopback development access, including piped runs.
+    if (token || tokens.length) context.io.out(tr(lang, "serve.tokenRequired"))
     else context.io.out(tr(lang, "serve.writeDisabled"))
     if (cors) {
       context.io.out(typeof cors === "object" ? tr(lang, "serve.corsOrigin", cors.origin) : tr(lang, "serve.corsAny"))
