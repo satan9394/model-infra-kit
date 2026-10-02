@@ -1,4 +1,12 @@
+import type { StorageAdapter, StorageConfig } from "./store/adapter.js"
 import type { ModelMessage, ToolSet } from "ai"
+
+/** Explicit measured media facts; no downloading or resolution guessing. */
+export interface MultimodalUsage {
+  image_pixels?: number
+  audio_input_ms?: number
+  audio_output_ms?: number
+}
 
 /**
  * A wire protocol family. Providers are mapped onto one of these by data,
@@ -77,6 +85,10 @@ export interface ProviderConfig {
   enabled?: boolean
   presetId?: string
   meta?: Record<string, unknown>
+  /** Automatic failover group; lower priority wins (default 10). */
+  group?: string
+  priority?: number
+  fallback_provider_id?: string
 }
 
 export interface ProviderRecord extends ProviderConfig {
@@ -163,6 +175,8 @@ export interface ToolCall {
 }
 
 export interface ModelRequest {
+  /** Measured media quantities priced only by explicitly configured media rates. */
+  media?: MultimodalUsage
   /** `provider:model`, or a bare model id resolved against the default provider. */
   model?: string
   messages: ModelMessage[]
@@ -207,6 +221,7 @@ export type StreamEvent =
   | { type: "error"; error: { code: string; message: string } }
 
 export interface UsageEventInput {
+  tool_calls?: ToolCallAttribution[]
   requestId: string
   appId: string
   ts: number
@@ -230,6 +245,18 @@ export interface UsageEventInput {
 export interface UsageEvent extends UsageEventInput {
   pricingBasis?: string
   pricingSource?: string
+}
+
+/** Attribution of request cost, never an additional charge or tool invoice. */
+export interface ToolCallAttribution {
+  tool_name: string
+  id: string
+  input_hash: string
+  start_offset_ms: number
+  duration_ms: number
+  input_tokens: number
+  output_tokens: number
+  cost_micros: number
 }
 
 export interface UsageSummary {
@@ -435,6 +462,8 @@ export interface ModelInfraConfig {
   appId?: string
   /** SQLite file path, or `:memory:`. Defaults to `~/.model-infra-kit/usage.db`. */
   db?: string
+  /** Overrides db; custom adapters must support synchronous SQLite-compatible SQL. */
+  storage?: StorageConfig | StorageAdapter
   /** Provider presets to register on first run. */
   providers?: ProviderConfig[]
   /** `provider:model` used when a request omits `model`. */

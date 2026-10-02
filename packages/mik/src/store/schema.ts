@@ -1,3 +1,4 @@
+import { adaptSqlDriver, isStorageAdapter } from "./adapter.js"
 import type { SqlDriver } from "./driver.js"
 
 /**
@@ -225,6 +226,7 @@ export const MIGRATIONS: Migration[] = [
 ]
 
 export function migrate(driver: SqlDriver): number {
+  const adapter = isStorageAdapter(driver) ? driver : adaptSqlDriver(driver)
   driver.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     applied_at INTEGER NOT NULL
@@ -242,8 +244,7 @@ export function migrate(driver: SqlDriver): number {
       latest = Math.max(latest, migration.version)
       continue
     }
-    driver.exec("BEGIN")
-    try {
+    adapter.transaction(() => {
       for (const statement of migration.statements) {
         if (typeof statement === "string") driver.exec(statement)
         else statement(driver)
@@ -252,11 +253,7 @@ export function migrate(driver: SqlDriver): number {
       // see an empty `schema_migrations` and race on this primary key. Losing the
       // race must not roll the migration back.
       driver.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(migration.version, Date.now())
-      driver.exec("COMMIT")
-    } catch (error) {
-      driver.exec("ROLLBACK")
-      throw error
-    }
+    })
     latest = Math.max(latest, migration.version)
   }
   return latest

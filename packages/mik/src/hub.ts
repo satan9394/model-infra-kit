@@ -1,3 +1,5 @@
+import { compatibleProtocols, isRetryableRouteFailure, ProviderCircuitBreaker, type FailoverOptions } from "./ai/failover.js"
+import type { StorageAdapterFactory } from "./store/adapter.js"
 import { randomUUID } from "node:crypto"
 import { generateText, stepCountIs, streamText, type LanguageModelUsage } from "ai"
 import type { PricingCatalog, PricingSource } from "llm-pricing"
@@ -32,6 +34,8 @@ import type {
 import { UsageService, budgetBaseMicros, isUsableBudget, type BudgetDeps } from "./usage/service.js"
 import { checkBudgetStatus, type BudgetStatus } from "./usage/budget.js"
 import { sanitizeTags } from "./usage/tags.js"
+import { ToolTraceCollector, requestCostMicros } from "./usage/tool-attribution.js"
+import { validateMultimodalUsage } from "./pricing/tiers.js"
 import { redact } from "./util/redact.js"
 
 const DEFAULT_APP_ID = "default"
@@ -70,12 +74,15 @@ function isExpectedSyncSkip(error: unknown): boolean {
  * optional, so a plain `ModelInfraConfig` is still a valid argument.
  */
 export interface ModelInfraOptions extends ModelInfraConfig {
+  storageFactory?: StorageAdapterFactory
   /** Public URL of the OpenAI-compatible endpoint. The server injects the port. */
   baseUrl?: string
   /** Retries the AI SDK makes per provider call. Defaults to the SDK's own. */
   maxRetries?: number
   /** Ordered model references used after retryable failures. */
   fallbackChain?: string[]
+  /** Passive per-provider breaker configuration, including injectable clock. */
+  failover?: FailoverOptions
   /** First-output budget for reasoning streams. */
   reasoningTimeoutMs?: number
   /** Per-key cooldown after a 429. Defaults to 30 seconds. */
@@ -157,9 +164,9 @@ function reportedCostOf(usage: { raw?: unknown } | undefined, providerMetadata: 
  */
 function costFor(
   pricing: PricingService,
-  input: { model: string; providerId?: string; at: number; usage: Partial<TokenUsage>; reported: readonly ProviderCostReading[] },
+  input: { model: string; providerId?: string; at: number; usage: Partial<TokenUsage>; reported: readonly ProviderCostReading[]; media?: ModelRequest["media"] },
 ): { cost: CostInfo; reported: ProviderCostReading } {
-  const catalogue = pricing.estimate({ model: input.model, providerId: input.providerId, at: input.at, usage: input.usage })
+  const catalogue = pricing.estimate({ model: input.model, providerId: input.providerId, at: input.at, usage: input.usage, media: input.media })
   const reported = combineReportedCosts(input.reported)
   if (reported.kind !== "accepted") return { cost: catalogue, reported }
   return {
@@ -211,6 +218,7 @@ function toToolCall(call: { toolCallId: string; toolName: string; input: unknown
 function unwrapProviderError(error: unknown, depth = 0): unknown {
   if (depth > 4 || !error || typeof error !== "object") return error
   const record = error as Record<string, unknown>
+  if (typeof record.statusCode === "number" || typeof record.status === "number") return error
   const errors = record.errors
   if (Array.isArray(errors) && errors.length > 0) return unwrapProviderError(errors[errors.length - 1], depth + 1)
   return record.cause ? unwrapProviderError(record.cause, depth + 1) : error
@@ -240,14 +248,6 @@ function positiveMilliseconds(value: number | undefined, name: string): number |
     throw new ModelInfraError(`"${name}" must be at least 1 millisecond.`, { code: "INVALID_REQUEST" })
   }
   return milliseconds
-}
-
-function isRetryableRouteFailure(error: ModelInfraError): boolean {
-  return error.retryable || error.status === 429 || error.status === 504
-}
-
-function canFallbackCode(code: string): boolean {
-  return ["RATE_LIMIT", "TIMEOUT", "CONNECTION", "PROVIDER"].includes(code)
 }
 
 /**
@@ -300,6 +300,7 @@ function budgetDepsFor(
    * reported nothing, which is what keeps the pre-G73 `tags` byte-identical.
    */
   diagnosticTags?: Record<string, string>
+  tool_calls?: UsageEvent["tool_calls"]
 }
 
 /**
@@ -328,6 +329,7 @@ export class ModelInfra {
   private readonly lifecycle: Lifecycle
   private readonly maxSteps: number
   private readonly maxRetries: number | undefined
+  readonly providerHealth: ProviderCircuitBreaker
   private readonly fallbackChain: string[]
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
@@ -350,6 +352,7 @@ export class ModelInfra {
     maxSteps: number
     maxRetries: number | undefined
     fallbackChain: string[]
+    providerHealth: ProviderCircuitBreaker
     reasoningTimeoutMs: number | undefined
     keyCooldownMs: number
     budgetConfig: BudgetConfig | undefined
@@ -369,6 +372,7 @@ export class ModelInfra {
     this.baseUrlValue = deps.baseUrl
     this.maxSteps = deps.maxSteps
     this.maxRetries = deps.maxRetries
+    this.providerHealth = deps.providerHealth
     this.fallbackChain = deps.fallbackChain
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
@@ -462,13 +466,14 @@ export class ModelInfra {
     if (config.fallbackChain !== undefined && (!Array.isArray(config.fallbackChain) || config.fallbackChain.some((item) => typeof item !== "string"))) {
       throw new ModelInfraError('"fallbackChain" must be an array of model references.', { code: "INVALID_REQUEST" })
     }
+    const providerHealth = new ProviderCircuitBreaker(config.failover)
     const fallbackChain = config.fallbackChain ?? []
     const reasoningTimeoutMs = positiveMilliseconds(config.reasoningTimeoutMs, "reasoningTimeoutMs")
     const keyCooldownMs = positiveMilliseconds(config.keyCooldownMs ?? 30_000, "keyCooldownMs") ?? 30_000
 
     let store: Store
     try {
-      store = await Store.open({ path: config.db, onWarn: warn })
+      store = await Store.open({ path: config.db, storage: config.storage, storageFactory: config.storageFactory, onWarn: warn })
     } catch (error) {
       // `Store.open` already reports storage failures as ModelInfraError with a
       // precise message; re-wrapping only buries it behind a second prefix.
@@ -558,6 +563,7 @@ export class ModelInfra {
       maxSteps: DEFAULT_MAX_STEPS,
       maxRetries: config.maxRetries,
       fallbackChain,
+      providerHealth,
       reasoningTimeoutMs,
       keyCooldownMs,
       budgetConfig: config.budget,
@@ -627,6 +633,7 @@ export class ModelInfra {
   ): Array<{ resolved: ResolvedModelRef; modelRef: string }> {
     const candidates = [{ resolved: primary, modelRef: `${primary.providerId}:${primary.modelId}` }]
     if (requestFallbacks === false) return candidates
+    const source = this.providers.get(primary.providerId)
     const seen = new Set([candidates[0]!.modelRef])
     for (const reference of [...(requestFallbacks ?? []), ...this.fallbackChain]) {
       if (typeof reference !== "string" || !reference.trim() || seen.has(reference.trim())) continue
@@ -634,10 +641,20 @@ export class ModelInfra {
       seen.add(modelRef)
       try {
         const resolved = this.resolveModel(modelRef)
+        if (!compatibleProtocols(source?.protocol, this.providers.get(resolved.providerId)?.protocol)) continue
         candidates.push({ resolved: { ...resolved, requested: primary.requested }, modelRef })
       } catch (error) {
         this.warn(`Skipping unavailable fallback model "${modelRef}".`, error)
       }
+    }
+    const backup = this.providers.list()
+      .filter((provider) => provider.enabled && provider.id !== primary.providerId && compatibleProtocols(source?.protocol, provider.protocol))
+      .filter((provider) => source?.fallback_provider_id ? provider.id === source.fallback_provider_id : !!source?.group && provider.group === source.group)
+      .sort((a, b) => (a.priority ?? 10) - (b.priority ?? 10) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .find((provider) => this.providerHealth.available(provider.id))
+    if (backup) {
+      const modelRef = `${backup.id}:${primary.modelId}`
+      if (!seen.has(modelRef)) candidates.push({ resolved: { ...primary, providerId: backup.id }, modelRef })
     }
     return candidates
   }
@@ -645,107 +662,122 @@ export class ModelInfra {
   /** One generation with bounded rate-limit rotation and model failover. */
   async generate(request: ModelRequest): Promise<ModelResponse> {
     this.assertOpen("generate()")
+    validateMultimodalUsage(request.media)
     const primary = this.resolveModel(request.model)
     const candidates = this.routeCandidates(primary, request.fallbackChain)
     const startedAt = Date.now()
     let lastError: ModelInfraError | undefined
 
     for (const [candidateIndex, candidate] of candidates.entries()) {
-      const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
-      for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
-        const requestId = randomUUID()
-        try {
-          const timeoutMs = positiveMilliseconds(request.reasoningTimeoutMs ?? this.reasoningTimeoutMs, "reasoningTimeoutMs")
-          const timeoutSignal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
-          const abortSignal = request.signal && timeoutSignal
-            ? AbortSignal.any([request.signal, timeoutSignal])
-            : (request.signal ?? timeoutSignal)
-          const model = await this.bridge.languageModel(candidate.resolved.providerId, candidate.resolved.modelId)
-          const result = await generateText({
-            model,
-            messages: request.messages,
-            system: request.system,
-            tools: request.tools,
-            temperature: request.temperature,
-            maxOutputTokens: request.maxTokens,
-            headers: request.headers,
-            abortSignal,
-            maxRetries: this.maxRetries,
-            stopWhen: stepCountIs(this.maxSteps),
-          })
+      if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+      try {
+        const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
+        for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
+          const requestId = randomUUID()
+          let replayUnsafe = false
+          const toolTrace = new ToolTraceCollector(startedAt)
+          try {
+            const timeoutMs = positiveMilliseconds(request.reasoningTimeoutMs ?? this.reasoningTimeoutMs, "reasoningTimeoutMs")
+            const timeoutSignal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
+            const abortSignal = request.signal && timeoutSignal
+              ? AbortSignal.any([request.signal, timeoutSignal])
+              : (request.signal ?? timeoutSignal)
+            const model = await this.bridge.languageModel(candidate.resolved.providerId, candidate.resolved.modelId)
+            const result = await generateText({
+              model,
+              messages: request.messages,
+              system: request.system,
+              tools: request.tools,
+              temperature: request.temperature,
+              maxOutputTokens: request.maxTokens,
+              headers: request.headers,
+              abortSignal,
+              maxRetries: this.maxRetries,
+              stopWhen: stepCountIs(this.maxSteps),
+              onToolExecutionStart: (event) => { replayUnsafe = true; toolTrace.start(event) },
+              onToolExecutionEnd: (event) => toolTrace.end(event),
+              onStepFinish: (step) => { replayUnsafe ||= step.toolCalls.length > 0; toolTrace.step(step) },
+            })
 
-          const { usage, pricing } = normalizeUsage(result.usage ?? result.totalUsage)
-          const actual = result.steps.at(-1)?.response?.modelId ?? result.response?.modelId ?? candidate.resolved.modelId
-          const latencyMs = Date.now() - startedAt
-          const firstTokenMs = result.steps.at(-1)?.performance?.timeToFirstOutputMs
-          const reported = result.steps.map((step) => reportedCostOf(step.usage, step.providerMetadata))
-          const { cost, reported: billed } = costFor(this.pricingService, {
-            model: actual,
-            providerId: candidate.resolved.providerId,
-            at: startedAt,
-            usage: pricing,
-            reported: reported.length > 0 ? reported : [reportedCostFromProviderMetadata(result.providerMetadata)],
-          })
-          const response: ModelResponse = {
-            text: result.text,
-            toolCalls: result.toolCalls.map(toToolCall),
-            finishReason: String(result.finishReason),
-            usage,
-            cost,
-            provider: candidate.resolved.providerId,
-            model: { requested: primary.requested, actual },
-            latencyMs,
-            firstTokenMs,
-            steps: result.steps.length,
+            const { usage, pricing } = normalizeUsage(result.usage ?? result.totalUsage)
+            const actual = result.steps.at(-1)?.response?.modelId ?? result.response?.modelId ?? candidate.resolved.modelId
+            const latencyMs = Date.now() - startedAt
+            const firstTokenMs = result.steps.at(-1)?.performance?.timeToFirstOutputMs
+            const reported = result.steps.map((step) => reportedCostOf(step.usage, step.providerMetadata))
+            const { cost, reported: billed } = costFor(this.pricingService, {
+              model: actual,
+              providerId: candidate.resolved.providerId,
+              at: startedAt,
+              usage: pricing,
+              reported: reported.length > 0 ? reported : [reportedCostFromProviderMetadata(result.providerMetadata)],
+              media: request.media,
+            })
+            const response: ModelResponse = {
+              text: result.text,
+              toolCalls: result.toolCalls.map(toToolCall),
+              finishReason: String(result.finishReason),
+              usage,
+              cost,
+              provider: candidate.resolved.providerId,
+              model: { requested: primary.requested, actual },
+              latencyMs,
+              firstTokenMs,
+              steps: result.steps.length,
+            }
+            this.record({
+              requestId,
+              at: startedAt,
+              source: "generate",
+              tool_calls: toolTrace.finish(requestCostMicros(cost.usd), usage),
+              resolved: candidate.resolved,
+              actual,
+              usage,
+              cost,
+              latencyMs,
+              firstTokenMs,
+              status: "ok",
+              isStreaming: false,
+              request,
+              diagnosticTags: {
+                ...providerCostTags(billed),
+                ...(candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : {}),
+                ...(candidate.resolved.providerId !== primary.providerId ? { failover: "true", original_provider: primary.providerId } : {}),
+              },
+            })
+            this.providerHealth.success(candidate.resolved.providerId)
+            return response
+          } catch (error) {
+            const mapped = toProviderError(error, {
+              providerId: candidate.resolved.providerId,
+              model: candidate.resolved.modelId,
+            })
+            lastError = mapped
+            this.record({
+              requestId,
+              at: startedAt,
+              source: "generate",
+              resolved: candidate.resolved,
+              actual: candidate.resolved.modelId,
+              usage: ZERO_USAGE(),
+              cost: MISSING_COST(),
+              latencyMs: Date.now() - startedAt,
+              status: "error",
+              errorCode: mapped.code,
+              isStreaming: false,
+              tool_calls: toolTrace.finish(0, ZERO_USAGE()),
+              request,
+              diagnosticTags: candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : undefined,
+            })
+            if (!replayUnsafe && !request.signal?.aborted && isRetryableRouteFailure(mapped) && mapped.code === "RATE_LIMIT" && keyAttempt + 1 < keyAttempts) {
+              this.providers.coolCurrentKey(candidate.resolved.providerId, this.keyCooldownMs)
+              continue
+            }
+            if (!request.signal?.aborted) this.providerHealth.failure(candidate.resolved.providerId, mapped)
+            if (replayUnsafe || request.signal?.aborted || !isRetryableRouteFailure(mapped) || candidateIndex + 1 >= candidates.length) throw mapped
+            break
           }
-          this.record({
-            requestId,
-            at: startedAt,
-            source: "generate",
-            resolved: candidate.resolved,
-            actual,
-            usage,
-            cost,
-            latencyMs,
-            firstTokenMs,
-            status: "ok",
-            isStreaming: false,
-            request,
-            diagnosticTags: {
-              ...providerCostTags(billed),
-              ...(candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : {}),
-            },
-          })
-          return response
-        } catch (error) {
-          const mapped = toProviderError(error, {
-            providerId: candidate.resolved.providerId,
-            model: candidate.resolved.modelId,
-          })
-          lastError = mapped
-          this.record({
-            requestId,
-            at: startedAt,
-            source: "generate",
-            resolved: candidate.resolved,
-            actual: candidate.resolved.modelId,
-            usage: ZERO_USAGE(),
-            cost: MISSING_COST(),
-            latencyMs: Date.now() - startedAt,
-            status: "error",
-            errorCode: mapped.code,
-            isStreaming: false,
-            request,
-            diagnosticTags: candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : undefined,
-          })
-          if (mapped.code === "RATE_LIMIT" && keyAttempt + 1 < keyAttempts) {
-            this.providers.coolCurrentKey(candidate.resolved.providerId, this.keyCooldownMs)
-            continue
-          }
-          if (!isRetryableRouteFailure(mapped) || candidateIndex + 1 >= candidates.length) throw mapped
-          break
         }
-      }
+      } finally { this.providerHealth.release(candidate.resolved.providerId) }
     }
     throw lastError ?? new ModelInfraError("No model route was available.", { code: "PROVIDER" })
   }
@@ -757,6 +789,7 @@ export class ModelInfra {
    */
   stream(request: ModelRequest): AsyncIterable<StreamEvent> {
     this.assertOpen("stream()")
+    validateMultimodalUsage(request.media)
     return this.runStream(request)
   }
 
@@ -812,58 +845,66 @@ export class ModelInfra {
 
     let lastFailure: Extract<StreamEvent, { type: "error" }> | undefined
     for (const [candidateIndex, candidate] of candidates.entries()) {
-      const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
-      for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
-        const attemptRequest = { ...request, model: candidate.modelRef }
-        const perAttempt = this.runStreamAttempt(
-          attemptRequest,
-          candidate.resolved,
-          startedAt,
-          randomUUID(),
-          candidateIndex > 0 || keyAttempt > 0,
-          reasoningTimeoutMs,
-        )
-        const buffered: StreamEvent[] = []
-        let committed = false
-        let retryableFailure: Extract<StreamEvent, { type: "error" }> | undefined
-        for await (const event of perAttempt) {
-          if (event.type === "error") {
-            retryableFailure = event
-            lastFailure = event
-            break
+      if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+      try {
+        const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
+        for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
+          const attemptRequest = { ...request, model: candidate.modelRef }
+          let mappedFailure: ModelInfraError | undefined
+          const perAttempt = this.runStreamAttempt(
+            attemptRequest,
+            candidate.resolved,
+            startedAt,
+            randomUUID(),
+            candidateIndex > 0 || keyAttempt > 0,
+            reasoningTimeoutMs,
+            (error) => { mappedFailure = error },
+            candidate.resolved.providerId !== primary.providerId ? primary.providerId : undefined,
+          )
+          const buffered: StreamEvent[] = []
+          let committed = false
+          let retryableFailure: Extract<StreamEvent, { type: "error" }> | undefined
+          for await (const event of perAttempt) {
+            if (event.type === "error") {
+              retryableFailure = event
+              lastFailure = event
+              break
+            }
+            const content = event.type === "text_delta" || event.type === "tool_call_delta" || event.type === "tool_call_complete"
+            if (!committed && content) {
+              committed = true
+              for (const pending of buffered) yield pending
+              buffered.length = 0
+            }
+            if (event.type === "finish") this.providerHealth.success(candidate.resolved.providerId)
+            if (committed || event.type === "finish" || event.type === "usage") yield event
+            else buffered.push(event)
           }
-          const content = event.type === "text_delta" || event.type === "tool_call_delta" || event.type === "tool_call_complete"
-          if (!committed && content) {
-            committed = true
-            for (const pending of buffered) yield pending
-            buffered.length = 0
-          }
-          if (committed || event.type === "finish" || event.type === "usage") yield event
-          else buffered.push(event)
-        }
 
-        if (!retryableFailure) {
-          for (const pending of buffered) yield pending
-          return
+          if (mappedFailure && !request.signal?.aborted) this.providerHealth.failure(candidate.resolved.providerId, mappedFailure)
+          if (!retryableFailure) {
+            for (const pending of buffered) yield pending
+            return
+          }
+          if (committed || request.signal?.aborted || (!mappedFailure || !isRetryableRouteFailure(mappedFailure))) {
+            for (const pending of buffered) yield pending
+            yield retryableFailure
+            return
+          }
+          if (retryableFailure.error.code === "RATE_LIMIT" && keyAttempt + 1 < keyAttempts) {
+            this.providers.coolCurrentKey(candidate.resolved.providerId, this.keyCooldownMs)
+            continue
+          }
+          if (candidateIndex + 1 >= candidates.length) {
+            for (const pending of buffered) yield pending
+            yield retryableFailure
+            return
+          }
+          break
         }
-        if (committed || request.signal?.aborted || !canFallbackCode(retryableFailure.error.code)) {
-          for (const pending of buffered) yield pending
-          yield retryableFailure
-          return
-        }
-        if (retryableFailure.error.code === "RATE_LIMIT" && keyAttempt + 1 < keyAttempts) {
-          this.providers.coolCurrentKey(candidate.resolved.providerId, this.keyCooldownMs)
-          continue
-        }
-        if (candidateIndex + 1 >= candidates.length) {
-          for (const pending of buffered) yield pending
-          yield retryableFailure
-          return
-        }
-        break
-      }
+      } finally { this.providerHealth.release(candidate.resolved.providerId) }
     }
-    if (lastFailure) yield lastFailure
+    yield lastFailure ?? { type: "error", error: { code: "PROVIDER", message: "No healthy model route was available." } }
   }
 
   private async *runStreamAttempt(
@@ -873,6 +914,8 @@ export class ModelInfra {
     requestId: string,
     isFallback: boolean,
     reasoningTimeoutMs: number | undefined,
+    onFailure: (error: ModelInfraError) => void,
+    originalProvider?: string,
   ): AsyncGenerator<StreamEvent> {
 
     let model: Awaited<ReturnType<AiBridge["languageModel"]>>
@@ -894,11 +937,13 @@ export class ModelInfra {
         isStreaming: true,
         request,
       })
+      onFailure(mapped)
       yield { type: "error", error: { code: mapped.code, message: mapped.message } }
       return
     }
 
     const chunks: string[] = []
+    const toolTrace = new ToolTraceCollector(startedAt)
     const toolCalls: ToolCall[] = []
     const toolNames = new Map<string, string>()
     /** A provider may repeat the same call id across deltas; report it once. */
@@ -927,7 +972,7 @@ export class ModelInfra {
     const recordOnce = (input: UsageRecordInput): void => {
       if (recorded) return
       recorded = true
-      this.record(input)
+      this.record({ ...input, tool_calls: toolTrace.finish(requestCostMicros(input.cost.usd), input.usage) })
     }
 
     const timeoutController = new AbortController()
@@ -962,6 +1007,9 @@ export class ModelInfra {
         abortSignal: timeoutSignal,
         maxRetries: this.maxRetries,
         stopWhen: stepCountIs(this.maxSteps),
+        onToolExecutionStart: (event) => toolTrace.start(event),
+        onToolExecutionEnd: (event) => toolTrace.end(event),
+        onStepFinish: (step) => toolTrace.step(step),
         // The hub reports stream failures as an `error` event and records them,
         // so the SDK must not also write the raw provider error to stderr.
         onError: () => {},
@@ -1008,6 +1056,7 @@ export class ModelInfra {
               providerId: resolved.providerId,
               model: resolved.modelId,
             })
+            onFailure(failure)
             yield { type: "error", error: { code: failure.code, message: failure.message } }
             break
         case "abort":
@@ -1015,6 +1064,7 @@ export class ModelInfra {
               part.reason ? `The stream was aborted: ${redact(part.reason)}` : "The stream was aborted.",
               { code: "TIMEOUT", retryable: true, providerId: resolved.providerId, model: resolved.modelId },
             )
+            onFailure(failure)
             yield { type: "error", error: { code: request.signal?.aborted ? "ABORTED" : failure.code, message: failure.message } }
             break
           default:
@@ -1051,6 +1101,7 @@ export class ModelInfra {
           at: startedAt,
           usage: normalized.pricing,
           reported,
+          media: request.media,
         })
         cost = priced.cost
         billed = priced.reported
@@ -1103,7 +1154,7 @@ export class ModelInfra {
         status: "ok",
         isStreaming: true,
         request,
-        diagnosticTags: { ...providerCostTags(billed), ...(isFallback ? { is_fallback: "true" } : {}) },
+        diagnosticTags: { ...providerCostTags(billed), ...(isFallback ? { is_fallback: "true" } : {}), ...(originalProvider ? { failover: "true", original_provider: originalProvider } : {}) },
       })
       yield { type: "finish", response }
     } catch (error) {
@@ -1123,9 +1174,11 @@ export class ModelInfra {
         isStreaming: true,
         request,
       })
+      onFailure(mapped)
       yield { type: "error", error: { code: mapped.code, message: mapped.message } }
     } finally {
       stopReasoningTimer()
+      timeoutController.abort()
       // The consumer abandoned the stream before the accounting above could run
       // (`return()` on a generator resumes it with a return completion, which
       // runs this block). Such a call never reached `finish`, so it is never a
@@ -1250,6 +1303,7 @@ export class ModelInfra {
     const merged = diagnostic && Object.keys(diagnostic).length > 0 ? { ...hostTags, ...diagnostic } : hostTags
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,
+      tool_calls: input.tool_calls,
       ts: input.at,
       source: input.source,
       providerId: input.resolved.providerId,

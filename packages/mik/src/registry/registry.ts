@@ -79,6 +79,15 @@ export class ProviderRegistry {
       )
     }
 
+    if (config.group !== undefined && (typeof config.group !== "string" || !PROVIDER_ID_PATTERN.test(config.group))) {
+      throw new ModelInfraError("Provider group must use 1-64 identifier characters.", { code: "INVALID_REQUEST" })
+    }
+    if (config.priority !== undefined && (!Number.isSafeInteger(config.priority) || config.priority < 0)) {
+      throw new ModelInfraError("Provider priority must be a non-negative safe integer.", { code: "INVALID_REQUEST" })
+    }
+    if (config.fallback_provider_id !== undefined && (typeof config.fallback_provider_id !== "string" || !PROVIDER_ID_PATTERN.test(config.fallback_provider_id) || config.fallback_provider_id === config.id)) {
+      throw new ModelInfraError("Fallback provider must be a different valid provider id.", { code: "INVALID_REQUEST" })
+    }
     const preset = config.presetId ? getPreset(config.presetId) : undefined
     if (config.presetId && !preset) {
       throw new ModelInfraError(`Unknown provider preset "${config.presetId}".`, {

@@ -444,4 +444,8 @@ export const zh = {
   "playground.promptGreeting": "请分别用英语、中文和西班牙语打招呼。",
   "playground.stopped": "请求已取消，请查看用量日志确认已记录费用。",
   "playground.cancel": "取消请求",
+  "trace.tools.policy": "工具费用归属于请求总额。同一步的 Token 在工具间均分；这属于估算，并非额外收费。",
+  "trace.tools.detail": "工具执行",
+  "trace.tools.tokens": "输入 / 输出 Token",
+  "trace.tools.share": "归属费用",
 } as const

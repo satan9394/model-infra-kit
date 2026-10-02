@@ -48,7 +48,7 @@ export function importPriceSnapshot(json: string): { imported: number; errors: s
     for (const [key, tier] of Object.entries(models)) {
       if (!isModelPricingTier(tier) || tier.version !== 1 || !Number.isFinite(Date.parse(tier.updatedAt)) || key !== priceKey(tier)) return invalid()
       if (Object.keys(tier).some((field) => !["modelId", "providerId", "source", "version", "updatedAt", "rates"].includes(field))) return invalid()
-      if (Object.keys(tier.rates).some((field) => !["inputMicrosPerMillion", "cachedInputMicrosPerMillion", "cacheWriteMicrosPerMillion", "outputMicrosPerMillion", "reasoningOutputMicrosPerMillion", "longContextThresholdTokens", "longContextInputMultiplier", "longContextOutputMultiplier"].includes(field))) return invalid()
+      if (Object.keys(tier.rates).some((field) => !["inputMicrosPerMillion", "cachedInputMicrosPerMillion", "cacheWriteMicrosPerMillion", "outputMicrosPerMillion", "reasoningOutputMicrosPerMillion", "longContextThresholdTokens", "longContextInputMultiplier", "longContextOutputMultiplier", "image_per_megapixel_micros", "audio_input_micros_per_second", "audio_output_micros_per_second"].includes(field))) return invalid()
     }
     return { imported: entriesCount, errors: [], models }
   } catch {

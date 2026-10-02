@@ -67,9 +67,9 @@ function tapUsage(hub: ModelInfra, bus: EventBus): () => void {
   const usage = hub.usage
   const original = usage.record
   usage.record = function record(this: typeof usage, event) {
-    const stored = original.call(this, event)
+    const full: UsageEvent = usage.normalizeEvent(event)
+    const stored = original.call(this, full)
     if (stored) {
-      const full: UsageEvent = { ...event, appId: event.appId ?? usage.currentAppId }
       bus.emit({ type: "usage.recorded", at: Date.now(), data: full })
     }
     return stored

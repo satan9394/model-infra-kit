@@ -4,6 +4,8 @@ import { performance } from "node:perf_hooks"
 import { splitModelRef } from "../registry/registry.js"
 import type { CostInfo, Protocol, ProviderConfig, StreamEvent, TokenUsage, UsageEvent } from "../types.js"
 import { costBound } from "../usage/service.js"
+import { sanitizeToolCalls, requestCostMicros } from "../usage/tool-attribution.js"
+import { validateMultimodalUsage, type MultimodalUsage } from "../pricing/tiers.js"
 import { redact, redactDeep } from "../util/redact.js"
 import { HttpError, type ServerContext } from "./context.js"
 import { parseUsageQuery, readJsonBody, sendJson, statusForCode } from "./http.js"
@@ -40,6 +42,16 @@ function readProviderFields(body: Record<string, unknown>): Partial<ProviderConf
   if (typeof body.npmPackage === "string") fields.npmPackage = body.npmPackage
   if (typeof body.presetId === "string") fields.presetId = body.presetId
   if (typeof body.enabled === "boolean") fields.enabled = body.enabled
+  for (const field of ["group", "fallback_provider_id"] as const) {
+    if (body[field] !== undefined) {
+      if (typeof body[field] !== "string") throw new HttpError(400, `"${field}" must be a string.`, "INVALID_REQUEST")
+      fields[field] = body[field]
+    }
+  }
+  if (body.priority !== undefined) {
+    if (typeof body.priority !== "number") throw new HttpError(400, '"priority" must be a number.', "INVALID_REQUEST")
+    fields.priority = body.priority
+  }
   if (body.protocol !== undefined) {
     if (!isProtocol(body.protocol)) {
       throw new HttpError(400, `Unsupported protocol "${String(body.protocol)}".`, "INVALID_REQUEST")
@@ -281,6 +293,21 @@ function readReportedCost(value: unknown): CostInfo | undefined {
   return { usd, low: usd, high: usd, basis: "manual", source: "manual" }
 }
 
+function readReportedMedia(value: unknown): MultimodalUsage | undefined {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new EventRejection('"media" must be measured integer pixel/millisecond facts.')
+  const media: MultimodalUsage = {}
+  for (const key of ["image_pixels", "audio_input_ms", "audio_output_ms"] as const) {
+    if (Object.hasOwn(value, key)) {
+      const count = (value as Record<string, unknown>)[key]
+      if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) throw new EventRejection('"media" quantities must be non-negative safe integers.')
+      media[key] = count
+    }
+  }
+  validateMultimodalUsage(media)
+  return media
+}
+
 /**
  * F19 — one event of a host-side usage report. Everything that is not a
  * validation failure is optional: a host that only knows `requestId`,
@@ -295,6 +322,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
   const requestId = requiredText(body.requestId, "requestId")
   const providerId = requiredText(body.providerId, "providerId")
   const { usage, pricing } = readReportedUsage(body.usage)
+  const media = readReportedMedia(body.media)
 
   const modelRequested = optionalText(body.modelRequested, "modelRequested") ?? ""
   const modelActual = optionalText(body.modelActual, "modelActual") ?? modelRequested
@@ -315,7 +343,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
   const cost =
     readReportedCost(body.cost) ??
     (modelActual || modelRequested
-      ? hub.pricing.estimate({ model: modelActual || modelRequested, at: ts, usage: pricing })
+      ? hub.pricing.estimate({ model: modelActual || modelRequested, providerId, at: ts, usage: pricing, media })
       : MISSING_COST(modelActual))
 
   return {
@@ -323,6 +351,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
     appId,
     ts,
     source: "report",
+    tool_calls: sanitizeToolCalls(body.tool_calls, requestCostMicros(cost.usd)),
     providerId,
     modelRequested: modelRequested || modelActual,
     modelActual,

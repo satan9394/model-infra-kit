@@ -19,6 +19,7 @@ import { buildOpenApiDocument } from "./openapi.js"
 import { handleChatCompletions, handleListModels, toHttpError } from "./openai.js"
 import { Router } from "./router.js"
 import { SseStream } from "./sse.js"
+import { MetricsExporter, METRICS_CONTENT_TYPE } from "./metrics.js"
 
 /** Loopback only: this API is not meant to be exposed to a network. */
 export const DEFAULT_HOST = "127.0.0.1"
@@ -143,6 +144,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
   await assertPortFree(port, host)
 
   const { bus, release } = acquireEventBus(hub)
+  const metrics = new MetricsExporter(hub, tokens.map(entry => entry.token))
   const streams = new Set<SseStream>()
   const startedAt = Date.now()
   let origin = `http://${urlHost(host)}:${port}`
@@ -156,6 +158,11 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
 
   const router = new Router()
   registerApiRoutes(router)
+  router.add("GET", "/metrics", (ctx) => {
+    requireScope("read:usage")(ctx)
+    ctx.res.writeHead(200, { "content-type": METRICS_CONTENT_TYPE, "cache-control": "no-store" })
+    ctx.res.end(metrics.render(ctx.appId ?? hub.appId))
+  })
   router.add("GET", "/openapi.json", (ctx) => {
     sendJson(ctx.res, 200, buildOpenApiDocument({ origin: ctx.origin, secured: tokens.length > 0 }))
   })
@@ -255,6 +262,8 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
   await new Promise<void>((resolve, reject) => {
     const onError = (error: NodeJS.ErrnoException) => {
       server.off("listening", onListening)
+      metrics.close()
+      release()
       reject(listenError(error, port, host))
     }
     const onListening = () => {
@@ -286,6 +295,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
     close(): Promise<void> {
       if (closing) return closing
       closing = (async () => {
+        metrics.close()
         release()
         for (const stream of [...streams]) stream.close()
         streams.clear()

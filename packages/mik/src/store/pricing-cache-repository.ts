@@ -1,9 +1,10 @@
-import { asNumber, asString, type SqlDriver } from "./driver.js"
+import type { StorageAdapter } from "./adapter.js"
+import { asNumber, asString } from "./driver.js"
 import { isModelPricingTier, type ModelPricingTier } from "../pricing/tiers.js"
 
 /** Normalized, provider-specific rates copied from a pricing source. */
 export class PricingCacheRepository {
-  constructor(private readonly driver: SqlDriver) {}
+  constructor(private readonly driver: StorageAdapter) {}
 
   get(providerId: string, modelId: string): ModelPricingTier | null {
     const row = this.driver

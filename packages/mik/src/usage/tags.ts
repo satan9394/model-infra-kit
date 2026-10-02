@@ -65,7 +65,7 @@ export const RESERVED_TAG_PREFIX = "_mik_"
  * `usage summary --by-tag` exclude them, and `usage export`'s `tags` column is
  * rendered through `redactTagsForDisplay()`, which drops them too.
  */
-export const RESERVED_TAG_KEYS: readonly string[] = [PROVIDER_COST_RAW_TAG, PROVIDER_COST_STATUS_TAG]
+export const RESERVED_TAG_KEYS: readonly string[] = [PROVIDER_COST_RAW_TAG, PROVIDER_COST_STATUS_TAG, "tool_calls"]
 
 /** Whether a key is machine-written reconciliation data rather than attribution. */
 export function isReservedTagKey(key: string): boolean {

@@ -11,7 +11,7 @@ ModelInfo, ModelCapabilities, ModelPricing, ModelSource
 TokenUsage { input; output; cacheRead; cacheWrite; reasoning }
 CostInfo { usd; low; high; basis; source; pricingModel?; providerId? }
 ProviderConfig.apiKeyRef?: string | string[] // one ref, comma-separated refs, or ref array; only references are stored
-ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; traceId?; fallbackChain?: string[] | false; reasoningTimeoutMs?: number; signal? }
+ModelRequest { model?; messages: ModelMessage[]; system?; tools?: ToolSet; temperature?; maxTokens?; headers?; tags?; sessionId?; traceId?; fallbackChain?: string[] | false; reasoningTimeoutMs?: number; media?: MultimodalUsage; signal? }
   // EVO-G75：`tags?: Record<string, string>` 是宿主自定义的**归属标签**（如
   // `{ feature: "quant-backtest" }`）。值入库前经 `sanitizeTags()` 归一化 + `redactDeep()`
   // 脱敏；非对象/异常值一律按既定策略处理，**绝不抛错**（见「EVO-G75」节）。
@@ -1068,6 +1068,7 @@ Dashboard language: `mik_dashboard_lang` localStorage preference (`zh`/`en`), br
       "PricingService",
       "ProviderRegistry",
       "SDK_PROTOCOLS",
+      "SqliteStorageAdapter",
       "Store",
       "UsageService",
       "checkBudgetStatus",
@@ -1158,3 +1159,99 @@ CLI 的 `mik.config.json.serverTokens` 使用 `TokenReference[]`，只允许 `en
 `requireScope` 接受只含 auth 元数据的上下文，不含 bearer 原文。缺少 auth 或权限时抛出 `HttpError(403, "insufficient_scope", "FORBIDDEN")`；server 转成精确的结构化 JSON。开发模式由 server 显式注入 admin，独立中间件调用不默认放行。
 
 应用归属经 `UsageService.withAppScope`（@internal）的实例级 AsyncLocalStorage 传递，shared hub.appId 不变。记录、汇总、趋势、分组、详情、预算均强制当前作用域；SSE 只推送有效 app 的用量事件，目录/价格通知仍为全局共享。header `x-mik-app-id` 和 query `appId`/`app_id` 只能等于有效 appId（重复参数逐项校验）；绑定 Token 的报告 body 或 batch item 越界整单 403。独立库调用保持既有显式 appId 语义。
+
+
+## EVO-G108 — Synchronous storage adapters and shared state
+
+The root entry exports `SqliteStorageAdapter` at runtime and `StorageAdapter`, `PreparedStatement<T>`, `StorageConfig`, `StorageAdapterFactory` as types. `StorageAdapter` extends the existing synchronous `SqlDriver` surface with `prepare<T extends Record<string, unknown>>(sql): PreparedStatement<T>` and `transaction<T>(fn): T`; statements retain `run`, `get`, and `all`. Factory initialization may return a Promise; database operations and transaction callbacks are synchronous so existing registry, usage and pricing APIs stay compatible. A transaction callback must not return a Promise or schedule later database work. Declared async callbacks are rejected before invocation; returned thenables cause rollback. SQLite transactions use `BEGIN IMMEDIATE` and nested savepoints.
+
+`ModelInfraConfig.storage` / `StoreOptions.storage` accept `{ type: "sqlite", path?: string }`, `{ type: "custom", name: string, url?: string, authTokenRef?: string }`, or an already-connected `StorageAdapter`. `ModelInfraOptions.storageFactory` / `StoreOptions.storageFactory` initializes configured custom storage. Custom configuration without a factory fails explicitly. Store owns the injected connection and closes it on shutdown or failed migration. The legacy `Store.open({ path, driver })` factory remains supported and gains a transaction wrapper; mixing `driver` with `storage` is rejected.
+
+```ts
+const mik = await ModelInfra.init({
+  appId: "shared-app",
+  storage: { type: "sqlite", path: "./shared.db" },
+})
+// Host-owned transport/credentials: only references are serializable.
+const remote = await ModelInfra.init({
+  storage: { type: "custom", name: "host-libsql", url: "libsql://db.example", authTokenRef: "env:DB_TOKEN" },
+  storageFactory: async (config) => hostConnect(config), // returns synchronous StorageAdapter
+})
+```
+
+`mik.config.json.storage` accepts only the serializable variants; unknown keys (including `authToken`), credentials in URLs, URL query/hash, invalid token references or malformed values fail without echoing their values. Custom credentials resolve in the host factory and must never enter SQL. CLI `--db` / `MIK_DB` override file storage; file `storage` otherwise overrides legacy `db`. Standalone CLI custom storage needs an embedded CLI host supplying `hub.storageFactory`; it does not silently create a local ledger.
+
+SQL dialect is **SQLite-compatible**, including migration `PRAGMA table_info`, JSON queries (`json_each`) and local-calendar `strftime`; this is compatible with LibSQL SQL syntax, not a claim of arbitrary ANSI database support. Core amount aggregates preserve ANSI `SUM(CAST(ROUND(cost * 1000000) AS INTEGER))` and rollup amounts remain integer micros. Default SQLite retains WAL, busy timeout, integrity probes and corruption quarantine. Injected adapters skip local filesystem, integrity and quarantine assumptions, while schema migrations still run through the adapter. No built-in HTTP LibSQL/Turso implementation is supplied: an asynchronous network SQL API cannot implement these synchronous repository operations directly.
+
+Independent SQLite connections to the same file observe committed provider/settings/usage/pricing-cache rows. This is shared persisted state, not automatic synchronization of per-instance in-memory pricing catalog snapshots or cross-host SQLite file locking. Separate files do not share state. The adapter suite tests repository visibility/amount invariants, nested rollback and real worker-thread SQL contention; production remote transport/locking remains the host adapter's responsibility.
+
+
+## EVO-G109 — Passive provider health and declarative failover
+
+`ProviderConfig` adds `group?: string`, `priority?: number` (lower wins, default 10), and `fallback_provider_id?: string`. Group and fallback IDs use the existing 1–64 character provider identifier alphabet; priority is a non-negative safe integer and fallback cannot name itself. Registry records and the provider HTTP create/update API expose these fields. They persist in the reserved `meta.routing` JSON object; supplied arbitrary `meta.routing` cannot override validated top-level routing fields. No new SQL schema or secrets are introduced.
+
+Both `ModelInfra.generate()` and `stream()` (therefore the existing `/v1/chat/completions` server routes) share one route implementation. An explicit fallback provider wins over same-group priority selection. One automatic backup reuses the requested model ID; hosts must configure that ID on both endpoints. Existing explicit `fallbackChain` entries retain their ordered, bounded sequence, followed by at most one automatic backup; `fallbackChain: false` suppresses every fallback. Candidates must share a protocol or belong to the protocol-data compatibility set `openai`, `openai-compatible`, `deepseek`, `moonshotai`, `xai`; no provider ID selects an adapter. No round-robin provider selection or active network health polling is added.
+
+`ModelInfraOptions.failover?: { failureThreshold?: number; cooldownMs?: number; now?: () => number }` defaults to three consecutive recoverable failures and a 30,000 ms cooldown. `mik.providerHealth.state(providerId)` returns `CLOSED`, `OPEN`, or `HALF_OPEN`; state is per hub and process-local, independent of G108 persisted rows. CLOSED failures open the circuit at the threshold; cooldown eligibility reserves exactly one synchronous HALF_OPEN probe before transport. A successful response closes it, a recoverable probe failure starts a new cooldown, and client abort/consumer early return releases the probe without charging another provider failure. Cooled backups can recover through later fallback traffic. State inspection does not issue a request or reserve a probe.
+
+Recoverable HTTP statuses are exactly 429/500/502/503/504; existing statusless G95 timeout/connection errors (including ETIMEDOUT/ECONNREFUSED) remain recoverable. An explicit HTTP status outranks message prose and SDK error nesting: other client 4xx responses never rotate keys or providers even when their message says timeout/rate limit. Client abort never falls back. Streams cannot replay after emitting text or tool-call events; generation cannot replay after native `onToolExecutionStart` fires or a tool-call step completes. Failed attempts retain existing zero-cost accounting. The successful row prices the actual provider and records string tags `failover: "true"`, `original_provider: <primary ID>`, alongside the legacy `is_fallback` tag; tag values remain strings per the existing UsageEvent contract.
+
+## EVO-G110 — Measured media pricing and native tool execution attribution
+
+The package entry exports the types `PriceRule`, `MultimodalUsage` and `ToolCallAttribution` (verified in built declaration exports). `ModelPricingTierRates` extends `PriceRule`; media rates are optional non-negative safe integer micros:
+
+```ts
+interface PriceRule {
+  image_per_megapixel_micros?: number
+  audio_input_micros_per_second?: number
+  audio_output_micros_per_second?: number
+}
+interface MultimodalUsage {
+  image_pixels?: number
+  audio_input_ms?: number
+  audio_output_ms?: number
+}
+```
+
+`ModelRequest.media` and `PricingService.estimate({ media, ... })` accept explicit measured quantities; no media is downloaded and no resolution/duration is guessed from messages. Invalid quantities fail validation before a core provider request. Snapshot import/export validates and preserves these optional rates. Rates missing from the selected card contribute no invented media charge. Text, image and audio numerators are accumulated with BigInt over a common denominator, rounded half-up once, and checked against `Number.MAX_SAFE_INTEGER`. Existing long-context multipliers affect token rates; media unit rates are explicit card prices. A provider-reported billed amount still overrides the estimate.
+
+`UsageEvent.tool_calls?: ToolCallAttribution[]` is persisted as a structured `tool_calls` array in `tags_json`, independently of generic attribution-tag string limits. `UsageEvent.tags` remains a string map and excludes this structured key; tag breakdowns/rollups reserve the key. Reported HTTP events may include `media` and `tool_calls`; only known scalar tool audit fields survive validation. Invalid media rejects that item under the existing `/api/usage/events` batch contract (HTTP 200 plus `rejected[]`, including single reports).
+
+```ts
+interface ToolCallAttribution {
+  tool_name: string
+  id: string
+  input_hash: string // SHA-256 of serialized input, no raw input/output persisted
+  start_offset_ms: number
+  duration_ms: number
+  input_tokens: number
+  output_tokens: number
+  cost_micros: number
+}
+```
+
+Generate and stream observe AI SDK native `onToolExecutionStart`/`onToolExecutionEnd` and `onStepFinish`, preserving original host tool functions and failover replay protection. Start offset is relative to the request; duration is the SDK's measured execute time. Each completed step's reported input/output tokens are divided equally among its executed tools, with integer remainders assigned in execution-start order. This is an explicit allocation estimate: SDK step tokens do not identify independent tool token invoices. Repeated tool IDs in subsequent steps retain their own counts. Costs allocate the existing request micros in proportion to these token shares, flooring each ratio; parent-only steps and rounding remainders remain on the request. The sum of tool costs never exceeds the request total and never adds another bill.
+
+Tool audit fields are whitelisted on both write and legacy read, names/IDs pass through `redact.ts`, only SHA-256 hashes persist, malformed arrays are ignored, and stored cost shares are clamped against the parent total. Audit arrays are bounded to 256 entries per request with 128-character names/IDs. `UsageService.normalizeEvent` is an internal shared normalization path for `record` and the HTTP event bridge: `onUsage`, event bus/SSE and repository reads use identical safe tool fields and request-local app attribution. No additional row query is needed per event.
+
+The dashboard preserves existing DOM anchors and adds expandable amber tool bars aligned to the whole trace. Native `<details>/<summary>` supports keyboard exploration; hover and expanded content show execution duration, input/output token shares, integer micros, parent-cost percentage and parameter hash. Both dictionaries explain the allocation estimate. No raw tool input/output appears.
+
+## EVO-G111 — Native Prometheus exporter
+
+`GET /metrics` returns Prometheus 0.0.4 text with the exact `Content-Type: text/plain; version=0.0.4; charset=utf-8` and `Cache-Control: no-store`. Configured gateway tokens require `read:usage`, `admin` or `*`; missing/invalid credentials return 401 and insufficient scope returns the existing structured 403. There is no additional unauthenticated whitelist or listener. Existing unconfigured loopback development remains available; remote requests require a configured token. App/header/query restrictions are identical to the usage API: token-bound app IDs apply even for admin, and unbound tokens see only `hub.appId`.
+
+The exporter observes normalized runtime usage through the internal `UsageService.observe(listener)` subscription, independently of the SSE bridge. It counts each committed record once; duplicate persisted request IDs contribute nothing. With `recordUsage: false`, runtime observations still occur without persistence or `onUsage`/SSE emission. Each server starts from zero, never reconstructs historical rows, and unsubscribes on close or failed bind. A failover produces one error attempt on the failed provider and one successful attempt/cost on the actual provider. Scrapes, SSE clients and unrelated management endpoints contribute no request count.
+
+- `mik_requests_total{provider,model,app_id,status}` counts completed provider attempts (`ok`/`error`).
+- `mik_request_duration_seconds` is a cumulative histogram with `le` boundaries 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 and `+Inf`, plus `_sum` and `_count`. Each sample is elapsed request time at an attempt's completion, including preceding failed attempts on fallback; it is neither isolated transport duration nor TTFT. Missing/invalid latency is zero.
+- `mik_tokens_total{provider,model,app_id,type}` partitions tokens: prompt excludes cached input, completion excludes reasoning, reasoning is bounded to reported output, cache combines cache-read/write counts bounded to reported input. The four types sum to reported input plus output.
+- `mik_cost_micros_total{provider,model,app_id}` converts the compatibility USD boundary by decimal text once, then accumulates integer micros with BigInt. Counters may exceed `Number.MAX_SAFE_INTEGER` without losing precision.
+- `mik_provider_health_status{provider}` reads the hub's passive circuit state: CLOSED=1, OPEN/HALF_OPEN=0. Reading it neither sends traffic nor reserves a probe. The host app initially includes configured providers; other apps include only providers observed in their own attempts, preventing discovery of unrelated providers. Health is shared per hub rather than an independent per-app circuit.
+
+Only provider/model/app/status/type/bucket identities become labels. Prompt text, trace/session IDs, arbitrary tags, tools and error prose are excluded. Identity values replace known configured gateway tokens, pass through `redact.ts`, bound to 128 characters and escape backslash/newline/quote. Changed/bounded identities gain a SHA-256 suffix to distinguish redaction/truncation collisions. Per-app storage preserves tenant ownership; each app retains 1,024 provider/model series plus a single `__other__` overflow series with exact aggregate totals. Observed health identities are capped at 1,024 per app. No cross-app overflow is used.
+
+Scrapes read only memory and the in-memory circuit, with no usage SQL or historical scan. Typical ten-series rendering is benchmarked in the focused suite; this is measured performance, not a universal sub-millisecond guarantee at the cardinality bound. The exporter class/content-type constant are internal server-module implementation details, not additional package entrypoint exports.
+
+### G110/G111 monetary boundary guard
+
+Tier calculations retain safe integer micros. `PricingService.estimate` rejects a tier total with `RangeError` when converting it to the compatibility USD-number field and decimal-parsing back would change the exact micros; it never silently zeroes that total. Tool attribution fields remain safe integers: for a larger provider-reported amount, the attribution budget is capped at `Number.MAX_SAFE_INTEGER` micros, still below the parent amount, without capping the billed amount. The exporter parses the reported USD number directly to BigInt micros and therefore counts individual amounts above the safe Number range. This cannot recover precision already absent from an upstream USD number.

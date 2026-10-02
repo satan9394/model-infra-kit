@@ -14,6 +14,7 @@ import type {
   UsageTrendPoint,
 } from "../types.js"
 import { redact } from "../util/redact.js"
+import { sanitizeToolCalls, requestCostMicros } from "./tool-attribution.js"
 
 /** A budget window. Both are **UTC**-aligned, never the host's local midnight. */
 export type BudgetWindow = "day" | "month"
@@ -192,6 +193,7 @@ export class UsageService {
   private budgetWindowKey = 0
   /** `appId|windowStart` pairs already warned about, so each window warns once. */
   private readonly budgetWarned = new Set<string>()
+  private readonly observers = new Set<(event: UsageEvent) => void>()
 
   constructor(deps: UsageServiceDeps) {
     this.store = deps.store
@@ -291,6 +293,23 @@ export class UsageService {
     return this.enabled
   }
 
+  /** @internal Shared write/event-bus normalization, including request-local app attribution. */
+  normalizeEvent(event: Omit<UsageEvent, "appId"> & { appId?: string }): UsageEvent {
+    return { ...event, tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)), appId: this.requestApp.getStore() ?? event.appId ?? this.appId }
+  }
+
+  /** @internal Runtime telemetry; independent of persisted onEvent/SSE and metering enablement. */
+  observe(listener: (event: UsageEvent) => void): () => void {
+    this.observers.add(listener)
+    return () => { this.observers.delete(listener) }
+  }
+
+  private notifyObservers(event: UsageEvent): void {
+    for (const listener of this.observers) {
+      try { listener(event) } catch { /* Telemetry must not change request success. */ }
+    }
+  }
+
   /**
    * Persist one request. Returns `false` when metering is disabled or the
    * `requestId` already exists (the existing row is kept as-is).
@@ -308,9 +327,13 @@ export class UsageService {
    * one `onWarn` call — no SQL, and no effect on the return value (A1/A2).
    */
   record(event: Omit<UsageEvent, "appId"> & { appId?: string }): boolean {
-    if (!this.enabled) return false
-    const stored: UsageEvent = { ...event, appId: this.requestApp.getStore() ?? event.appId ?? this.appId }
+    const stored = this.normalizeEvent(event)
+    if (!this.enabled) {
+      this.notifyObservers(stored)
+      return false
+    }
     if (!this.store.usage.insert(stored)) return false
+    this.notifyObservers(stored)
     this.noteBudget(stored)
     try {
       this.onEvent?.(stored)

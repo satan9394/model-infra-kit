@@ -12,6 +12,7 @@ import {
   type TokenCounts,
 } from "llm-pricing"
 import { ModelInfraError } from "../errors.js"
+import { requestCostMicrosBigInt } from "../usage/tool-attribution.js"
 import type { Store } from "../store/database.js"
 import type { PricingOverride } from "../store/pricing-repository.js"
 import type { CostInfo, ModelPricing, TokenUsage } from "../types.js"
@@ -20,7 +21,7 @@ import { defaultCacheDir, expandPath } from "../util/paths.js"
 import { createFileCache } from "./cache.js"
 import { verifyCatalogIntegrity } from "./catalog.js"
 import { exportPriceSnapshot, importPriceSnapshot, priceKey, type PriceModels } from "./snapshot.js"
-import { calculateTierCostMicros, deriveModelPricingTier, type ModelPricingTier } from "./tiers.js"
+import { calculateTierCostMicros, deriveModelPricingTier, validateMultimodalUsage, type ModelPricingTier, type MultimodalUsage } from "./tiers.js"
 
 export interface PricingDeps {
   store: Store
@@ -68,6 +69,7 @@ export interface PricingSyncResult extends PricingState {
 }
 
 export interface EstimateInput {
+  media?: MultimodalUsage
   model: string
   providerId?: string
   at?: number
@@ -148,14 +150,9 @@ export class PricingService {
     const result = importPriceSnapshot(json)
     if (result.errors.length) return { imported: 0, errors: result.errors }
     const tiers = Object.values(result.models)
-    this.store.driver.exec("BEGIN IMMEDIATE")
-    try {
+    this.store.driver.transaction(() => {
       for (const tier of tiers) this.store.pricingCache.set(tier)
-      this.store.driver.exec("COMMIT")
-    } catch (error) {
-      this.store.driver.exec("ROLLBACK")
-      throw error
-    }
+    })
     for (const tier of tiers) this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
     return { imported: tiers.length, errors: [] }
   }
@@ -214,17 +211,18 @@ export class PricingService {
   }
 
   estimate(input: EstimateInput): CostInfo {
+    validateMultimodalUsage(input.media)
     // A manual price outranks every catalogue, so a hit must not start a load:
     // `warm()` would queue models.dev's ~4 MB `api.json` for a model whose
     // price is already known locally.
     const manual = this.findOverride(input.model)
     if (manual) {
       const tier = manualTier(manual, input.model, input.providerId)
-      return tier ? tierCost(tier, input.usage, true) : this.manualCost(manual, input.usage, input.model)
+      return tier ? tierCost(tier, input.usage, true, input.media) : this.manualCost(manual, input.usage, input.model)
     }
 
     const cachedTier = this.cachedTier(input.model, input.providerId)
-    if (cachedTier) return tierCost(cachedTier, input.usage, false)
+    if (cachedTier) return tierCost(cachedTier, input.usage, false, input.media)
 
     this.warm()
 
@@ -232,7 +230,7 @@ export class PricingService {
       promptTokens: finite(input.usage.input),
       usedReasoning: input.usage.reasoning === undefined ? undefined : input.usage.reasoning > 0,
     })
-    if (liveTier) return tierCost(liveTier, input.usage, false)
+    if (liveTier) return tierCost(liveTier, input.usage, false, input.media)
 
     const estimate = this.catalog.estimate(this.toArgs(input))
     const pricing = estimate.pricing
@@ -553,8 +551,12 @@ function manualTier(override: PricingOverride, model: string, providerId?: strin
   })
 }
 
-function tierCost(tier: ModelPricingTier, usage: Partial<TokenUsage>, manual: boolean): CostInfo {
-  const { costLowMicros, costHighMicros } = calculateTierCostMicros(tier, usage)
+function tierCost(tier: ModelPricingTier, usage: Partial<TokenUsage>, manual: boolean, media?: MultimodalUsage): CostInfo {
+  const { costLowMicros, costHighMicros } = calculateTierCostMicros(tier, usage, media)
+  if (requestCostMicrosBigInt(costLowMicros / MILLION) !== BigInt(costLowMicros)
+    || requestCostMicrosBigInt(costHighMicros / MILLION) !== BigInt(costHighMicros)) {
+    throw new RangeError("Tier cost cannot be represented exactly by the USD number boundary")
+  }
   const source: CostInfo["source"] = manual ? "manual" : tier.source === "builtin" ? "fallback" : "modelsdev"
   return {
     usd: costLowMicros / MILLION,

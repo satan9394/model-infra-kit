@@ -1,3 +1,5 @@
+import type { StorageAdapter } from "./adapter.js"
+import { sanitizeToolCalls, requestCostMicros } from "../usage/tool-attribution.js"
 import type {
   CostInfo,
   TokenUsage,
@@ -12,7 +14,7 @@ import type {
 } from "../types.js"
 import type { BudgetUsageTotals } from "../usage/budget.js"
 import { RESERVED_TAG_KEYS } from "../usage/tags.js"
-import { asNumber, asString, toSqlValue, type SqlDriver, type SqlValue } from "./driver.js"
+import { asNumber, asString, toSqlValue, type SqlValue } from "./driver.js"
 import { fromMicroUsd, localDateKey, localHourKey, startOfLocalDay, toMicroUsd } from "./money.js"
 
 const EMPTY_TOKENS = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 })
@@ -109,7 +111,7 @@ function parseTags(raw: unknown): Record<string, string> {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
     const tags: Record<string, string> = {}
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value === "string") tags[key] = value
+      if (key !== "tool_calls" && typeof value === "string") tags[key] = value
     }
     return tags
   } catch {
@@ -168,7 +170,12 @@ function rowToEvent(row: Record<string, unknown>): UsageEvent {
     traceId: row.trace_id ? asString(row.trace_id) : undefined,
     sessionId: row.session_id ? asString(row.session_id) : undefined,
     tags: parseTags(row.tags_json),
+    tool_calls: storedToolCalls(row.tags_json, requestCostMicros(cost.usd)),
   }
+}
+
+function storedToolCalls(raw: unknown, totalMicros: number): UsageEvent["tool_calls"] {
+  try { return typeof raw === "string" ? sanitizeToolCalls(JSON.parse(raw).tool_calls, totalMicros) : undefined } catch { return undefined }
 }
 
 interface AggregateRow {
@@ -301,7 +308,7 @@ function addAggregate(target: AggregateRow, source: AggregateRow): AggregateRow 
  * Money is accumulated as integer micro-USD in SQL — never as summed floats.
  */
 export class UsageRepository {
-  constructor(private readonly driver: SqlDriver) {}
+  constructor(private readonly driver: StorageAdapter) {}
 
   insert(event: UsageEvent & { pricingBasis?: string; pricingSource?: string }): boolean {
     const result = this.driver
@@ -339,7 +346,7 @@ export class UsageRepository {
         event.isStreaming ? 1 : 0,
         toSqlValue(event.sessionId),
         toSqlValue(event.traceId),
-        JSON.stringify(event.tags ?? {}),
+        JSON.stringify({ ...event.tags, tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)) }),
       )
     return Number(result.changes) > 0
   }
@@ -1101,8 +1108,7 @@ export class UsageRepository {
 
   /** Fold events older than `cutoff` into daily rollups, then delete them. */
   rollup(cutoff: number): number {
-    this.driver.exec("BEGIN")
-    try {
+    return this.driver.transaction(() => {
       this.driver
         .prepare(
           `INSERT INTO usage_daily_rollups (
@@ -1183,12 +1189,8 @@ export class UsageRepository {
         // the outer `WHERE`.
         .run(cutoff, ...RESERVED_TAG_KEYS)
       const deleted = Number(this.driver.prepare("DELETE FROM usage_events WHERE ts < ?").run(cutoff).changes)
-      this.driver.exec("COMMIT")
       return deleted
-    } catch (error) {
-      this.driver.exec("ROLLBACK")
-      throw error
-    }
+    })
   }
 
   /** Roll up and prune everything older than `retentionDays`. */

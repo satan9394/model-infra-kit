@@ -1,4 +1,5 @@
-import { asNumber, asString, toSqlValue, type SqlDriver } from "./driver.js"
+import type { StorageAdapter } from "./adapter.js"
+import { asNumber, asString, toSqlValue } from "./driver.js"
 
 export interface PricingOverride {
   modelId: string
@@ -27,7 +28,7 @@ function toOverride(row: Record<string, unknown>): PricingOverride {
  * knows its own negotiated rate never has to fight models.dev.
  */
 export class PricingRepository {
-  constructor(private readonly driver: SqlDriver) {}
+  constructor(private readonly driver: StorageAdapter) {}
 
   list(): PricingOverride[] {
     return this.driver.prepare("SELECT * FROM pricing_overrides ORDER BY model_id").all().map(toOverride)
@@ -70,7 +71,7 @@ export class PricingRepository {
 }
 
 export class SettingsRepository {
-  constructor(private readonly driver: SqlDriver) {}
+  constructor(private readonly driver: StorageAdapter) {}
 
   get(key: string): string | null {
     const row = this.driver.prepare("SELECT value FROM settings WHERE key = ?").get(key)

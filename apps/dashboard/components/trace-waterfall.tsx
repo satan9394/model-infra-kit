@@ -31,7 +31,7 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
     </div>
     <div className="overflow-x-auto">
       <div className="min-w-[560px] space-y-2">
-        {rows.map(({ event, left, width, ttft, reasoning, output }) => <details key={event.requestId} open={expanded} className="rounded-lg border border-border p-2">
+        {rows.map(({ event, tools, left, width, ttft, reasoning, output }) => <details key={event.requestId} open={expanded} className="rounded-lg border border-border p-2">
           <summary className="grid cursor-pointer grid-cols-[140px_1fr] items-center gap-3" title={`${event.modelActual} · ${formatMs(event.latencyMs)} · input ${event.usage.input} / reasoning ${event.usage.reasoning} / output ${event.usage.output} · ${formatUsdSpan(event.cost.low, event.cost.high)}`}>
             <span className="truncate font-mono text-xs">{event.modelActual}</span>
             <span className="relative block h-5 rounded bg-surface-muted">
@@ -43,6 +43,18 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
             </span>
           </summary>
           <p className="mt-2 break-all text-xs text-subtle">{event.providerId} · {event.status} · TTFT {formatMs(event.firstTokenMs)} {t("s234")} {formatMs(event.latencyMs)} · Prompt {formatInt(event.usage.input)} / Reasoning {formatInt(event.usage.reasoning)} / Completion {formatInt(event.usage.output)} · {formatUsdSpan(event.cost.low, event.cost.high)} · {event.traceId}</p>
+          {tools.length > 0 && <div className="mt-3 space-y-2" data-testid="trace-tool-calls">
+            <p className="text-xs text-subtle">{t("trace.tools.policy")}</p>
+            {tools.map(({ call, sharePercent, left: toolLeft, width: toolWidth }, index) => <div key={`${call.id}-${index}`} className="grid grid-cols-[140px_1fr] items-center gap-3 text-xs" data-testid="trace-tool-call">
+              <span className="truncate pl-3 font-mono" title={call.tool_name}>{call.tool_name}</span>
+              <details className="relative rounded bg-surface-muted">
+                <summary className="relative h-5 cursor-pointer" title={`${call.tool_name} · ${formatMs(call.duration_ms)} · ${t("trace.tools.tokens")} ${call.input_tokens} / ${call.output_tokens} · ${t("trace.tools.share")} ${call.cost_micros} µUSD (${sharePercent}) · SHA-256 ${call.input_hash}`} aria-label={`${t("trace.tools.detail")}: ${call.tool_name}`}>
+                  <span className="absolute h-full rounded bg-amber-500/90" style={{ left: `${toolLeft}%`, width: `${toolWidth}%` }} />
+                </summary>
+                <p className="break-all p-2">{t("trace.tools.detail")}: {formatMs(call.duration_ms)} · {t("trace.tools.tokens")} {formatInt(call.input_tokens)} / {formatInt(call.output_tokens)} · {t("trace.tools.share")} {formatInt(call.cost_micros)} µUSD ({sharePercent}) · SHA-256 {call.input_hash}</p>
+              </details>
+            </div>)}
+          </div>}
         </details>)}
       </div>
     </div>

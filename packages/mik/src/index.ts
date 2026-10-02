@@ -33,6 +33,8 @@ export type { ProviderCostReading } from "./pricing/reported-cost.js"
 
 export { ModelInfraError, isModelInfraError, toModelInfraError, type ModelInfraErrorCode } from "./errors.js"
 
+export { SqliteStorageAdapter } from "./store/sqlite-adapter.js"
+export type { StorageAdapter, PreparedStatement, StorageConfig, StorageAdapterFactory } from "./store/adapter.js"
 export { Store, type StoreOptions } from "./store/database.js"
 export { CredentialStore, defaultSecretPath, type CredentialBackend, type CredentialStoreOptions } from "./credential/store.js"
 
@@ -61,6 +63,8 @@ export {
   type ModelPricingTier,
   type ModelPricingTierRates,
   type ModelPricingTierSource,
+  type PriceRule,
+  type MultimodalUsage,
 } from "./pricing/index.js"
 
 export {
@@ -114,6 +118,7 @@ export type {
   UsageBucket,
   UsageEvent,
   UsageEventInput,
+  ToolCallAttribution,
   UsagePage,
   UsageQuery,
   UsageSummary,

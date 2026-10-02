@@ -70,6 +70,6 @@ export function endpointScope(method: string, segments: string[]): GatewayScope 
   if (method === "POST" && path === "v1/chat/completions") return "write:chat"
   if (method === "POST" && path === "api/usage/events") return "write:usage"
   if (method === "GET" && (path.startsWith("api/usage/") || ["api/events", "api/pricing", "api/catalog", "api/models", "api/budget/status", "v1/models", "openapi.json"].includes(path)
-    || path.startsWith("api/models/"))) return "read:usage"
+    || path === "metrics" || path.startsWith("api/models/"))) return "read:usage"
   return "admin"
 }

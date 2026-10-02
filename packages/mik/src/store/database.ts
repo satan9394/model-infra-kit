@@ -2,7 +2,9 @@ import { accessSync, constants, existsSync, mkdirSync, statSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { ModelInfraError, isModelInfraError } from "../errors.js"
 import { redact } from "../util/redact.js"
-import { nodeSqliteDriver, type SqlDriver, type SqlDriverFactory, type SqlStatement } from "./driver.js"
+import { type SqlDriver, type SqlDriverFactory } from "./driver.js"
+import { adaptSqlDriver, isStorageAdapter, readStorageConfig, type PreparedStatement, type StorageAdapter, type StorageAdapterFactory, type StorageConfig } from "./adapter.js"
+import { SqliteStorageAdapter } from "./sqlite-adapter.js"
 import { migrate } from "./schema.js"
 import { quarantineDatabase, type QuarantineResult } from "./trash.js"
 import { ModelRepository } from "./model-repository.js"
@@ -17,6 +19,10 @@ export interface StoreOptions {
   path?: string
   /** Inject an alternative SQLite driver (better-sqlite3, bun:sqlite). */
   driver?: SqlDriverFactory
+  /** Serializable configuration or an already-connected adapter (owned by this Store). */
+  storage?: StorageConfig | StorageAdapter
+  /** Required for custom configuration. Factory initialization may be asynchronous. */
+  storageFactory?: StorageAdapterFactory
   /** Non-fatal notices: a skipped integrity check, or a corrupt ledger quarantined on open. */
   onWarn?: (message: string, error?: unknown) => void
   /**
@@ -100,7 +106,7 @@ function guard<T>(operation: () => T): T {
   }
 }
 
-function guardStatement(statement: SqlStatement): SqlStatement {
+function guardStatement<T extends Record<string, unknown>>(statement: PreparedStatement<T>): PreparedStatement<T> {
   return {
     run: (...params: unknown[]) => guard(() => statement.run(...params)),
     get: (...params: unknown[]) => guard(() => statement.get(...params)),
@@ -113,11 +119,12 @@ function guardStatement(statement: SqlStatement): SqlStatement {
  * this, a read-only or locked database surfaced as an untyped throw that
  * `ModelInfra`'s warning path swallowed, silently dropping usage rows.
  */
-function wrapDriverErrors(driver: SqlDriver): SqlDriver {
+function wrapDriverErrors(driver: StorageAdapter): StorageAdapter {
   return {
     exec: (sql: string) => guard(() => driver.exec(sql)),
-    prepare: (sql: string) => guardStatement(guard(() => driver.prepare(sql))),
+    prepare<T extends Record<string, unknown>>(sql: string): PreparedStatement<T> { return guardStatement(guard(() => driver.prepare<T>(sql))) },
     close: () => guard(() => driver.close()),
+    transaction: (fn) => guard(() => driver.transaction(fn)),
   }
 }
 
@@ -215,13 +222,13 @@ function checkIntegrity(driver: SqlDriver, path: string, options: StoreOptions):
 
 /** One open attempt: either a migrated driver, or proof that the file is damaged. */
 type OpenAttempt =
-  | { kind: "ok"; driver: SqlDriver; version: number }
+  | { kind: "ok"; driver: StorageAdapter; version: number }
   | { kind: "corrupt"; detail: string }
 
 async function connect(path: string, options: StoreOptions): Promise<OpenAttempt> {
-  let raw: SqlDriver
+  let raw: StorageAdapter
   try {
-    raw = await (options.driver ?? nodeSqliteDriver)(path)
+    raw = options.driver ? adaptSqlDriver(await options.driver(path)) : await SqliteStorageAdapter.open(path)
   } catch (error) {
     // A damaged file usually fails inside the driver's own `PRAGMA journal_mode`
     // setup, before any driver object exists. That is still healable.
@@ -273,7 +280,7 @@ export class Store {
   readonly path: string
 
   private constructor(
-    readonly driver: SqlDriver,
+    readonly driver: StorageAdapter,
     path: string,
     schemaVersion: number,
   ) {
@@ -298,6 +305,24 @@ export class Store {
    * old data went. A host that would otherwise refuse to boot now boots.
    */
   static async open(options: StoreOptions = {}): Promise<Store> {
+    if (options.storage !== undefined) {
+      if (options.driver) throw storageError("Use either storage or the legacy driver option")
+      const injected = isStorageAdapter(options.storage)
+      const config = injected ? undefined : readStorageConfig(options.storage)
+      if (injected || config?.type === "custom" || options.storageFactory) {
+        if (!injected && !options.storageFactory) throw storageError("Custom storage requires a storageFactory")
+        let adapter: StorageAdapter
+        try {
+          adapter = injected ? options.storage as StorageAdapter : await options.storageFactory!(config!)
+        } catch (error) { throw storageError(`Could not open the storage adapter: ${describeCause(error)}`, error) }
+        if (!isStorageAdapter(adapter)) throw storageError("Storage factory must return a synchronous StorageAdapter")
+        const driver = wrapDriverErrors(adapter)
+        try {
+          return new Store(driver, config?.type === "sqlite" ? config.path ?? ":adapter:" : ":adapter:", migrate(driver))
+        } catch (error) { closeQuietly(driver); throw error }
+      }
+      options = { ...options, path: config?.type === "sqlite" ? config.path ?? options.path : options.path }
+    }
     const path = options.path === ":memory:" ? ":memory:" : expandPath(options.path ?? defaultDbPath())
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true })
     assertWritableFile(path)

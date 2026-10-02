@@ -1,5 +1,6 @@
+import type { StorageAdapter } from "./adapter.js"
 import type { ModelCapabilities, ModelInfo, ModelSource } from "../types.js"
-import { asNumber, asString, toSqlValue, type SqlDriver } from "./driver.js"
+import { asNumber, asString, toSqlValue } from "./driver.js"
 
 const EMPTY_CAPABILITIES: ModelCapabilities = {
   text: true,
@@ -34,7 +35,7 @@ function toModel(row: Record<string, unknown>): ModelInfo {
 }
 
 export class ModelRepository {
-  constructor(private readonly driver: SqlDriver) {}
+  constructor(private readonly driver: StorageAdapter) {}
 
   list(providerId?: string): ModelInfo[] {
     const rows = providerId
@@ -62,8 +63,7 @@ export class ModelRepository {
          max_output_tokens = excluded.max_output_tokens,
          synced_at = excluded.synced_at`,
     )
-    this.driver.exec("BEGIN")
-    try {
+    this.driver.transaction(() => {
       this.driver.prepare("DELETE FROM provider_models WHERE provider_id = ?").run(providerId)
       for (const model of models) {
         statement.run(
@@ -77,11 +77,7 @@ export class ModelRepository {
           model.syncedAt ?? now,
         )
       }
-      this.driver.exec("COMMIT")
-    } catch (error) {
-      this.driver.exec("ROLLBACK")
-      throw error
-    }
+    })
     return models.length
   }
 

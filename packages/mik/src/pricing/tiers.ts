@@ -1,8 +1,24 @@
-import type { TokenUsage } from "../types.js"
+import type { MultimodalUsage, TokenUsage } from "../types.js"
+export type { MultimodalUsage } from "../types.js"
 
 export type ModelPricingTierSource = "builtin" | "synced" | "manual"
 
-export interface ModelPricingTierRates {
+export interface PriceRule {
+  image_per_megapixel_micros?: number
+  audio_input_micros_per_second?: number
+  audio_output_micros_per_second?: number
+}
+
+export function validateMultimodalUsage(media: MultimodalUsage | undefined): void {
+  if (media === undefined) return
+  if (!media || typeof media !== "object" || Array.isArray(media)) throw new RangeError("media facts must be an object")
+  for (const key of ["image_pixels", "audio_input_ms", "audio_output_ms"] as const) {
+    const value = media[key]
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) throw new RangeError("media facts must be non-negative safe integers")
+  }
+}
+
+export interface ModelPricingTierRates extends PriceRule {
   inputMicrosPerMillion: number
   cachedInputMicrosPerMillion?: number
   cacheWriteMicrosPerMillion?: number
@@ -22,7 +38,7 @@ export interface ModelPricingTier {
   rates: ModelPricingTierRates
 }
 
-export interface ModelPricingTierInput {
+export interface ModelPricingTierInput extends PriceRule {
   modelId: string
   providerId: string
   source: ModelPricingTierSource
@@ -109,6 +125,13 @@ export function deriveModelPricingTier(input: ModelPricingTierInput): ModelPrici
   }
 
   const reasoningRate = input.reasoningOutputPerM ?? (modelIsGpt6 ? input.outputPerM : undefined)
+  for (const key of ["image_per_megapixel_micros", "audio_input_micros_per_second", "audio_output_micros_per_second"] as const) {
+    const rate = input[key]
+    if (rate !== undefined) {
+      if (!Number.isSafeInteger(rate) || rate < 0) throw new RangeError("media rates must be non-negative safe integer micros")
+      rates[key] = rate
+    }
+  }
   if (reasoningRate !== undefined) rates.reasoningOutputMicrosPerMillion = usdPerMillionToMicros(reasoningRate)
   if (Number.isSafeInteger(input.longContextThresholdTokens) && (input.longContextThresholdTokens ?? 0) > 0) {
     rates.longContextThresholdTokens = input.longContextThresholdTokens
@@ -142,7 +165,9 @@ function multiplierScaled(value: number | undefined, enabled: boolean): bigint {
 export function calculateTierCostMicros(
   tier: ModelPricingTier,
   usage: Partial<TokenUsage>,
+  media?: MultimodalUsage,
 ): { costLowMicros: number; costHighMicros: number } {
+  validateMultimodalUsage(media)
   const input = usage.input === undefined ? undefined : tokenCount(usage.input)
   const reportedRead = tokenCount(usage.cacheRead)
   const reportedWrite = tokenCount(usage.cacheWrite)
@@ -172,7 +197,12 @@ export function calculateTierCostMicros(
     cacheWriteRate * cacheWrite * inputMultiplier +
     BigInt(tier.rates.outputMicrosPerMillion) * textOutput * outputMultiplier +
     reasoningRate * reasoningOutput * outputMultiplier
-  const micros = toSafeNumber(roundedRatio(numerator, COST_DENOMINATOR))
+  // All units share this denominator; round exactly once after summing text + media.
+  const mediaNumerator =
+    BigInt(tier.rates.image_per_megapixel_micros ?? 0) * BigInt(media?.image_pixels ?? 0) * MULTIPLIER_SCALE +
+    BigInt(tier.rates.audio_input_micros_per_second ?? 0) * BigInt(media?.audio_input_ms ?? 0) * (COST_DENOMINATOR / 1000n) +
+    BigInt(tier.rates.audio_output_micros_per_second ?? 0) * BigInt(media?.audio_output_ms ?? 0) * (COST_DENOMINATOR / 1000n)
+  const micros = toSafeNumber(roundedRatio(numerator + mediaNumerator, COST_DENOMINATOR))
   return { costLowMicros: micros, costHighMicros: micros }
 }
 
@@ -195,6 +225,9 @@ export function isModelPricingTier(value: unknown): value is ModelPricingTier {
   return (
     validRate(rates.inputMicrosPerMillion) &&
     validRate(rates.outputMicrosPerMillion) &&
+    (rates.image_per_megapixel_micros === undefined || validRate(rates.image_per_megapixel_micros)) &&
+    (rates.audio_input_micros_per_second === undefined || validRate(rates.audio_input_micros_per_second)) &&
+    (rates.audio_output_micros_per_second === undefined || validRate(rates.audio_output_micros_per_second)) &&
     (rates.cachedInputMicrosPerMillion === undefined || validRate(rates.cachedInputMicrosPerMillion)) &&
     (rates.cacheWriteMicrosPerMillion === undefined || validRate(rates.cacheWriteMicrosPerMillion)) &&
     (rates.reasoningOutputMicrosPerMillion === undefined || validRate(rates.reasoningOutputMicrosPerMillion)) &&

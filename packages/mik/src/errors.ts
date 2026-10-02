@@ -88,7 +88,11 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
   /** Build an error whose message is redacted on the way out. */
   const fail = (message: string, options: ModelInfraErrorOptions) => new ModelInfraError(redact(message), options)
 
-  if (status === 401 || status === 403 || /unauthor|invalid api key|authentication/.test(lower)) {
+  // A client response must never be reclassified by adversarial upstream prose.
+  if (status !== undefined && status >= 400 && status < 500 && ![401, 403, 404, 408, 429].includes(status)) {
+    return fail("The provider rejected the request as invalid.", { ...context, code: "INVALID_REQUEST", status, retryable: false, cause: error })
+  }
+  if (status === 401 || status === 403 || (status === undefined && /unauthor|invalid api key|authentication/.test(lower))) {
     return fail("API key rejected by the provider. Check the credential for this provider.", {
       ...context,
       code: "AUTH",
@@ -97,7 +101,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
       cause: error,
     })
   }
-  if (status === 404 || /model.*not found|does not exist|unknown model/.test(lower)) {
+  if (status === 404 || (status === undefined && /model.*not found|does not exist|unknown model/.test(lower))) {
     return fail("The provider does not recognise this model id.", {
       ...context,
       code: "MODEL_NOT_FOUND",
@@ -106,7 +110,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
       cause: error,
     })
   }
-  if (status === 429 || /rate limit|too many requests|quota/.test(lower)) {
+  if (status === 429 || (status === undefined && /rate limit|too many requests|quota/.test(lower))) {
     return fail("The provider is rate limiting this key. Retry after a short delay.", {
       ...context,
       code: "RATE_LIMIT",
@@ -115,7 +119,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
       cause: error,
     })
   }
-  if (status === 408 || status === 504 || aborted || /timeout|timed out|etimedout|aborted/.test(lower)) {
+  if (status === 408 || status === 504 || (status === undefined && (aborted || /timeout|timed out|etimedout|aborted/.test(lower)))) {
     return fail("The provider did not respond in time.", {
       ...context,
       code: "TIMEOUT",
@@ -124,7 +128,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
       cause: error,
     })
   }
-  if (status === 400 || status === 422 || /invalid request|bad request/.test(lower)) {
+  if (status === 400 || status === 422 || (status === undefined && /invalid request|bad request/.test(lower))) {
     return fail("The provider rejected the request as invalid.", {
       ...context,
       code: "INVALID_REQUEST",
@@ -133,7 +137,7 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
       cause: error,
     })
   }
-  if (/fetch failed|econnrefused|enotfound|econnreset|network|socket hang up/.test(lower)) {
+  if (status === undefined && /fetch failed|econnrefused|enotfound|econnreset|network|socket hang up/.test(lower)) {
     return fail("Could not reach the provider endpoint. Check the base URL and network.", {
       ...context,
       code: "CONNECTION",

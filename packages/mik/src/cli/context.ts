@@ -1,3 +1,5 @@
+import { readStorageConfig, type StorageConfig } from "../store/adapter.js"
+import { isModelInfraError } from "../errors.js"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
@@ -27,6 +29,7 @@ export interface RunOptions {
 export interface CliConfigFile {
   appId?: string
   db?: string
+  storage?: StorageConfig
   /**
    * Pricing catalogue cache directory (EVO-G84/F11). `mik init --cache-dir <dir>` writes
    * it, and `openContext` folds it into the same chain as `appId`/`db`
@@ -195,12 +198,14 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     const config: CliConfigFile = {}
     if (typeof record.appId === "string" && record.appId) config.appId = record.appId
     if (typeof record.db === "string" && record.db) config.db = record.db
+    if (record.storage !== undefined) config.storage = readStorageConfig(record.storage)
     if (typeof record.cacheDir === "string" && record.cacheDir) config.cacheDir = record.cacheDir
     config.budget = readBudgetConfig(record.budget)
     if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     return config
   } catch (error) {
+    if (isModelInfraError(error)) throw error
     io.err(tr(lang, "context.warning.unreadable", path, redact(messageOf(error))))
     return {}
   }
@@ -271,11 +276,11 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   const config = loadConfig(configPath, io, options, lang)
 
   const dbFlag = flagString(parsed.values, "db")
-  const dbPath = dbFlag ?? env.MIK_DB ?? config.db ?? defaultDbPath()
+  const dbPath = dbFlag ?? env.MIK_DB ?? (config.storage?.type === "sqlite" ? config.storage.path : undefined) ?? config.db ?? defaultDbPath()
   // Nothing named a database, so the path below is the machine-wide default
   // (EVO-G64). Kept next to the resolution chain on purpose: re-deriving it at
   // the call site would duplicate the chain and could drift from it.
-  const dbDefaulted = !dbFlag && !env.MIK_DB && !config.db
+  const dbDefaulted = !dbFlag && !env.MIK_DB && !config.db && !config.storage
   const appId = flagString(parsed.values, "appId") ?? env.MIK_APP_ID ?? config.appId ?? "default"
   // Same chain as `db`/`appId`, plus the EVO-G84/F11 file entry so a `mik init
   // --cache-dir` actually survives into the next command.
@@ -287,6 +292,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   const hub = await ModelInfra.init({
     appId,
     db: dbPath,
+    storage: dbFlag || env.MIK_DB ? undefined : config.storage,
     cacheDir,
     syncCatalog: !offline && needsCatalogSync(parsed),
     pricingFetch: offline ? offlineFetch : undefined,

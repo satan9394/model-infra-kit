@@ -444,4 +444,8 @@ export const en = {
   "playground.promptGreeting": "Say hello in English, Chinese and Spanish.",
   "playground.stopped": "Request cancelled. Check usage logs for any recorded charge.",
   "playground.cancel": "Cancel request",
+  "trace.tools.policy": "Tool costs attribute the request total. Step tokens are shared equally among its tools; these are estimates, not extra charges.",
+  "trace.tools.detail": "Tool execution",
+  "trace.tools.tokens": "Input / output tokens",
+  "trace.tools.share": "Attributed cost",
 } as const

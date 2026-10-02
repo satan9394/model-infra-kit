@@ -1,5 +1,6 @@
+import type { StorageAdapter } from "./adapter.js"
 import type { ProviderConfig, ProviderRecord } from "../types.js"
-import { asNumber, asString, toSqlValue, type SqlDriver } from "./driver.js"
+import { asNumber, asString, toSqlValue } from "./driver.js"
 
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string" || value.length === 0) return fallback
@@ -21,7 +22,14 @@ function toRecord(row: Record<string, unknown>): ProviderRecord {
       // Preserve legacy text as a reference for the credential resolver to reject safely.
     }
   }
+  const meta = parseJson<Record<string, unknown>>(row.meta_json, {})
+  const candidate = meta.routing
+  const routing = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {}
+  const identifier = (value: unknown): string | undefined => typeof value === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(value) ? value : undefined
   return {
+    group: identifier(routing.group),
+    priority: typeof routing.priority === "number" && Number.isSafeInteger(routing.priority) && routing.priority >= 0 ? routing.priority : undefined,
+    fallback_provider_id: identifier(routing.fallback_provider_id),
     id: asString(row.id),
     appId: asString(row.app_id, "default"),
     name: asString(row.name),
@@ -32,14 +40,14 @@ function toRecord(row: Record<string, unknown>): ProviderRecord {
     headers: parseJson<Record<string, string>>(row.headers_json, {}),
     enabled: asNumber(row.enabled, 1) === 1,
     presetId: row.preset_id ? asString(row.preset_id) : undefined,
-    meta: parseJson<Record<string, unknown>>(row.meta_json, {}),
+    meta,
     createdAt: asNumber(row.created_at),
     updatedAt: asNumber(row.updated_at),
   }
 }
 
 export class ProviderRepository {
-  constructor(private readonly driver: SqlDriver) {}
+  constructor(private readonly driver: StorageAdapter) {}
 
   list(appId?: string): ProviderRecord[] {
     const rows = appId
@@ -67,6 +75,15 @@ export class ProviderRepository {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     }
+    // ponytail: routing facts reuse existing JSON storage; no schema migration.
+    const routing = {
+      group: config.group ?? existing?.group,
+      priority: config.priority ?? existing?.priority,
+      fallback_provider_id: config.fallback_provider_id ?? existing?.fallback_provider_id,
+    }
+    const { routing: _routing, ...metadata } = record.meta
+    record.meta = Object.values(routing).some((value) => value !== undefined) ? { ...metadata, routing } : metadata
+    Object.assign(record, routing)
     this.driver
       .prepare(
         `INSERT INTO providers (id, app_id, name, protocol, base_url, api_key_ref, npm_package, headers_json, enabled, preset_id, meta_json, created_at, updated_at)

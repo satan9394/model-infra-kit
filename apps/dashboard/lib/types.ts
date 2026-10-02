@@ -173,6 +173,7 @@ export interface UsageTrendPoint {
 }
 
 export interface UsageEvent {
+  tool_calls?: { tool_name: string; id: string; input_hash: string; start_offset_ms: number; duration_ms: number; input_tokens: number; output_tokens: number; cost_micros: number }[]
   requestId: string
   appId: string
   ts: number
