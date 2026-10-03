@@ -283,6 +283,7 @@ export class Store {
     readonly driver: StorageAdapter,
     path: string,
     schemaVersion: number,
+    private readonly localSqlite = true,
   ) {
     this.path = path
     this.schemaVersion = schemaVersion
@@ -292,6 +293,21 @@ export class Store {
     this.pricingCache = new PricingCacheRepository(driver)
     this.usage = new UsageRepository(driver)
     this.settings = new SettingsRepository(driver)
+  }
+
+  /** Explicit maintenance; main-file sizes measured after WAL checkpoints. */
+  vacuum(): { beforeBytes: number; afterBytes: number; reclaimedBytes: number } {
+    if (!this.localSqlite || this.path === ":memory:" || this.path === ":adapter:") throw new Error("VACUUM requires a local file-backed SQLite database")
+    const checkpoint = (): void => {
+      const result = this.driver.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()
+      if (result && Number(result.busy) !== 0) throw new Error("VACUUM checkpoint blocked by active database readers")
+    }
+    checkpoint()
+    const beforeBytes = statSync(this.path).size
+    this.driver.exec("VACUUM")
+    checkpoint()
+    const afterBytes = statSync(this.path).size
+    return { beforeBytes, afterBytes, reclaimedBytes: beforeBytes - afterBytes }
   }
 
   /**
@@ -318,7 +334,7 @@ export class Store {
         if (!isStorageAdapter(adapter)) throw storageError("Storage factory must return a synchronous StorageAdapter")
         const driver = wrapDriverErrors(adapter)
         try {
-          return new Store(driver, config?.type === "sqlite" ? config.path ?? ":adapter:" : ":adapter:", migrate(driver))
+          return new Store(driver, config?.type === "sqlite" ? config.path ?? ":adapter:" : ":adapter:", migrate(driver), false)
         } catch (error) { closeQuietly(driver); throw error }
       }
       options = { ...options, path: config?.type === "sqlite" ? config.path ?? options.path : options.path }

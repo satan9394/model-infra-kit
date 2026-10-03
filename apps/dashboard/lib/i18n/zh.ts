@@ -448,4 +448,10 @@ export const zh = {
   "trace.tools.detail": "工具执行",
   "trace.tools.tokens": "输入 / 输出 Token",
   "trace.tools.share": "归属费用",
+  "connections.probe": "探测连接健康（HTTP 往返时延；悬停查看连接时长）",
+  "connections.active": "进行中请求",
+  "connections.events": "事件流",
+  "connections.rtt": "探测 RTT",
+  "connections.pending": "正在探测连接…",
+  "connections.offline": "连接探测不可用",
 } as const

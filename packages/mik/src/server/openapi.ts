@@ -934,6 +934,17 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           },
         },
       },
+      "/api/connections": {
+        get: {
+          tags: ["events"],
+          summary: "App-scoped active chat requests and event streams; requires read:usage.",
+          responses: { "200": ok("Process-local connection metadata, no prompt or headers.", {
+            type: "object", properties: { active: { type: "integer" }, requests: { type: "integer" }, events: { type: "integer" },
+              connections: { type: "array", items: { type: "object", properties: { id: { type: "string" }, kind: { enum: ["chat", "events"] },
+                startedAt: { type: "integer" }, model: { type: "string" }, ip: { type: "string" }, appId: { type: "string" } } } } },
+          }), "401": error("Missing or invalid token."), "403": error("Insufficient scope or different app.") },
+        },
+      },
       "/api/events": {
         get: {
           tags: ["events"],

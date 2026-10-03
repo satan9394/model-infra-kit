@@ -3,7 +3,7 @@ import { createConnection, type AddressInfo } from "node:net"
 import { ModelInfraError } from "../errors.js"
 import type { ModelInfra } from "../hub.js"
 import { registerApiRoutes } from "./api.js"
-import { HttpError, type ServerContext } from "./context.js"
+import { HttpError, InFlightTracker, type ServerContext } from "./context.js"
 import { acquireEventBus } from "./events.js"
 import { authenticate, endpointScope, requireScope, resolveTokens, validateTokens, type GatewayToken } from "./auth.js"
 import {
@@ -146,6 +146,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
   const { bus, release } = acquireEventBus(hub)
   const metrics = new MetricsExporter(hub, tokens.map(entry => entry.token))
   const streams = new Set<SseStream>()
+  const connections = new InFlightTracker(tokens.map(entry => entry.token))
   const startedAt = Date.now()
   let origin = `http://${urlHost(host)}:${port}`
 
@@ -158,6 +159,9 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
 
   const router = new Router()
   registerApiRoutes(router)
+  router.add("GET", "/api/connections", (ctx) => {
+    sendJson(ctx.res, 200, connections.snapshot(ctx.appId ?? hub.appId))
+  })
   router.add("GET", "/metrics", (ctx) => {
     requireScope("read:usage")(ctx)
     ctx.res.writeHead(200, { "content-type": METRICS_CONTENT_TYPE, "cache-control": "no-store" })
@@ -237,6 +241,24 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
       const headerApp = req.headers["x-mik-app-id"]
       if (headerApp !== undefined) requestedApps.push(...(Array.isArray(headerApp) ? headerApp : [headerApp]))
       if (requestedApps.some((value) => value !== ctx.appId)) throw new HttpError(403, "insufficient_scope", "FORBIDDEN")
+      const routePath = segments.join("/")
+      const kind = method === "POST" && routePath === "v1/chat/completions" ? "chat"
+        : method === "GET" && routePath === "api/events" ? "events" : undefined
+      if (kind) {
+        const connection = connections.start({ kind, model: "pending", ip: req.socket.remoteAddress ?? "unknown", appId: ctx.appId! })
+        ctx.updateConnectionModel = connection.updateModel
+        const cleanup = () => {
+          connection.close()
+          res.off("finish", cleanup)
+          res.off("close", cleanup)
+          res.off("error", cleanup)
+          req.off("aborted", cleanup)
+        }
+        res.once("finish", cleanup)
+        res.once("close", cleanup)
+        res.once("error", cleanup)
+        req.once("aborted", cleanup)
+      }
       await hub.usage.withAppScope(ctx.appId!, () => match.route!.handler(ctx))
     } catch (error) {
       const mapped = toHttpError(error)
@@ -299,6 +321,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
         release()
         for (const stream of [...streams]) stream.close()
         streams.clear()
+        connections.clear()
         await new Promise<void>((resolve) => {
           server.close(() => resolve())
           // Event streams and keep-alive sockets would otherwise hold shutdown.

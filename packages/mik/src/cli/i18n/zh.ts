@@ -7,6 +7,19 @@
  * suite), so a partial translation can never ship silently.
  */
 export const zh: Record<string, string> = {
+  "cmd.db.summary": "归档用量并维护本地 SQLite 数据库（所有应用）",
+  "cmd.db.archive.summary": "持久化导出 JSONL 并折叠历史明细",
+  "cmd.db.vacuum.summary": "检查点同步 WAL 并回收 SQLite 空闲页",
+  "help.flag.before": "截止本地日期（不含该日）：YYYY-MM-DD",
+  "help.details.db.0": "维护影响此数据库的所有应用；--app-id 不限制维护范围。",
+  "help.details.db.archive.0": "必须指定新的 .jsonl 文件；绝不覆盖已有文件。",
+  "help.details.db.archive.1": "归档所有应用在本地午夜前的明细；保留历史总额与 trace/tag 汇总。",
+  "help.details.db.vacuum.0": "仅支持本地 SQLite 文件；维护占用写锁，影响所有应用。",
+  "db.error.args": "数据库维护不接受位置参数。",
+  "db.error.archive": "请使用真实 YYYY-MM-DD 日期和新的可写 .jsonl 输出文件。",
+  "db.scope": "数据库级维护：所有应用；导出快照期间写入者将等待。",
+  "db.archived": "已归档 %s 条记录（%s 微美元）至 %s；明细已安全折叠。",
+  "db.vacuumed": "SQLite 主文件：%s -> %s 字节；回收 %s 字节（WAL 检查点后）。",
   "repl.welcome": "mik 交互模式 —— 输入 /help 查看斜杠命令",
   "repl.hintChat": "没有斜杠时直接输入文字 = 用默认模型对话",
   "repl.langSet": "语言已切换为 %s",

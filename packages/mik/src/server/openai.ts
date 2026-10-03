@@ -420,17 +420,34 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
     request.reasoningTimeoutMs = timeout
   }
   request.tags = { entrypoint: "openai-http" }
+  try {
+    const resolved = ctx.hub.resolveRequestModel(request)
+    ctx.updateConnectionModel?.(`${resolved.providerId}:${resolved.modelId}`)
+  } catch {
+    ctx.updateConnectionModel?.(request.model ?? "unknown")
+  }
+
+  const controller = new AbortController()
+  const abort = () => { if (!ctx.res.writableEnded) controller.abort() }
+  ctx.res.once("close", abort)
+  ctx.req.once("aborted", abort)
+  request.signal = controller.signal
 
   const id = `chatcmpl-${randomUUID()}`
   const created = Math.floor(Date.now() / 1000)
 
-  if (body.stream === true) {
-    await streamCompletion(ctx, request, id, created)
-    return
-  }
+  try {
+    if (body.stream === true) {
+      await streamCompletion(ctx, request, id, created)
+      return
+    }
 
-  const response = await ctx.hub.generate(request)
-  sendJson(ctx.res, 200, toOpenAiCompletion(response, id, created))
+    const response = await ctx.hub.generate(request)
+    sendJson(ctx.res, 200, toOpenAiCompletion(response, id, created))
+  } finally {
+    ctx.res.off("close", abort)
+    ctx.req.off("aborted", abort)
+  }
 }
 
 /**
@@ -441,14 +458,6 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
  * of a 200 with an error frame inside it.
  */
 async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: string, created: number): Promise<void> {
-  const controller = new AbortController()
-  // `close` fires when the client goes away. If the response already ended
-  // cleanly this is the normal teardown, not a cancellation.
-  ctx.res.once("close", () => {
-    if (!ctx.res.writableEnded) controller.abort()
-  })
-  request.signal = controller.signal
-
   const iterator = ctx.hub.stream(request)[Symbol.asyncIterator]()
   let stream: SseStream | undefined
   let first: IteratorResult<StreamEvent>
@@ -460,13 +469,18 @@ async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: s
         heartbeatTimer = setTimeout(() => resolve("heartbeat"), ctx.heartbeatMs)
         heartbeatTimer.unref?.()
       })
-      const firstOrHeartbeat = await Promise.race([firstPromise, heartbeatWait])
-      if (heartbeatTimer) clearTimeout(heartbeatTimer)
+      let firstOrHeartbeat: IteratorResult<StreamEvent> | "heartbeat"
+      try {
+        firstOrHeartbeat = await Promise.race([firstPromise, heartbeatWait])
+      } finally {
+        if (heartbeatTimer) clearTimeout(heartbeatTimer)
+      }
       if (firstOrHeartbeat === "heartbeat") {
         stream = new SseStream(ctx.res, ctx.heartbeatMs)
+        ctx.trackSse(stream)
         stream.open()
         stream.startHeartbeat()
-        await stream.comment("thinking")
+        await stream.comment()
         first = await firstPromise
       } else {
         first = firstOrHeartbeat
@@ -475,6 +489,7 @@ async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: s
       first = await firstPromise
     }
   } catch (error) {
+    stream?.close()
     throw toHttpError(error)
   }
 
@@ -498,6 +513,7 @@ async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: s
 
   if (!stream) {
     stream = new SseStream(ctx.res, ctx.heartbeatMs)
+    ctx.trackSse(stream)
     stream.open()
     stream.startHeartbeat()
   }
@@ -613,8 +629,9 @@ async function streamCompletion(ctx: ServerContext, request: ModelRequest, id: s
   stream.close()
 }
 
-function resolveModelId(ctx: ServerContext, request: ModelRequest): string {  try {
-    return ctx.hub.resolveModel(request.model).modelId
+function resolveModelId(ctx: ServerContext, request: ModelRequest): string {
+  try {
+    return ctx.hub.resolveRequestModel(request).modelId
   } catch {
     return request.model ?? "unknown"
   }

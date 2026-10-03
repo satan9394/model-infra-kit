@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { stripTypeScriptTypes } from "node:module"
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(SCRIPT_DIR, "../..")
@@ -32,7 +33,10 @@ function assertAbsoluteCwd(cwd, label) {
   assert.ok(existsSync(cwd), `${label} cwd does not exist: ${cwd}`)
 }
 
-let projectRedact = (text) => text
+// Load the same source redactor before build/installation errors can be printed.
+const redactorSource = readFileSync(join(PACKAGE_ROOT, "src", "util", "redact.ts"), "utf8")
+const sourceRedactor = await import("data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(redactorSource)).toString("base64"))
+let projectRedact = sourceRedactor.redact
 
 function redacted(text, secrets = []) {
   return secrets.reduce((value, secret) => (secret ? value.replaceAll(secret, "[redacted]") : value), projectRedact(text))
@@ -220,7 +224,8 @@ import { createServer } from "node:http"
 import { readFileSync } from "node:fs"
 import { join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
-import { ModelInfra, Store } from "model-infra-kit"
+import { createHash } from "node:crypto"
+import { ModelInfra, Store, redact } from "model-infra-kit"
 import { createServer as createGateway } from "model-infra-kit/server"
 import { spawnSync } from "node:child_process"
 
@@ -251,6 +256,7 @@ const mock = createServer(async (request, response) => {
   for await (const chunk of request) requestBody += chunk
   const parsed = JSON.parse(requestBody)
   assert.equal(parsed.model, "mock-model")
+  await new Promise(resolvePromise => setTimeout(resolvePromise, 100))
   response.writeHead(200, { "content-type": "application/json" })
   response.end(JSON.stringify({
     id: "release-battery",
@@ -288,6 +294,7 @@ try {
       enabled: true,
     }],
     defaultModel: "mock:mock-model",
+    router: { aliases: { auto: { rules: [{ condition: "context_tokens > 8", target: "mock:mock-model" }], default_target: "mock:mock-model" } } },
   })
   assert.equal(hub.providers.get("mock")?.apiKeyRef, "env:MIK_RELEASE_BATTERY_KEY")
   hub.pricing.setOverride({ modelId: "mock-model", inputPerM: 1, outputPerM: 2 })
@@ -304,13 +311,70 @@ try {
   assert.ok(event)
   assert.equal(Math.round(event.cost.usd * 1_000_000), 11)
   assert.ok(!JSON.stringify(event).includes(providerKey), "provider key leaked into usage data")
+  await hub.generate({ model: "auto", traceId: "battery-routing", messages: [{ role: "user", content: "中".repeat(32) }] })
+  const routed = hub.usage.query().events.find(row => row.traceId === "battery-routing")
+  assert.equal(routed.modelRequested, "auto")
+  assert.equal(routed.providerId, "mock")
+  assert.equal(routed.modelActual, "mock-model")
+  assert.equal(routed.tags.routing_rule, "context_tokens > 8")
+  assert.equal(routed.tags.virtual_model, "auto")
+  assert.equal(Math.round(routed.cost.usd * 1_000_000), 11)
   const gatewayToken = providerKey + "-gateway"
-  gateway = await createGateway({ hub, port: 0, tokens: [{ token: gatewayToken, scopes: ["write:chat", "read:usage"], appId: "battery-tenant" }] })
+  gateway = await createGateway({ hub, port: 0, heartbeatMs: 20, tokens: [
+    { token: gatewayToken, scopes: ["write:chat", "read:usage"], appId: "battery-tenant" },
+    { token: gatewayToken + "-host", scopes: ["admin"], appId: "release-battery" },
+    { token: gatewayToken + "-write", scopes: ["write:chat"], appId: "battery-tenant" },
+  ] })
   const headers = { authorization: "Bearer " + gatewayToken, "content-type": "application/json" }
-  const chat = await fetch(gateway.url + "/v1/chat/completions", { method: "POST", headers,
+  const snapshot = async (token = gatewayToken) => {
+    const response = await fetch(gateway.url + "/api/connections", { headers: { authorization: "Bearer " + token } })
+    assert.equal(response.status, 200)
+    return response.json()
+  }
+  const until = async predicate => {
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline) {
+      const value = await snapshot()
+      if (predicate(value)) return value
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 5))
+    }
+    throw new Error("connection lifecycle did not reach expected state")
+  }
+  assert.equal((await fetch(gateway.url + "/api/connections")).status, 401)
+  assert.equal((await fetch(gateway.url + "/api/connections", { headers: { authorization: "Bearer " + gatewayToken + "-write" } })).status, 403)
+  const pendingChat = fetch(gateway.url + "/v1/chat/completions", { method: "POST", headers,
     body: JSON.stringify({ model: "mock:mock-model", messages: [{ role: "user", content: "tenant hello" }] }) })
+  const activeChat = await until(value => value.requests === 1 && value.connections[0].model === "mock:mock-model")
+  assert.equal(activeChat.active, 1)
+  assert.equal(activeChat.connections[0].appId, "battery-tenant")
+  assert.equal((await snapshot(gatewayToken + "-host")).active, 0)
+  const chat = await pendingChat
   assert.equal(chat.status, 200)
   assert.equal((await chat.json()).choices[0].message.content, "battery ok")
+  await until(value => value.active === 0)
+  const events = await fetch(gateway.url + "/api/events", { headers })
+  assert.equal(events.status, 200)
+  const reader = events.body.getReader()
+  const decoder = new TextDecoder()
+  let frames = ""
+  const readHeartbeat = async () => {
+    while (!frames.includes(": ping\n\n")) {
+      const part = await reader.read()
+      assert.equal(part.done, false)
+      frames += decoder.decode(part.value, { stream: true })
+    }
+  }
+  let timer
+  try {
+    await Promise.race([readHeartbeat(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("SSE heartbeat timeout")), 3000) })])
+    assert.equal(frames.split("\n").filter(line => line.startsWith("data: ")).length, 0)
+    const live = await snapshot()
+    assert.equal(live.events, 1)
+    assert.equal(live.requests, 0)
+    assert.equal(live.active, 1)
+    assert.equal((await snapshot(gatewayToken + "-host")).active, 0)
+  } finally { clearTimeout(timer); await reader.cancel() }
+  await until(value => value.active === 0)
   const denied = await fetch(gateway.url + "/api/providers", { method: "POST", headers, body: "{}" })
   assert.equal(denied.status, 403)
   assert.deepEqual(await denied.json(), { error: { message: "insufficient_scope", code: "FORBIDDEN" } })
@@ -319,10 +383,39 @@ try {
   assert.equal(tenant.summary.requests, 1)
   assert.equal(Math.round(tenant.summary.costLowUsd * 1_000_000), 11)
   assert.equal(hub.usage.query({ appId: "battery-tenant" }).total, 1)
-  assert.equal(hub.usage.query().total, 1)
+  assert.equal(hub.usage.query().total, 2)
   assert.ok(!JSON.stringify(hub.usage.query({ appId: "" })).includes(gatewayToken), "gateway token leaked into usage data")
   await gateway.close()
   gateway = undefined
+  const before = hub.usage.summary()
+  const tomorrow = new Date(Date.now() + 2 * 86_400_000)
+  const cutoffDate = [tomorrow.getFullYear(), String(tomorrow.getMonth() + 1).padStart(2, "0"), String(tomorrow.getDate()).padStart(2, "0")].join("-")
+  const archiveFile = join(consumerRoot, "usage-archive.jsonl")
+  const archive = hub.usage.archive({ beforeDate: cutoffDate, targetFile: archiveFile })
+  assert.equal(archive.records, 3)
+  assert.equal(archive.costMicros, "33")
+  const archiveText = readFileSync(archiveFile, "utf8")
+  const boundary = archiveText.indexOf("\n")
+  const header = JSON.parse(archiveText.slice(0, boundary))
+  const body = archiveText.slice(boundary + 1)
+  assert.equal(header.type, "mik-usage-archive")
+  assert.equal(header.version, 1)
+  assert.equal(header.before_date, cutoffDate)
+  assert.equal(header.scope, "all-apps")
+  assert.equal(header.records, 3)
+  assert.equal(header.checksum.cost_micros, "33")
+  assert.equal(header.sha256, createHash("sha256").update(body).digest("hex"))
+  assert.equal(archive.sha256, header.sha256)
+  assert.equal(body.trim().split("\n").reduce((sum, line) => sum + BigInt(JSON.parse(line).cost_micros), 0n), 33n)
+  const archivedRows = body.trim().split("\n").map(line => JSON.parse(line))
+  for (const field of ["cost_micros", "low_micros", "high_micros", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens"]) {
+    assert.equal(header.checksum[field], archivedRows.reduce((sum, row) => sum + BigInt(row[field]), 0n).toString())
+  }
+  assert.ok(!archiveText.includes(providerKey), "archive leaked provider key")
+  assert.deepEqual(hub.usage.summary(), before)
+  const vacuum = hub.usage.vacuum()
+  assert.ok(Number.isSafeInteger(vacuum.beforeBytes) && Number.isSafeInteger(vacuum.afterBytes))
+  assert.equal(vacuum.reclaimedBytes, vacuum.beforeBytes - vacuum.afterBytes)
   await hub.close()
   hub = undefined
 
@@ -330,14 +423,22 @@ try {
   const providerRow = store.driver.prepare("SELECT api_key_ref FROM providers WHERE id = ?").get("mock")
   assert.equal(providerRow.api_key_ref, "env:MIK_RELEASE_BATTERY_KEY")
   const rolled = store.usage.rollup(Date.now() + 86_400_000)
-  assert.equal(rolled, 2)
+  assert.equal(rolled, 0)
   const rollupRow = store.driver.prepare("SELECT cost_microusd FROM usage_daily_rollups WHERE app_id = ?").get("release-battery")
   assert.ok(rollupRow)
-  assert.equal(Number(rollupRow.cost_microusd), 11)
+  assert.equal(Number(rollupRow.cost_microusd), 22)
   assert.ok(Number.isSafeInteger(Number(rollupRow.cost_microusd)))
   const tenantRollup = store.driver.prepare("SELECT cost_microusd FROM usage_daily_rollups WHERE app_id = ?").get("battery-tenant")
   assert.equal(Number(tenantRollup.cost_microusd), 11)
-  console.log(JSON.stringify({ packageVersion: installedPackage.version, responseText: result.text, requests: summary.requests, costMicros: Number(rollupRow.cost_microusd), tenantCostMicros: Number(tenantRollup.cost_microusd), gatewayIsolation: true }))
+  assert.equal(store.driver.prepare("SELECT COUNT(*) AS n FROM usage_events").get().n, 0)
+  store.close(); store = undefined
+  const cliEnv = { ...process.env, MIK_LANG: undefined, LC_ALL: "en_US.UTF-8", LANG: "en_US.UTF-8" }
+  for (const args of [["db", "vacuum", "--db", dbPath, "--offline"], ["db", "archive", "--db", dbPath, "--before", cutoffDate, "--out", join(consumerRoot, "cli-archive.jsonl"), "--offline"]]) {
+    const command = spawnSync(process.execPath, [cliEntry, ...args], { cwd: consumerRoot, encoding: "utf8", env: cliEnv, windowsHide: true })
+    assert.equal(command.status, 0, redact(command.stderr))
+  }
+  assert.equal(JSON.parse(readFileSync(join(consumerRoot, "cli-archive.jsonl"), "utf8").split("\n")[0]).records, 0)
+  console.log(JSON.stringify({ packageVersion: installedPackage.version, responseText: result.text, requests: summary.requests, costMicros: Number(rollupRow.cost_microusd), tenantCostMicros: Number(tenantRollup.cost_microusd), gatewayIsolation: true, smartRouter: true, archiveMicros: "33", vacuum: true, cliMaintenance: true, connectionLifecycle: true, sseComments: true }))
 } finally {
   if (gateway) await gateway.close().catch(() => {})
   if (hub) await hub.close().catch(() => {})
@@ -356,6 +457,8 @@ async function main() {
   const expected = contractFromDocs()
   const sourcePackageJson = readJson(PACKAGE_JSON_PATH)
   assert.equal(sourcePackageJson.name, "model-infra-kit")
+  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.3.0", "root release version mismatch")
+  assert.equal(sourcePackageJson.version, "1.3.0", "package release version mismatch")
   assertAbsoluteCwd(REPO_ROOT, "repository")
   assertAbsoluteCwd(PACKAGE_ROOT, "package")
 
@@ -425,7 +528,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`[release-battery] FAILED: ${error instanceof Error ? error.message : String(error)}\n`)
+  process.stderr.write(`[release-battery] FAILED: ${projectRedact(error instanceof Error ? error.message : String(error))}\n`)
   process.exitCode = 1
 })
 

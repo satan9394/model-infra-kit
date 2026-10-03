@@ -310,6 +310,48 @@ function addAggregate(target: AggregateRow, source: AggregateRow): AggregateRow 
 export class UsageRepository {
   constructor(private readonly driver: StorageAdapter) {}
 
+  /** Exclusive snapshot: export must finish durably before the shared fold deletes details. */
+  archive(cutoff: number, exportRows: (rows: () => Generator<Record<string, unknown>>) => void): number {
+    return this.driver.transaction(() => {
+      exportRows(() => this.archiveRows(cutoff))
+      return this.rollup(cutoff)
+    })
+  }
+
+  private *archiveRows(cutoff: number): Generator<Record<string, unknown>> {
+    let last = 0
+    for (;;) {
+      const rows = this.driver.prepare(`SELECT rowid AS archive_rowid, *,
+        CAST(ROUND(cost_usd * 1000000) AS INTEGER) AS cost_micros,
+        CAST(ROUND(cost_low_usd * 1000000) AS INTEGER) AS low_micros,
+        CAST(ROUND(cost_high_usd * 1000000) AS INTEGER) AS high_micros
+        FROM usage_events WHERE ts < ? AND rowid > ? ORDER BY rowid LIMIT 256`).all(cutoff, last)
+      if (rows.length === 0) return
+      for (const row of rows) {
+        last = Number(row.archive_rowid)
+        delete row.archive_rowid
+        yield row
+      }
+    }
+  }
+
+  private maintenanceTotals(table: "usage_events" | "usage_daily_rollups", cutoff?: number): bigint[] {
+    const detail = table === "usage_events"
+    const fields = [detail ? "COUNT(*)" : "SUM(request_count)",
+      detail ? "SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END)" : "SUM(success_count)",
+      ...["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens"].map((field) => `SUM(${field})`),
+      ...["", "low_", "high_"].map((part) => detail
+        ? `SUM(CAST(ROUND(cost_${part}usd * 1000000) AS INTEGER))`
+        : `SUM(cost_${part}microusd)`)]
+    const row = this.driver.prepare(`SELECT ${fields.map((field, i) => `COALESCE(${field}, 0) AS v${i}`).join(", ")}
+      FROM ${table}${cutoff === undefined ? "" : " WHERE ts < ?"}`).get(...(cutoff === undefined ? [] : [cutoff]))!
+    return fields.map((_, i) => {
+      const value = row[`v${i}`]
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new Error("Unsafe archive integer totals")
+      return BigInt(value)
+    })
+  }
+
   insert(event: UsageEvent & { pricingBasis?: string; pricingSource?: string }): boolean {
     const result = this.driver
       .prepare(
@@ -1109,6 +1151,8 @@ export class UsageRepository {
   /** Fold events older than `cutoff` into daily rollups, then delete them. */
   rollup(cutoff: number): number {
     return this.driver.transaction(() => {
+      const details = this.maintenanceTotals("usage_events", cutoff)
+      const before = this.maintenanceTotals("usage_daily_rollups")
       this.driver
         .prepare(
           `INSERT INTO usage_daily_rollups (
@@ -1188,7 +1232,10 @@ export class UsageRepository {
         // Order matters: `ts < ?` sits inside the subquery, the reserved keys in
         // the outer `WHERE`.
         .run(cutoff, ...RESERVED_TAG_KEYS)
+      const after = this.maintenanceTotals("usage_daily_rollups")
+      if (after.some((value, i) => value - before[i]! !== details[i])) throw new Error("Archive rollup conservation mismatch")
       const deleted = Number(this.driver.prepare("DELETE FROM usage_events WHERE ts < ?").run(cutoff).changes)
+      if (BigInt(deleted) !== details[0]) throw new Error("Archive detail count mismatch")
       return deleted
     })
   }

@@ -1,5 +1,13 @@
 # CHANGELOG — model-infra-kit
 
+## 1.3.0 — 本地发版候选（2026-10-03，待人类发布）
+
+- 声明式虚拟模型别名按预估上下文路由，首个规则命中或默认目标；物理模型直通，Trace 保留别名与规则，实际供应商负责计费。原生字符估算器是线性启发式，不承诺精确分词，不估算媒体或工具 schema。
+- 显式数据库级 JSONL 用量归档：整数微美元校验和、SHA-256、fsync/readback 与事务守恒后修剪，涵盖全部应用。归档同步持有写锁；CLI 提供 db archive 与本地文件 SQLite 的 db vacuum，需维护窗口。
+- SSE 使用标准注释心跳，覆盖模型静默期；受权限保护的 /api/connections 按应用隔离并追踪完成、错误、取消与关闭。连接模型展示初始路由目标，后续 failover 不改该标签。看板增加双语连接数与 HTTP Probe RTT 胶囊；RTT 是 HTTP 探测耗时。
+- 扩展干净目录 Tarball 电池，精确对账 1.3.0 版本与实际导出，并验证已安装包的路由、金额、归档、VACUUM、网关隔离与 SSE 生命周期。沿用 v1.2.0 存储适配器和被动熔断基础。
+- 仅本地 main 候选；push 与 npm publish 等待人类发布指令。
+
 ## 1.2.0 — 本地发版候选（2026-10-02，待人类发布）
 
 - 统一同步 StorageAdapter / PreparedStatement 契约、嵌套事务与可插拔工厂；默认 SQLite，多实例共享已提交的存储行。外部驱动注入要求 SQLite 兼容 SQL，不含内置 LibSQL/Turso 网络客户端或内存价格快照自动同步。

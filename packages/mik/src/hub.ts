@@ -37,6 +37,7 @@ import { sanitizeTags } from "./usage/tags.js"
 import { ToolTraceCollector, requestCostMicros } from "./usage/tool-attribution.js"
 import { validateMultimodalUsage } from "./pricing/tiers.js"
 import { redact } from "./util/redact.js"
+import { SmartRouter } from "./ai/smart-router.js"
 
 const DEFAULT_APP_ID = "default"
 /** Placeholder until the HTTP server (T07) knows the real port. */
@@ -331,6 +332,7 @@ export class ModelInfra {
   private readonly maxRetries: number | undefined
   readonly providerHealth: ProviderCircuitBreaker
   private readonly fallbackChain: string[]
+  private readonly smartRouter: SmartRouter | undefined
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
   private readonly budgetConfig: BudgetConfig | undefined
@@ -352,6 +354,7 @@ export class ModelInfra {
     maxSteps: number
     maxRetries: number | undefined
     fallbackChain: string[]
+    smartRouter: SmartRouter | undefined
     providerHealth: ProviderCircuitBreaker
     reasoningTimeoutMs: number | undefined
     keyCooldownMs: number
@@ -374,6 +377,7 @@ export class ModelInfra {
     this.maxRetries = deps.maxRetries
     this.providerHealth = deps.providerHealth
     this.fallbackChain = deps.fallbackChain
+    this.smartRouter = deps.smartRouter
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
     this.budgetConfig = deps.budgetConfig
@@ -467,6 +471,7 @@ export class ModelInfra {
       throw new ModelInfraError('"fallbackChain" must be an array of model references.', { code: "INVALID_REQUEST" })
     }
     const providerHealth = new ProviderCircuitBreaker(config.failover)
+    const smartRouter = config.router === undefined ? undefined : new SmartRouter(config.router)
     const fallbackChain = config.fallbackChain ?? []
     const reasoningTimeoutMs = positiveMilliseconds(config.reasoningTimeoutMs, "reasoningTimeoutMs")
     const keyCooldownMs = positiveMilliseconds(config.keyCooldownMs ?? 30_000, "keyCooldownMs") ?? 30_000
@@ -563,6 +568,7 @@ export class ModelInfra {
       maxSteps: DEFAULT_MAX_STEPS,
       maxRetries: config.maxRetries,
       fallbackChain,
+      smartRouter,
       providerHealth,
       reasoningTimeoutMs,
       keyCooldownMs,
@@ -627,6 +633,13 @@ export class ModelInfra {
     }
   }
 
+  /** @internal Shared request resolution for core calls and HTTP stream model labels. */
+  resolveRequestModel(request: ModelRequest): ResolvedModelRef & { routingTags?: Record<string, string> } {
+    const route = this.smartRouter?.select(request)
+    if (!route) return this.resolveModel(request.model)
+    return { ...this.resolveModel(route.target), requested: request.model!.trim(), routingTags: route.tags }
+  }
+
   private routeCandidates(
     primary: ResolvedModelRef,
     requestFallbacks: string[] | false | undefined,
@@ -663,7 +676,8 @@ export class ModelInfra {
   async generate(request: ModelRequest): Promise<ModelResponse> {
     this.assertOpen("generate()")
     validateMultimodalUsage(request.media)
-    const primary = this.resolveModel(request.model)
+    const primary = this.resolveRequestModel(request)
+    if (primary.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...primary.routingTags } }
     const candidates = this.routeCandidates(primary, request.fallbackChain)
     const startedAt = Date.now()
     let lastError: ModelInfraError | undefined
@@ -834,7 +848,9 @@ export class ModelInfra {
     let candidates: Array<{ resolved: ResolvedModelRef; modelRef: string }>
     let reasoningTimeoutMs: number | undefined
     try {
-      primary = this.resolveModel(request.model)
+      const routed = this.resolveRequestModel(request)
+      primary = routed
+      if (routed.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...routed.routingTags } }
       candidates = this.routeCandidates(primary, request.fallbackChain)
       reasoningTimeoutMs = positiveMilliseconds(request.reasoningTimeoutMs ?? this.reasoningTimeoutMs, "reasoningTimeoutMs")
     } catch (error) {

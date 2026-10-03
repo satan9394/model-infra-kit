@@ -375,6 +375,19 @@ const QUERY_FLAGS: readonly FlagSpec[] = [
 
 export const COMMANDS: readonly CommandSpec[] = [
   {
+    name: "db",
+    summary: "Archive usage and maintain the local SQLite database (all apps)",
+    usage: "mik db <archive|vacuum> [options]",
+    details: ["Maintenance affects every app in this database; --app-id does not limit it."],
+    actions: [
+      { name: "archive", summary: "Durably export JSONL and fold historical details", usage: "mik db archive --before <YYYY-MM-DD> --out <new.jsonl>",
+        flags: [{ name: "before", type: "string", placeholder: "<date>", description: "Exclusive local calendar date: YYYY-MM-DD", descriptionKey: "help.flag.before" }, FLAG_OUT],
+        details: ["A new .jsonl file is required; existing files are never overwritten.", "All apps are archived before local midnight; historical totals and trace/tag summaries remain."] },
+      { name: "vacuum", summary: "Checkpoint WAL and reclaim unused SQLite file pages", usage: "mik db vacuum",
+        details: ["Local file-backed SQLite only; maintenance takes a write lock. All apps are affected."] },
+    ],
+  },
+  {
     name: "init",
     summary: "Write mik.config.json (app id, database path, first provider)",
     usage: "mik init [--app-id <id>] [--db <path>] [--provider <presetId>] [--file <path>] [--force] [--yes]",

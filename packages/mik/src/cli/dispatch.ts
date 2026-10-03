@@ -18,6 +18,7 @@ import { runModelCatalog, runModels } from "./commands/models.js"
 import { runPricing } from "./commands/pricing.js"
 import { runProvider } from "./commands/provider.js"
 import { runServe } from "./commands/serve.js"
+import { runDb } from "./commands/db.js"
 import { runUsage } from "./commands/usage.js"
 import { redact } from "../util/redact.js"
 
@@ -58,6 +59,8 @@ export async function dispatch(parsed: ParsedCli, options: RunOptions): Promise<
       return runModels(parsed, options)
     case "pricing":
       return runPricing(parsed, options)
+    case "db":
+      return runDb(parsed, options)
     case "usage":
       return runUsage(parsed, options)
     default:

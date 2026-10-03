@@ -1,3 +1,4 @@
+import { archiveUsage, type ArchiveOptions, type ArchiveResult } from "./archive.js"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { Store } from "../store/database.js"
 import type { BudgetUsageTotals } from "./budget.js"
@@ -354,6 +355,15 @@ export class UsageService {
 
   summary(query?: UsageQuery): UsageSummary {
     return this.store.usage.summary(this.scoped(query))
+  }
+
+  /** Explicit database-wide maintenance, independent of request app scope. */
+  archive(options: ArchiveOptions): ArchiveResult {
+    return archiveUsage(this.store.usage, options)
+  }
+
+  vacuum(): { beforeBytes: number; afterBytes: number; reclaimedBytes: number } {
+    return this.store.vacuum()
   }
 
   /** Read integer budget totals, including any retained daily rollups. */

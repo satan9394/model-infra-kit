@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react"
 import { LiveBadge, useHubEvents } from "@/lib/use-events"
 import { formatUsd } from "@/lib/format"
 import type { HubEventFrame, UsageEvent } from "@/lib/types"
+import { createConnectionProbe, type ProbeState } from "@/lib/connection-probe"
 
 /**
  * Subscribes to `mik serve`'s SSE stream and refreshes the surrounding server
@@ -33,6 +34,19 @@ export function LiveRefresh({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshes, setRefreshes] = useState(0)
   const [session, setSession] = useState({ requests: 0, costMicros: 0, lastModel: "" })
+  const [probe, setProbe] = useState<ProbeState>({ status: "pending", snapshot: null, rttMs: null })
+  const probeRef = useRef<ReturnType<typeof createConnectionProbe> | null>(null)
+  useEffect(() => {
+    const connectionProbe = createConnectionProbe(setProbe)
+    probeRef.current = connectionProbe
+    void connectionProbe.run()
+    const interval = setInterval(() => { void connectionProbe.run() }, 15_000)
+    return () => { clearInterval(interval); connectionProbe.dispose(); probeRef.current = null }
+  }, [])
+
+  const connectionLabel = probe.status === "ready"
+    ? `${t("connections.active")}: ${probe.snapshot!.requests} · ${t("connections.rtt")}: ${probe.rttMs}ms`
+    : t(probe.status === "pending" ? "connections.pending" : "connections.offline")
 
   const topicsRef = useRef(topics)
   topicsRef.current = topics
@@ -75,6 +89,17 @@ export function LiveRefresh({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <LiveBadge state={state} />
+      <button
+        type="button"
+        data-testid="connection-probe"
+        aria-label={`${t("connections.probe")} · ${connectionLabel}`}
+        aria-busy={probe.status === "pending"}
+        title={probe.snapshot ? `${t("connections.probe")} · ${t("connections.events")}: ${probe.snapshot.events}\n${probe.snapshot.connections.map(entry => `${entry.kind} ${entry.model} · ${Math.max(0, Math.floor((Date.now() - entry.startedAt) / 1000))}s`).join("\n")}` : t("connections.probe")}
+        onClick={() => { void probeRef.current?.run() }}
+        className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+      >
+        {connectionLabel}
+      </button>
       {ticker ? (
         <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-muted-foreground"> {t("s71")} <span className="font-mono text-foreground">{session.requests}</span> {t("s72")} <span className="font-mono text-foreground"> {formatUsd(session.costMicros / 1_000_000)}</span>
           {session.lastModel ? <span className="text-subtle"> {t("s73")} {session.lastModel}</span> : null}

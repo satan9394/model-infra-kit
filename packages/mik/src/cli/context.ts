@@ -1,4 +1,5 @@
 import { readStorageConfig, type StorageConfig } from "../store/adapter.js"
+import { readRouterConfig } from "../ai/smart-router.js"
 import { isModelInfraError } from "../errors.js"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -27,6 +28,7 @@ export interface RunOptions {
 }
 
 export interface CliConfigFile {
+  router?: import("../ai/smart-router.js").RouterConfig
   appId?: string
   db?: string
   storage?: StorageConfig
@@ -202,6 +204,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     if (typeof record.cacheDir === "string" && record.cacheDir) config.cacheDir = record.cacheDir
     config.budget = readBudgetConfig(record.budget)
     if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
+    if (record.router !== undefined) config.router = readRouterConfig(record.router)
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     return config
   } catch (error) {
@@ -297,6 +300,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     syncCatalog: !offline && needsCatalogSync(parsed),
     pricingFetch: offline ? offlineFetch : undefined,
     budget: config.budget,
+    router: config.router,
     // Only the `warning:` frame is localized; a warning's *message* may come from
     // a third-party library (`llm-pricing`) and is deliberately passed through
     // untranslated — see the G14 report for that known cross-layer debt.

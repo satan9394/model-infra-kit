@@ -277,7 +277,7 @@ export interface ModelInfraOptions extends ModelInfraConfig {
 ### EVO-G95 — 弹性路由与凭据池
 
 - `ModelRequest.fallbackChain: false` disables both request and host fallback chains; an empty array still inherits the host chain. `ModelRequest.fallbackChain` 先于 `ModelInfraOptions.fallbackChain` 尝试；主模型失败后依序尝试显式 `provider:model` 备选。仅 429、超时、连接与上游 5xx 可触发模型降级；流式调用只有在尚未输出文本或工具调用时才切换，避免重复内容。
-- `reasoningTimeoutMs`（请求字段优先，其次实例配置）限制流式首个可见输出等待；非流式请求将其作为单次调用超时。OpenAI 兼容端点接受 `reasoning_timeout_ms` 或 `x-mik-reasoning-timeout-ms`。SSE 若首事件超过 heartbeat 周期，会先发 `: thinking` 注释并继续按间隔发送注释心跳。
+- `reasoningTimeoutMs`（请求字段优先，其次实例配置）限制流式首个可见输出等待；非流式请求将其作为单次调用超时。OpenAI 兼容端点接受 `reasoning_timeout_ms` 或 `x-mik-reasoning-timeout-ms`。SSE 若首事件超过 heartbeat 周期，会先发 `: ping` 注释并继续按间隔发送注释心跳。
 - Provider `apiKeyRef` 支持单引用、逗号分隔引用或引用数组。每次解析按轮询选择一个可用引用；429 后该引用在内存冷却（默认 30 秒，`keyCooldownMs` 可改）。数据库仍只保存 credential reference，解析出的 secret 不进入池状态、日志或用量标签。
 - 每次实际尝试各记录一条用量行；通过模型或 Key 轮换成功的行以 `tags.is_fallback = "true"` 标记。失败尝试保持 `status="error"` 与缺失成本状态。
 
@@ -1078,6 +1078,7 @@ Dashboard language: `mik_dashboard_lang` localStorage preference (`zh`/`en`), br
       "defaultCacheDir",
       "defaultDbPath",
       "defaultSecretPath",
+      "estimateContextTokens",
       "expandPath",
       "getPreset",
       "isModelInfraError",
@@ -1255,3 +1256,56 @@ Scrapes read only memory and the in-memory circuit, with no usage SQL or histori
 ### G110/G111 monetary boundary guard
 
 Tier calculations retain safe integer micros. `PricingService.estimate` rejects a tier total with `RangeError` when converting it to the compatibility USD-number field and decimal-parsing back would change the exact micros; it never silently zeroes that total. Tool attribution fields remain safe integers: for a larger provider-reported amount, the attribution budget is capped at `Number.MAX_SAFE_INTEGER` micros, still below the parent amount, without capping the billed amount. The exporter parses the reported USD number directly to BigInt micros and therefore counts individual amounts above the safe Number range. This cannot recover precision already absent from an upstream USD number.
+
+## EVO-G112 — Context-aware virtual model routing
+
+The root entry exports `estimateContextTokens(text: string): number` at runtime and `RouterConfig`, `RouterPolicy`, `RouterRule` as types. `ModelInfraConfig.router` configures exact, case-sensitive aliases for `generate`, `stream` and the HTTP `/v1/chat/completions` gateway. The CLI loads the same validated `router` object from `mik.config.json`; it contains no credentials. The raw `mik.fetch` forwarding adapter retains its existing transport behavior.
+
+```ts
+interface RouterRule { condition: string; target: string }
+interface RouterPolicy { rules: RouterRule[]; default_target: string }
+interface RouterConfig { aliases: Record<string, RouterPolicy> }
+const router: RouterConfig = {
+  aliases: {
+    auto: {
+      rules: [{ condition: "context_tokens > 32000", target: "long:large-model" }],
+      default_target: "economy:small-model",
+    },
+  },
+}
+const mik = await ModelInfra.init({ router, /* existing providers/defaultModel */ })
+await mik.generate({ model: "auto", messages: [{ role: "user", content: "Hello" }] })
+```
+
+Conditions accept only `context_tokens` followed by `>`, `>=`, `<`, `<=` or `==` and a non-negative safe integer literal. They are compiled once, never evaluated as code; first matching rule wins and no match selects `default_target`. There are at most 128 aliases and 128 rules per alias. Unknown fields, malformed targets, colon-containing aliases and alias-to-alias targets are rejected before opening a store, with errors that never echo configuration values. Config is copied on construction. Targets can be `provider:model` or bare model IDs using the existing default-provider resolution; unavailable selected targets surface the existing request error rather than silently skipping the rule. Existing provider failover still applies after successful physical resolution.
+
+Alias matching never uses an `auto` substring. Explicit `provider:model` and unregistered bare IDs return through existing resolution without inspecting prompt content. Omitted model keeps the existing physical default. No provider ID selects a protocol adapter. HTTP provider override headers also retain literal provider targeting.
+
+The estimator is a dependency-free linear heuristic: CJK UTF-16 characters count as one, other BMP characters as one quarter, supplementary code points as one; the final text estimate rounds up. Routing sums system text, message text and serialized tool input/output, plus four framing tokens per message. Media is not downloaded or assigned invented tokens, tool schema definitions are not counted, and estimates are advisory rather than a tokenizer/context-capacity guarantee. The sub-0.1ms benchmark covers the focused suite's representative 1,024-unit mixed prompt; unbounded input does not have constant-time guarantees.
+
+Usage/Trace preserves `modelRequested` as the alias, while physical provider/model and actual reported tokens determine accounting. Sanitized machine routing tags overwrite caller attempts to forge `routing_rule` / `virtual_model`: `routing_rule` is the matched condition or `default_target`, and `virtual_model` is the alias. Failed/fallback attempts retain routing attribution through existing metering. Existing integer-micro-dollar pricing is unchanged. The gateway's streamed frame models use the physical target, including the initial role frame. `ModelInfra.resolveRequestModel` is an internal shared resolution helper, not a separate host routing configuration API.
+
+
+## EVO-G114 — SSE keepalive and app-scoped live connection diagnostics
+
+The existing 15,000 ms SSE heartbeat is reused for `/api/events` and `/v1/chat/completions`, including silence before the first model event. Its exact comment is `: ping\n\n`; SSE consumers ignore it. Repeated start/close calls are idempotent. Response finish, close and error clear the timer; heartbeats skip blocked writes. Awaited frames respect drain; overlapping event-bus writes close a slow reader before its business-frame buffer can grow unbounded. Heartbeats produce no usage or monetary events.
+
+`GET /api/connections` requires `read:usage`, admin or `*`, with existing gateway auth/app restrictions. It returns `{ active, requests, events, connections }`; entries have `{ id, kind: "chat" | "events", startedAt, model, ip, appId }`, and `active = requests + events`. Only the effective app is visible, even for app-bound admins; unbound tokens see the host app. Diagnostics themselves are excluded. Chat records begin after authorization and before reading/validating the body or upstream thinking, then receive the physical `provider:model` on successful resolution. The model records the initial target, not later failover changes. Event streams are counted separately. Normal/error completion, response finish/close/error, client abort and shutdown remove entries idempotently. Request `close` is not used: Node emits it after fully receiving a body while the response may still be thinking. AbortSignal propagates client cancellation to streaming and nonstreaming calls.
+
+The tracker holds process-local scalar metadata only, never prompts, bodies, headers or credential fields. Output labels replace known gateway tokens, pass through `redact.ts`, and are bounded to 128 characters. No database change, entrypoint export or additional listener is introduced. `ServerHandle.sseClients` counts event and chat SSE responses, including silent-thinking responses.
+
+The dashboard preserves the existing SSE `LiveBadge` and adds an accessible bilingual button with in-flight chat count, HTTP **Probe RTT**, event-stream count and connection ages in its title. EventSource hides comment frames, so no SSE ping RTT is claimed. Probes use the existing `/api/mik/connections` server-side proxy every 15 seconds/on click, with a 10-second timeout; RTT includes the dashboard proxy and HTTP roundtrip. Pending/unavailable results display no invented count or RTT. Replaced/disposed probes abort and cannot publish stale results.
+
+## EVO-G113 — Durable usage archives and explicit SQLite maintenance
+
+`mik.usage.archive({ beforeDate, targetFile })` synchronously returns `{ file, records, costMicros, sha256 }`. The package root exports `ArchiveOptions` and `ArchiveResult` as types; `archiveUsage` and `archiveCutoff` are internal implementation functions. This is an explicit **database-wide** maintenance operation: every app is included, independent of the hub's appId or request app scope. It is not exposed through the tenant HTTP usage API and never runs automatically on startup or in generation paths.
+
+`beforeDate` is a strict, real `YYYY-MM-DD` local-calendar date, exclusive at local midnight, matching the existing SQLite daily rollup keys. Partial-day timestamps and rollover dates are rejected. `targetFile` must name a new `.jsonl` file under an existing writable directory. Exclusive creation (`wx+`, mode 0600 where supported) forbids overwrites. A failed operation retains the artifact with a redacted diagnostic; it does not remove any filesystem path.
+
+The first JSONL line is `{ type: "mik-usage-archive", version: 1, before_date, cutoff_ms, scope: "all-apps", records, checksum, sha256 }`. `checksum` contains decimal **integer strings** for `cost_micros`, `low_micros`, `high_micros`, and the five token columns. `sha256` hashes the exact UTF-8 detail lines, including their trailing LF (the empty body hashes the empty string). Remaining lines hold complete persisted usage row columns, plus integer `cost_micros` / `low_micros` / `high_micros`; string fields pass through `redact.ts`. The legacy per-record USD columns remain compatibility values, never floating-point aggregate totals. Archive aggregates use BigInt; unsafe individual or SQL-total Number integers fail before pruning.
+
+Archive export, checksum passes and folding share one synchronous `BEGIN IMMEDIATE` snapshot, with at most 256 detail rows loaded per keyset batch and 64 KiB file-read chunks. Writers wait for the maintenance lock; later commits are excluded from this archive. The second export pass must match the header body checksum/count, and the file is fsynced and read back before pruning. A SQL or IO failure preserves all original details through rollback. Export holds a write lock for its duration: hosts should schedule it in a maintenance window.
+
+`UsageRepository.rollup` retains its existing daily, trace/session and tag folding in one transaction. It now checks that the daily rollup delta exactly equals selected detail request/success counts, all five token totals and point/low/high integer micro-dollar totals before deleting rows, and validates the deleted count. Mismatch rolls back every dimension. No archive call applies retention pruning to the rollups. Existing tag rollups retain requests and cost but do not have token columns; existing daily resolution limits remain unchanged.
+
+`mik db archive --before <YYYY-MM-DD> --out <new.jsonl>` validates date/output before opening the hub and prints the database-wide scope in zh/en. `mik db vacuum` calls `mik.usage.vacuum()` only explicitly. VACUUM requires local file-backed SQLite; injected/custom and in-memory stores are refused. It runs a WAL TRUNCATE checkpoint (busy readers fail explicitly), measures the main file, runs native VACUUM and checkpoints again, then returns `{ beforeBytes, afterBytes, reclaimedBytes }`. The sizes describe the checkpointed main file, not total directory consumption; reclaimedBytes is a signed actual difference. VACUUM can block writers and requires working disk space. No remote-maintenance portability is claimed.

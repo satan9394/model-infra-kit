@@ -1,5 +1,6 @@
 import type { StorageAdapter, StorageConfig } from "./store/adapter.js"
 import type { ModelMessage, ToolSet } from "ai"
+import type { RouterConfig } from "./ai/smart-router.js"
 
 /** Explicit measured media facts; no downloading or resolution guessing. */
 export interface MultimodalUsage {
@@ -458,6 +459,8 @@ export interface BudgetConfig {
 }
 
 export interface ModelInfraConfig {
+  /** Exact virtual model aliases evaluated before provider dispatch. */
+  router?: RouterConfig
   /** Owning application. Stored on every usage event; lets one DB serve many apps. */
   appId?: string
   /** SQLite file path, or `:memory:`. Defaults to `~/.model-infra-kit/usage.db`. */

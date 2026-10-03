@@ -9,18 +9,23 @@ export const SSE_HEADERS: Record<string, string> = {
 }
 
 /**
- * One event-stream response. Writes are serialised through a promise so a slow
- * client applies backpressure instead of growing an unbounded buffer, and every
- * write is a no-op once the client is gone.
+ * One event-stream response. Awaited writes respect backpressure; overlapping
+ * event-bus writes close a slow reader before its buffer can grow unbounded.
+ * Heartbeats skip blocked writes and every write is a no-op after disconnect.
  */
 export class SseStream {
   private closed = false
   private heartbeat: ReturnType<typeof setInterval> | undefined
+  private blocked = false
 
   constructor(
     private readonly res: ServerResponse,
     private readonly heartbeatMs: number,
-  ) {}
+  ) {
+    res.once("close", () => this.close())
+    res.once("error", () => this.close())
+    res.once("finish", () => this.close())
+  }
 
   get isClosed(): boolean {
     return this.closed || this.res.writableEnded || this.res.destroyed
@@ -28,7 +33,7 @@ export class SseStream {
 
   /** Open the response: reconnect delay, then a comment so a client can flush. */
   open(): void {
-    if (this.res.headersSent || this.closed) return
+    if (this.res.headersSent || this.isClosed) return
     this.res.writeHead(200, SSE_HEADERS)
     this.res.write("retry: 3000\n\n")
     this.res.write(": connected\n\n")
@@ -50,9 +55,9 @@ export class SseStream {
   }
 
   startHeartbeat(): void {
-    if (this.heartbeatMs <= 0) return
+    if (this.heartbeatMs <= 0 || this.heartbeat || this.isClosed) return
     const timer = setInterval(() => {
-      void this.comment()
+      if (!this.blocked) void this.comment()
     }, this.heartbeatMs)
     // A heartbeat must never keep a process (or a test runner) alive.
     timer.unref?.()
@@ -61,11 +66,23 @@ export class SseStream {
 
   /** Resolves when the client goes away or the response finishes. */
   onClose(listener: () => void): void {
-    this.res.once("close", listener)
-    this.res.once("error", listener)
+    if (this.isClosed) { listener(); return }
+    let called = false
+    const done = () => {
+      if (called) return
+      called = true
+      this.res.off("close", done)
+      this.res.off("error", done)
+      this.res.off("finish", done)
+      listener()
+    }
+    this.res.once("close", done)
+    this.res.once("error", done)
+    this.res.once("finish", done)
   }
 
   close(): void {
+    if (this.closed) return
     this.closed = true
     if (this.heartbeat) {
       clearInterval(this.heartbeat)
@@ -76,15 +93,25 @@ export class SseStream {
 
   private write(chunk: string): Promise<void> {
     if (this.isClosed) return Promise.resolve()
-    if (this.res.write(chunk)) return Promise.resolve()
+    // Event-bus callbacks cannot await backpressure. Bound their buffer by
+    // closing a slow reader rather than silently dropping business events.
+    if (this.blocked) { this.close(); return Promise.resolve() }
+    try { if (this.res.write(chunk)) return Promise.resolve() }
+    catch { this.close(); return Promise.resolve() }
+    this.blocked = true
     return new Promise<void>((resolve) => {
       const done = () => {
         this.res.off("drain", done)
         this.res.off("close", done)
+        this.res.off("error", done)
+        this.res.off("finish", done)
+        this.blocked = false
         resolve()
       }
       this.res.once("drain", done)
       this.res.once("close", done)
+      this.res.once("error", done)
+      this.res.once("finish", done)
     })
   }
 }

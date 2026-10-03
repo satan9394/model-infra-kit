@@ -448,4 +448,10 @@ export const en = {
   "trace.tools.detail": "Tool execution",
   "trace.tools.tokens": "Input / output tokens",
   "trace.tools.share": "Attributed cost",
+  "connections.probe": "Probe connection health (HTTP roundtrip; hover for active ages)",
+  "connections.active": "In-flight requests",
+  "connections.events": "Event streams",
+  "connections.rtt": "Probe RTT",
+  "connections.pending": "Probing connection…",
+  "connections.offline": "Connection probe unavailable",
 } as const

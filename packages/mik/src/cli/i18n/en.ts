@@ -3,6 +3,19 @@
  * files in lockstep (the parity test in `test/i18n.test.ts` is the gate).
  */
 export const en: Record<string, string> = {
+  "cmd.db.summary": "Archive usage and maintain the local SQLite database (all apps)",
+  "cmd.db.archive.summary": "Durably export JSONL and fold historical details",
+  "cmd.db.vacuum.summary": "Checkpoint WAL and reclaim unused SQLite file pages",
+  "help.flag.before": "Exclusive local calendar date: YYYY-MM-DD",
+  "help.details.db.0": "Maintenance affects every app in this database; --app-id does not limit it.",
+  "help.details.db.archive.0": "A new .jsonl file is required; existing files are never overwritten.",
+  "help.details.db.archive.1": "All apps are archived before local midnight; historical totals and trace/tag summaries remain.",
+  "help.details.db.vacuum.0": "Local file-backed SQLite only; maintenance takes a write lock. All apps are affected.",
+  "db.error.args": "Database maintenance accepts no positional arguments.",
+  "db.error.archive": "Use a real YYYY-MM-DD date and a new writable .jsonl output file.",
+  "db.scope": "Database-wide maintenance: all apps; writers wait while the snapshot is exported.",
+  "db.archived": "Archived %s records (%s micros) to %s; details safely folded.",
+  "db.vacuumed": "SQLite main file: %s -> %s bytes; reclaimed %s bytes (after WAL checkpoint).",
   "repl.welcome": "mik interactive mode — type /help for slash commands",
   "repl.hintChat": "Any non-slash line talks to the default model",
   "repl.langSet": "Language switched to %s",
