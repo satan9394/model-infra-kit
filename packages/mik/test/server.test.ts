@@ -1555,6 +1555,7 @@ describe("GET /api/events", () => {
 
 describe("GET /openapi.json", () => {
   const CONTRACT_PATHS = [
+    "/api/reload",
     "/api/health",
     "/api/connections",
     "/api/budget/status",
@@ -1576,12 +1577,15 @@ describe("GET /openapi.json", () => {
     "/api/usage/by-provider",
     "/api/usage/by-model",
     "/api/usage/traces",
+    "/api/usage/search",
     "/api/usage/logs",
     "/api/usage/logs/{id}",
     "/api/usage/events",
     "/api/events",
     "/openapi.json",
     "/v1/chat/completions",
+    "/v1/messages",
+    "/v1/responses",
     "/v1/models",
   ]
 

@@ -1,3 +1,6 @@
+import { initializeFts, indexUsage } from "./fts.js"
+import { ModelInfraError } from "../errors.js"
+import { redactDeep } from "../util/redact.js"
 import type { StorageAdapter } from "./adapter.js"
 import { sanitizeToolCalls, requestCostMicros } from "../usage/tool-attribution.js"
 import type {
@@ -8,6 +11,7 @@ import type {
   UsageEvent,
   UsageQuery,
   UsageSummary,
+  UsageSearchHit,
   UsageTraceGroup,
   UsageTraceGroupBy,
   UsageTrendPoint,
@@ -308,7 +312,11 @@ function addAggregate(target: AggregateRow, source: AggregateRow): AggregateRow 
  * Money is accumulated as integer micro-USD in SQL — never as summed floats.
  */
 export class UsageRepository {
-  constructor(private readonly driver: StorageAdapter) {}
+  private readonly ftsAvailable: boolean
+
+  constructor(private readonly driver: StorageAdapter, onWarn?: (message: string) => void) {
+    this.ftsAvailable = initializeFts(driver, onWarn)
+  }
 
   /** Exclusive snapshot: export must finish durably before the shared fold deletes details. */
   archive(cutoff: number, exportRows: (rows: () => Generator<Record<string, unknown>>) => void): number {
@@ -353,44 +361,80 @@ export class UsageRepository {
   }
 
   insert(event: UsageEvent & { pricingBasis?: string; pricingSource?: string }): boolean {
-    const result = this.driver
-      .prepare(
-        `INSERT OR IGNORE INTO usage_events (
-          request_id, app_id, ts, source, provider_id, model_requested, model_actual, pricing_model,
-          input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-          cost_usd, cost_low_usd, cost_high_usd, pricing_source, pricing_basis,
-          latency_ms, first_token_ms, status, error_code, is_streaming, session_id, trace_id, tags_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        event.requestId,
-        event.appId,
-        event.ts,
-        event.source,
-        event.providerId,
-        event.modelRequested,
-        event.modelActual,
-        toSqlValue(event.pricingModel ?? event.modelActual),
-        event.usage.input,
-        event.usage.output,
-        event.usage.cacheRead,
-        event.usage.cacheWrite,
-        event.usage.reasoning,
-        event.cost.usd,
-        event.cost.low,
-        event.cost.high,
-        event.cost.source,
-        event.cost.basis,
-        toSqlValue(event.latencyMs),
-        toSqlValue(event.firstTokenMs),
-        event.status,
-        toSqlValue(event.errorCode),
-        event.isStreaming ? 1 : 0,
-        toSqlValue(event.sessionId),
-        toSqlValue(event.traceId),
-        JSON.stringify({ ...event.tags, tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)) }),
-      )
-    return Number(result.changes) > 0
+    return this.driver.transaction(() => {
+      const result = this.driver
+        .prepare(
+          `INSERT OR IGNORE INTO usage_events (
+            request_id, app_id, ts, source, provider_id, model_requested, model_actual, pricing_model,
+            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+            cost_usd, cost_low_usd, cost_high_usd, pricing_source, pricing_basis,
+            latency_ms, first_token_ms, status, error_code, is_streaming, session_id, trace_id, tags_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          event.requestId,
+          event.appId,
+          event.ts,
+          event.source,
+          event.providerId,
+          event.modelRequested,
+          event.modelActual,
+          toSqlValue(event.pricingModel ?? event.modelActual),
+          event.usage.input,
+          event.usage.output,
+          event.usage.cacheRead,
+          event.usage.cacheWrite,
+          event.usage.reasoning,
+          event.cost.usd,
+          event.cost.low,
+          event.cost.high,
+          event.cost.source,
+          event.cost.basis,
+          toSqlValue(event.latencyMs),
+          toSqlValue(event.firstTokenMs),
+          event.status,
+          toSqlValue(event.errorCode),
+          event.isStreaming ? 1 : 0,
+          toSqlValue(event.sessionId),
+          toSqlValue(event.traceId),
+          JSON.stringify({ ...event.tags, tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)) }),
+        )
+      const inserted = Number(result.changes) > 0
+      if (inserted && this.ftsAvailable) {
+        const row = this.driver.prepare("SELECT rowid AS rowid, trace_id, tags_json, error_code, model_actual, provider_id FROM usage_events WHERE request_id = ?").get(event.requestId)!
+        indexUsage(this.driver, row)
+      }
+      return inserted
+    })
+  }
+
+  /** Read-only FTS5 MATCH query. Scores sort ascending (the most relevant BM25 is smallest). */
+  searchTraces(query: string, options: UsageQuery = {}): UsageSearchHit[] {
+    if (typeof query !== "string" || query.length > 4096 || query.includes("\0")) {
+      throw new ModelInfraError("Invalid full-text search query.", { code: "INVALID_REQUEST" })
+    }
+    if (!query.trim()) return []
+    if (!this.ftsAvailable) throw new ModelInfraError("SQLite FTS5 is unavailable.", { code: "INVALID_REQUEST" })
+    const limit = options.limit ?? 50
+    const offset = options.offset ?? 0
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || !Number.isInteger(offset) || offset < 0) {
+      throw new ModelInfraError("Search limit must be 1–1000 and offset must be non-negative integers.", { code: "INVALID_REQUEST" })
+    }
+    const where = buildWhere(options, "ts")
+    try {
+      const rows = this.driver.prepare(`SELECT usage_events.*, bm25(usage_fts) AS search_score,
+        snippet(usage_fts, -1, char(1), char(2), ' … ', 32) AS search_snippet
+        FROM usage_fts JOIN usage_events ON usage_events.rowid = usage_fts.rowid
+        ${where.clause.replace(/\b(ts|app_id|provider_id|model_actual|status|session_id|trace_id|tags_json)\b/g, "usage_events.$1") || " WHERE 1 = 1"} AND usage_fts MATCH ?
+        ORDER BY search_score ASC, ts DESC, request_id ASC LIMIT ? OFFSET ?`).all(...where.params, query, limit, offset)
+      return rows.map((row) => ({ event: redactDeep(rowToEvent(row)), score: asNumber(row.search_score), snippet: String(row.search_snippet ?? "") }))
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error)
+      if (/fts5:|unterminated string|no such column|syntax error|malformed MATCH/i.test(text)) {
+        throw new ModelInfraError("Invalid FTS5 MATCH expression; quote punctuation or use valid boolean syntax.", { code: "INVALID_REQUEST" })
+      }
+      throw error
+    }
   }
 
   private aggregateEvents(query: UsageQuery): AggregateRow {

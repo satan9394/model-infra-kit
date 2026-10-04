@@ -1042,6 +1042,56 @@ Dashboard language: `mik_dashboard_lang` localStorage preference (`zh`/`en`), br
 
 `/connect` reads the configured `MIK_SERVER_URL` (strips credentials/query/hash in displayed snippets), enabled providers and discovered text models. Five client snippets use the gateway token environment reference, never the provider key. `/api/playground` accepts same-origin POST `{ model, prompt, traceId }`, forwards a single streamed call to the configured `/v1/chat/completions`, and keeps the token server-side. Prompt length is limited to 8,000 characters, output to 128 tokens, timeout to 60s. Text crosses a `redact.ts` stream boundary; arbitrary upstream metadata is omitted. Browser TTFT measures first displayed redacted text, which may wait for an unfinished word. Final cost is fetched by the unique trace ID from the existing usage logs, converted once to integer micros; absent records/pricing are explicitly unavailable. No client history or credentials are persisted.
 
+## EVO-G118 — Opt-in automatic SDK adapter (1.4.0)
+
+`import "model-infra-kit/auto"` awaits bounded (750 ms) loopback discovery at
+`MIK_GATEWAY_URL` or `http://127.0.0.1:3211`. Discovery accepts HTTP loopback
+origins only (optional `/v1` suffix), rejects credentials/query/hash/custom paths
+and redirects, and requires `/api/health` to identify `service: "model-infra-kit"`,
+`status: "ok"` and an app ID. Failure leaves fetch and environment unchanged.
+The entry is explicitly side-effectful in the package manifest.
+
+Runtime exports are `install(): Promise<boolean>` (retry discovery/idempotent)
+and `restore(): void`. Installation injects `OPENAI_BASE_URL`,
+`ANTHROPIC_BASE_URL`, `DEEPSEEK_BASE_URL` with dedicated loopback SDK prefixes
+`/__mik_auto/openai/v1`, `/__mik_auto/anthropic`, `/__mik_auto/deepseek/v1`.
+The wrapper strips these prefixes, maps the corresponding wire protocol and
+adds `MIK_GATEWAY_TOKEN` as local Bearer auth when supplied, dropping caller
+credential headers. It does not inject or persist SDK API keys: official SDKs
+still require their usual API-key environment value for construction.
+
+Only exact HTTPS default-port origins `api.openai.com`, `api.anthropic.com`,
+`api.deepseek.com` and the injected local SDK namespaces are redirected.
+Credentials in URLs, non-default ports, suffix hosts and ordinary gateway
+`/v1` calls pass unchanged to the original fetch with the same input/init.
+Method, payload, query, headers, signals and Request body-consumption semantics
+are retained. Unsupported SDK endpoints receive the existing explicit gateway
+404; this card supports native Chat Completions, OpenAI Responses and Anthropic
+Messages. Images, embeddings, files and batch APIs are not gateway endpoints.
+
+`POST /v1/messages` forwards native Anthropic JSON/SSE through the existing
+metered `hub.fetch` adapter and requires `write:chat`. Auto-marked
+`POST /v1/chat/completions` forwards native OpenAI JSON/SSE; ordinary chat
+requests retain the existing generated bridge. `POST /v1/responses` forwards
+native Responses JSON/SSE with the same `write:chat` scope and tracks active
+connections; final `response.completed.response.usage` is metered.
+`x-mik-auto-protocol` accepts
+`openai`/`deepseek` for chat, is removed before upstream transport, and selects
+protocol compatibility data rather than provider IDs. An explicit
+`provider:model` wins; otherwise the compatible configured default wins or a
+single compatible enabled provider is selected. Ambiguous/incompatible routing
+returns 400. Native JSON/error/SSE lines and response headers cross `redact.ts`
+before network output. Anthropic input includes uncached input plus cache read
+and cache creation; final message_delta output updates output without losing
+message_start input/cache counts. Pricing uses the existing integer-micros ledger.
+
+Server route execution uses an internal async-context bypass so a gateway hosted
+in the same process cannot recursively redirect its provider calls. This bypass
+is internal, not a package export. Restoration restores prior values or absence
+only while the installed values/wrapper still belong to the adapter; later host
+changes are preserved. There is no network monkey-patch beyond native fetch,
+no third-party application data discovery, and no background service.
+
 <!-- release-battery-runtime-exports:v1 -->
 ## EVO-G107 — 发布包运行时导出契约
 
@@ -1093,6 +1143,10 @@ Dashboard language: `mik_dashboard_lang` localStorage preference (`zh`/`en`), br
       "splitModelRef",
       "toModelInfraError"
     ],
+    "./auto": [
+      "install",
+      "restore"
+    ],
     "./cli": [
       "COMMANDS",
       "CliRuntimeError",
@@ -1129,6 +1183,7 @@ Dashboard language: `mik_dashboard_lang` localStorage preference (`zh`/`en`), br
       "DEFAULT_HOST",
       "DEFAULT_PORT",
       "EventBus",
+      "HotReloadManager",
       "HttpError",
       "MAX_BODY_BYTES",
       "Router",
@@ -1243,6 +1298,15 @@ The dashboard preserves existing DOM anchors and adds expandable amber tool bars
 
 The exporter observes normalized runtime usage through the internal `UsageService.observe(listener)` subscription, independently of the SSE bridge. It counts each committed record once; duplicate persisted request IDs contribute nothing. With `recordUsage: false`, runtime observations still occur without persistence or `onUsage`/SSE emission. Each server starts from zero, never reconstructs historical rows, and unsubscribes on close or failed bind. A failover produces one error attempt on the failed provider and one successful attempt/cost on the actual provider. Scrapes, SSE clients and unrelated management endpoints contribute no request count.
 
+## EVO-G116 — retained trace full-text search
+
+`UsageSearchHit` is exported as a root type: `{ event: UsageEvent; score: number; snippet: string }`.
+`UsageService.searchTraces(query: string, options?: UsageQuery): UsageSearchHit[]` reads retained detail rows only, with the same default app and request-local app isolation as `query()`. Options support existing time/provider/model/status/session/trace/tag filters and integer `limit` (1–1000, default 50) / `offset` (>=0, default 0). Empty queries return `[]`; oversized (>4096 characters), NUL-containing or malformed MATCH expressions reject with `INVALID_REQUEST`, without echoing the query. Standard FTS5 phrase, boolean, column and prefix syntax is supported. Results sort by BM25 score ascending, timestamp descending, then request ID ascending. Search is read-only and changes no billing or historical calculation.
+
+`GET /api/usage/search?q=<MATCH expression>` accepts existing usage query parameters, returns `{ hits: UsageSearchHit[] }`, requires `read:usage`, and inherits gateway-token app binding. HTTP responses are sanitized. Snippets contain plain text with U+0001/U+0002 match markers; clients render escaped text segments, never HTML. Logs and traces show a shared 250ms-debounced search panel scoped to current time/provider/model/status filters, with up to 50 relevance-ranked hits and links to detail.
+
+`usage_fts` is a contentful FTS5 index of separately redacted `trace_id`, `tags_text`, `error_message` (the persisted `error_code`), `model` and `provider`. It deliberately does not reference unsanitized external content. Tags pass through `redactDeep`, and every resulting field passes through `redact` before insertion. The existing schema stores neither raw prompts nor tool result bodies; only retained tags and whitelisted tool-attribution metadata are searchable. No prompt or tool-body collection is introduced. Legacy backfill uses bounded batches inside a transaction; repository insert and index insert share a transaction, and a deletion trigger removes index rows during clear/archive/retention. The optional index does not change the ledger migration version. An adapter without FTS5 emits a sanitized warning and continues metering; search reports capability unavailable.
+
 - `mik_requests_total{provider,model,app_id,status}` counts completed provider attempts (`ok`/`error`).
 - `mik_request_duration_seconds` is a cumulative histogram with `le` boundaries 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 and `+Inf`, plus `_sum` and `_count`. Each sample is elapsed request time at an attempt's completion, including preceding failed attempts on fallback; it is neither isolated transport duration nor TTFT. Missing/invalid latency is zero.
 - `mik_tokens_total{provider,model,app_id,type}` partitions tokens: prompt excludes cached input, completion excludes reasoning, reasoning is bounded to reported output, cache combines cache-read/write counts bounded to reported input. The four types sum to reported input plus output.
@@ -1309,3 +1373,17 @@ Archive export, checksum passes and folding share one synchronous `BEGIN IMMEDIA
 `UsageRepository.rollup` retains its existing daily, trace/session and tag folding in one transaction. It now checks that the daily rollup delta exactly equals selected detail request/success counts, all five token totals and point/low/high integer micro-dollar totals before deleting rows, and validates the deleted count. Mismatch rolls back every dimension. No archive call applies retention pruning to the rollups. Existing tag rollups retain requests and cost but do not have token columns; existing daily resolution limits remain unchanged.
 
 `mik db archive --before <YYYY-MM-DD> --out <new.jsonl>` validates date/output before opening the hub and prints the database-wide scope in zh/en. `mik db vacuum` calls `mik.usage.vacuum()` only explicitly. VACUUM requires local file-backed SQLite; injected/custom and in-memory stores are refused. It runs a WAL TRUNCATE checkpoint (busy readers fail explicitly), measures the main file, runs native VACUUM and checkpoints again, then returns `{ beforeBytes, afterBytes, reclaimedBytes }`. The sizes describe the checkpointed main file, not total directory consumption; reclaimedBytes is a signed actual difference. VACUUM can block writers and requires working disk space. No remote-maintenance portability is claimed.
+
+## EVO-G117 — Atomic file configuration reload and natural request drain
+
+`model-infra-kit/server` adds runtime `HotReloadManager` and type exports `ReloadOptions` / `ReloadResult`. `ServerOptions.reload?: ReloadOptions` enables file reload; `ServerHandle.reloadConfig(): Promise<{ reloaded: boolean; swapMicros?: number }>` offers the same operation. `POST /api/reload` requires admin under existing gateway authentication (configured tokens or loopback development admin); unauthorized requests never prepare configuration. It returns 200 on success, 400 with `{ reloaded: false }` on validation/preparation failure, or 409 when reload was not enabled. Warning text is generic and redacted, never the parser's raw configuration. `swapMicros` measures only active pointer publication, not file IO, credential validation, hub construction, or a latency SLA.
+
+`mik serve` passes its resolved config path, hub options, token flag/environment precedence, and invocation environment. CLI configuration supports declarative `providers`, `defaultModel`, and `watch`. `initialProviders` remains the one-time CLI-init seed; reload also accepts it as an explicit replacement-list compatibility field, mutually exclusive with `providers`. Omitted provider lists/default retain active registry edits. Supplied lists replace the generation's routing snapshot without writing shared provider/default tables. Removing a default provider requires an explicit valid new default; dangling defaults and router provider targets roll back. App ID, database/storage and pricing cache directory are immutable; original CLI file fields are compared before applying resolved flag/environment precedence. Reload budgets accept positive safe integer `dailyMicros` / `monthlyMicros`, USD currency and supported policy strings; legacy floating-dollar `usd` is intentionally refused on this surface. Router/budget omission removes that optional file policy.
+
+Reload opt-in requires file-backed SQLite. Startup compares actual hub ledger path/type, app and cache identity against reload options before mutation; caller claims cannot substitute another ledger. Watch/SIGHUP saves during preparation queue a trailing reload of the latest file, while explicit concurrent calls coalesce. In-memory and custom/injected storage are rejected before isolating the caller hub or opening the listener, preserving ledger identity. Static embedded/server usage without `reload` keeps its previous behavior. Optional `ModelInfraOptions.isolatedProviders` and `env` support private routing registries and credential environments. `ProviderRegistry.isolate` and `CredentialStore.snapshotEnvironment` / `snapshotReferences` are implementation lifecycle helpers. Enabled references resolve during preparation and freeze in memory, including file credentials. No secret or gateway token is written to the ledger. Missing env/file/keychain credentials, unsupported protocols, unknown fields, malformed JSON/router/token references and invalid micros retain the old generation. Initial caller-owned registries snapshot available credentials without making missing keys block normal startup.
+
+Each request acquires one context before authentication. It retains its hub, token metadata and connection tracker until response finish/close/error. Old SSE/chat requests keep provider/credential/router/auth state and complete naturally; new requests acquire the new generation immediately after publication. Concurrent triggers coalesce into one preparation. Retired event/metrics taps and owned hubs close after the last lease; the original caller hub remains caller-owned. Connection diagnostics combine draining generations for the effective app. A server-wide bus forwards active/draining generation events, so an existing `/api/events` subscription receives new usage without reconnecting and retains its original app filter. One listener-lifetime metrics exporter observes all generations, preserving cumulative request/token/integer-micro counters; health reads the request's active hub. Rotated gateway secrets redact both new and historical labels, merging affected series without losing totals. Scrapes use cached provider identities and memory, without adding provider/usage SQL. Generation detach and listener shutdown remove subscriptions. No prompt collection, vendor protocol branch, dependency or monetary aggregation change is introduced.
+
+SIGHUP triggers reload while enabled (OS delivery on supported platforms); `watch: true` uses 250ms file-stat polling by default. Tests can inject `watchIntervalMs`. Repeated listener activation is idempotent. Server close retains existing explicit shutdown behavior (close SSE/sockets), unregisters signal/watch listeners and awaits generation disposal; reload itself never shuts down a held request.
+
+Focused verification: `pnpm exec vitest run packages/mik/test/hot-reload.test.ts` **21/21 PASS**; core/dashboard typechecks exit 0. The suite holds a real upstream HTTP SSE and a live events subscription across URL/key/router/admin rotation, verifies complete old output, new-generation events without reconnect and exclusion of another app; covers cumulative integer metrics (246 micros across two generations, 369 after another rotation), historical-label secret rotation, concurrent publication/drain, malformed config/provider/router/credential rollback, scoped/trailing-slash admin rejection, file-key snapshots, retained edits, signal/watch cleanup, CLI options and in-memory rejection without caller mutation. Raw logs: `.tmp/evo-v140/g117-tests.log`, `g117-core-typecheck.log`, `g117-dashboard-typecheck.log`. Integrated all-locale/release gates belong to G119.

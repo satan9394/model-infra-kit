@@ -1,3 +1,4 @@
+import { TraceSearch } from "@/components/trace-search"
 import { getI18n } from "@/lib/i18n/server"
 import { TraceWaterfall } from "@/components/trace-waterfall"
 import { traceTimeline } from "@/lib/trace-timeline"
@@ -75,6 +76,8 @@ export default async function TracesView({ params }: { params: SearchParams }) {
       />
       <UpstreamNotice message={errors[0]} />
       <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
+
+      <TraceSearch baseQuery={query} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
         <span className="mr-1 text-xs text-subtle"> {t("s328")} </span>

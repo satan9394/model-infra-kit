@@ -67,6 +67,7 @@ function schemas(): Record<string, Schema> {
       type: "object",
       properties: {
         status: { type: "string" },
+        service: { type: "string", const: "model-infra-kit" },
         appId: { type: "string" },
         baseUrl: { type: "string" },
         origin: { type: "string" },
@@ -861,6 +862,22 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           responses: { "200": ok("The buckets.", { type: "object", properties: { buckets: { type: "array", items: ref("UsageBucket") } } }) },
         },
       },
+      "/api/usage/search": {
+        get: {
+          tags: ["usage"],
+          summary: "Search redacted retained trace metadata using FTS5 MATCH, ordered by BM25 relevance.",
+          parameters: [...USAGE_PARAMS, param("traceId", { type: "string" }), param("q", { type: "string", maxLength: 4096 }, "FTS5 MATCH expression; quote punctuation.")],
+          responses: {
+            "200": ok("At most 1000 matching retained events. Raw prompts and tool results are not stored.", {
+              type: "object", properties: { hits: { type: "array", items: {
+                type: "object", properties: { event: ref("UsageEvent"), score: { type: "number" },
+                  snippet: { type: "string", description: "Plain text with U+0001/U+0002 match markers; never HTML." } },
+              } } },
+            }),
+            "400": error("Invalid MATCH expression, query length or pagination; FTS5 unavailable."),
+          },
+        },
+      },
       "/api/usage/logs": {
         get: {
           tags: ["usage"],
@@ -934,6 +951,16 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           },
         },
       },
+      "/api/reload": {
+        post: {
+          tags: ["health"],
+          summary: "Reload the configured file atomically; requires admin.",
+          responses: { "200": ok("New requests use the prepared generation; existing streams drain naturally.", {
+            type: "object", properties: { reloaded: { type: "boolean" }, swapMicros: { type: "number" } },
+          }), "400": error("Invalid configuration; the old generation is retained."),
+          "401": error("Missing or invalid token."), "403": error("Insufficient scope."), "409": error("File reload is not enabled.") },
+        },
+      },
       "/api/connections": {
         get: {
           tags: ["events"],
@@ -962,6 +989,22 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           tags: ["health"],
           summary: "This document.",
           responses: { "200": ok("The OpenAPI 3.1 document.", { type: "object" }) },
+        },
+      },
+      "/v1/responses": {
+        post: {
+          tags: ["openai"],
+          summary: "Native OpenAI Responses, streaming or not; requires write:chat.",
+          requestBody: body({ type: "object", required: ["model"], properties: { model: { type: "string" }, input: {}, stream: { type: "boolean" } } }),
+          responses: { "200": ok("Native Responses JSON or SSE."), "400": error("Invalid protocol routing."), "401": error("Missing gateway credentials."), "403": error("insufficient_scope") },
+        },
+      },
+      "/v1/messages": {
+        post: {
+          tags: ["anthropic"],
+          summary: "Native Anthropic Messages, streaming or not; requires write:chat.",
+          requestBody: body({ type: "object", required: ["model"], properties: { model: { type: "string" }, messages: { type: "array" }, stream: { type: "boolean" } } }),
+          responses: { "200": ok("Native message JSON or SSE."), "400": error("Invalid or ambiguous protocol routing."), "401": error("Missing gateway credentials."), "403": error("insufficient_scope") },
         },
       },
       "/v1/chat/completions": {

@@ -174,6 +174,14 @@ await mik.close()
 
 ### ③ 本地服务 + OpenAI 兼容端点（跨语言）
 
+Node.js 宿主也可在入口加 `import "model-infra-kit/auto"`：它探测已运行的本地
+MIK（默认 3211，或 `MIK_GATEWAY_URL`），自动接管默认 OpenAI SDK 的 Chat
+Completions / Responses 和 Anthropic Messages（均支持流式）。SDK 仍需自己的
+API-key 环境变量；受保护的本地服务另设 `MIK_GATEWAY_TOKEN`。非目标网络不受
+影响，服务不可用时保持原环境；`import { restore } from "model-infra-kit/auto"`
+提供卸载与环境还原。仅适用于 Node 原生 fetch；自定义 SDK transport、图片、
+embedding、文件和 batch API 不在本地端点范围内。
+
 适用：Python / Go / 任何语言的项目，或想让多个进程共用一个模型层。
 
 ```bash

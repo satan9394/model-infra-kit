@@ -1,6 +1,7 @@
 import { compatibleProtocols, isRetryableRouteFailure, ProviderCircuitBreaker, type FailoverOptions } from "./ai/failover.js"
 import type { StorageAdapterFactory } from "./store/adapter.js"
 import { randomUUID } from "node:crypto"
+import { defaultCacheDir, defaultDbPath, expandPath } from "./util/paths.js"
 import { generateText, stepCountIs, streamText, type LanguageModelUsage } from "ai"
 import type { PricingCatalog, PricingSource } from "llm-pricing"
 import { createAiBridge, type AiBridge } from "./ai/bridge.js"
@@ -75,6 +76,10 @@ function isExpectedSyncSkip(error: unknown): boolean {
  * optional, so a plain `ModelInfraConfig` is still a valid argument.
  */
 export interface ModelInfraOptions extends ModelInfraConfig {
+  /** Server generations keep provider/default configuration outside the shared ledger. */
+  isolatedProviders?: boolean
+  /** Credential environment captured by a server configuration generation. */
+  env?: NodeJS.ProcessEnv
   storageFactory?: StorageAdapterFactory
   /** Public URL of the OpenAI-compatible endpoint. The server injects the port. */
   baseUrl?: string
@@ -309,6 +314,22 @@ function budgetDepsFor(
  * `generate` / `stream` / `fetch` — all route through the same registry,
  * pricing catalogue and usage store, so every call is metered exactly once.
  */
+const reloadIdentities = new WeakMap<ModelInfra, { db: string; cacheDir: string; local: boolean }>()
+
+/** Internal server boundary: caller options cannot substitute another ledger. */
+export function assertReloadCompatibility(hub: ModelInfra, options: ModelInfraOptions): void {
+  const identity = reloadIdentities.get(hub)!
+  const storage = options.storage
+  const db = storage && "type" in storage && storage.type === "sqlite" ? storage.path ?? options.db : options.db
+  if (!identity.local || identity.db === ":memory:" || options.storageFactory || (storage && (!("type" in storage) || storage.type !== "sqlite"))) {
+    throw new ModelInfraError("Configuration reload requires a durable shared SQLite ledger.", { code: "INVALID_REQUEST" })
+  }
+  if (expandPath(db ?? defaultDbPath()) !== identity.db || (options.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID) !== hub.appId
+    || expandPath(options.cacheDir ?? defaultCacheDir()) !== identity.cacheDir) {
+    throw new ModelInfraError("Reload options must match the active ledger, app and cache.", { code: "INVALID_REQUEST" })
+  }
+}
+
 export class ModelInfra {
   /** Owning application; stamped on every usage event. */
   readonly appId: string
@@ -489,13 +510,16 @@ export class ModelInfra {
       })
     }
 
-    const credentials = new CredentialStore({ driver: store.driver })
+    const credentials = new CredentialStore({ driver: store.driver, env: config.env })
     const providers = new ProviderRegistry({ store, credentials, appId, onWarn: warn })
     const catalog = new ModelCatalogService({ providerLookup: (providerId) => providers.get(providerId) })
 
     try {
-      if (config.providers && config.providers.length > 0) providers.seed(config.providers)
-      if (config.defaultModel && !providers.defaultModel()) providers.setDefaultModel(config.defaultModel)
+      if (config.isolatedProviders) await providers.isolate(config.providers, config.defaultModel)
+      else {
+        if (config.providers && config.providers.length > 0) providers.seed(config.providers)
+        if (config.defaultModel && !providers.defaultModel()) providers.setDefaultModel(config.defaultModel)
+      }
     } catch (error) {
       store.close()
       throw error
@@ -553,7 +577,7 @@ export class ModelInfra {
       },
     }
 
-    return new ModelInfra({
+    const hub = new ModelInfra({
       appId,
       store,
       providers,
@@ -575,6 +599,9 @@ export class ModelInfra {
       budgetConfig: config.budget,
       syncCatalog: config.syncCatalog ?? true,
     })
+    reloadIdentities.set(hub, { db: store.path, cacheDir: expandPath(config.cacheDir ?? defaultCacheDir()),
+      local: !config.storageFactory && (!config.storage || ("type" in config.storage && config.storage.type === "sqlite")) })
+    return hub
   }
 
   /** The URL an OpenAI-compatible client should be pointed at. */
@@ -839,6 +866,7 @@ export class ModelInfra {
     // Set before the store goes away: from here on every warning is a race
     // artefact and the host must not see it.
     this.lifecycle.closed = true
+    this.providerRegistry.close()
     this.store.close()
   }
 

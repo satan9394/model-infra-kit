@@ -9,6 +9,7 @@ import { tr, type Lang } from "../i18n.js"
 import { missingPackagesForProtocols } from "../packages.js"
 import type { CorsOptions } from "../../server/http.js"
 import { resolveTokens, type GatewayToken } from "../../server/auth.js"
+import type { ReloadOptions } from "../../server/reload.js"
 
 export interface ServerHandle {
   url: string
@@ -17,6 +18,7 @@ export interface ServerHandle {
 
 export interface ServerOptions {
   hub: ModelInfra
+  reload?: ReloadOptions
   port?: number
   host?: string
   token?: string
@@ -126,7 +128,10 @@ export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<
     const lang = contextLang(context, options)
     const module = await loadServerModule(import.meta.url, lang)
     const tokens = resolveTokens(context.config.serverTokens, env)
-    const handle = await module.createServer({ hub: context.hub, port, host, token, tokens, cors })
+    const handle = await module.createServer({ hub: context.hub, port, host, token, tokens, cors,
+      reload: { configPath: context.configPath, hubOptions: context.hubOptions, env,
+        immutableConfig: { appId: context.config.appId, db: context.config.db, cacheDir: context.config.cacheDir, storage: context.config.storage },
+        watch: context.config.watch, token, onWarn: message => context.io.err(message) } })
     context.io.out(tr(lang, "serve.listening", handle.url))
     context.io.out(tr(lang, "serve.baseUrl", context.hub.baseUrl))
     // EVO-G15 (G54): a configured provider whose `@ai-sdk/*` peer is missing

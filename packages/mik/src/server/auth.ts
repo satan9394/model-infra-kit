@@ -67,7 +67,7 @@ export function requireScope(scope: string): (ctx: Pick<ServerContext, "auth">) 
 /** Unknown endpoints default to admin, including provider credentials and probes. */
 export function endpointScope(method: string, segments: string[]): GatewayScope {
   const path = segments.join("/")
-  if (method === "POST" && path === "v1/chat/completions") return "write:chat"
+  if (method === "POST" && ["v1/chat/completions", "v1/messages", "v1/responses"].includes(path)) return "write:chat"
   if (method === "POST" && path === "api/usage/events") return "write:usage"
   if (method === "GET" && (path.startsWith("api/usage/") || ["api/events", "api/pricing", "api/catalog", "api/models", "api/budget/status", "v1/models", "openapi.json"].includes(path)
     || path === "metrics" || path === "api/connections" || path.startsWith("api/models/"))) return "read:usage"

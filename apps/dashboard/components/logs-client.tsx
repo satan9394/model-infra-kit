@@ -1,5 +1,6 @@
 "use client"
 
+import { TraceSearch } from "@/components/trace-search"
 import { useI18n } from "@/lib/i18n/provider"
 
 import { useModalDialog } from "@/lib/use-modal-dialog"
@@ -143,6 +144,7 @@ export function LogsClient({
 
   return (
     <div className="space-y-3">
+      <TraceSearch baseQuery={baseQuery} onOpen={setOpenId} />
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span> {t("s93")} <span className="font-mono text-foreground">{formatInt(total)}</span> {t("s94")} {page} / {pages} {t("s95")} {PAGE_SIZES.map((size) => (
             <Link

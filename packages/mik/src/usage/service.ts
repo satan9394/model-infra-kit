@@ -8,6 +8,7 @@ import type {
   UsageBucket,
   UsageEvent,
   UsagePage,
+  UsageSearchHit,
   UsageQuery,
   UsageSummary,
   UsageTraceGroup,
@@ -428,6 +429,10 @@ export class UsageService {
 
   traces(query?: UsageQuery, groupBy?: UsageTraceGroupBy): UsageTraceGroup[] {
     return this.store.usage.traces(this.scoped(query), groupBy)
+  }
+
+  searchTraces(query: string, options?: UsageQuery): UsageSearchHit[] {
+    return this.store.usage.searchTraces(query, this.scoped(options))
   }
 
   query(filter?: UsageQuery): UsagePage {

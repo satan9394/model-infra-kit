@@ -17,6 +17,8 @@ export interface ParsedCredentialRef {
 export interface CredentialStoreOptions {
   /** Where relative `file:` refs resolve from. Defaults to the process cwd. */
   fileRoot?: string
+  /** Injected environment snapshot for server configuration generations. */
+  env?: NodeJS.ProcessEnv
   /**
    * Accept a raw secret in `apiKeyRef`. Off by default: it makes accidental
    * plaintext storage a deliberate choice rather than a typo.
@@ -40,7 +42,18 @@ const REF_PATTERN = /^(env|file|keychain):(.+)$/i
  * A bare string is treated as a literal only when `allowLiteral` is set.
  */
 export class CredentialStore {
+  private frozen: Map<string, string> | undefined
   constructor(private readonly options: CredentialStoreOptions = {}) {}
+
+  /** Freeze environment references for an in-flight server generation. */
+  snapshotEnvironment(): void { this.options.env = { ...(this.options.env ?? process.env) } }
+
+  /** Resolve every reference before freezing; file rotation cannot change old requests. */
+  snapshotReferences(refs: string[]): void {
+    const values = new Map<string, string>()
+    for (const ref of refs) values.set(ref, this.resolve(ref))
+    this.frozen = values
+  }
 
   parse(ref: string): ParsedCredentialRef {
     const trimmed = ref.trim()
@@ -58,11 +71,12 @@ export class CredentialStore {
 
   /** Resolve a ref to its secret value, or throw a CREDENTIAL error. */
   resolve(ref: string): string {
+    if (this.frozen?.has(ref)) return this.frozen.get(ref)!
     const parsed = this.parse(ref)
     switch (parsed.backend) {
       case "env": {
-        const value = process.env[parsed.target]
-        if (!value) {
+        const value = (this.options.env ?? process.env)[parsed.target]
+        if (!value?.trim()) {
           throw new ModelInfraError(`Environment variable ${parsed.target} is not set for this provider's API key.`, {
             code: "CREDENTIAL",
           })

@@ -378,6 +378,7 @@ export function registerApiRoutes(router: Router): void {
       const pricing = ctx.hub.pricing.state()
       sendJson(ctx.res, 200, {
         status: "ok",
+        service: "model-infra-kit",
         appId: ctx.hub.appId,
         baseUrl: ctx.hub.baseUrl,
         origin: ctx.origin,
@@ -571,6 +572,11 @@ export function registerApiRoutes(router: Router): void {
       }
       const groupBy = raw === "session" ? "session" : "trace"
       sendJson(ctx.res, 200, { groupBy, groups: ctx.hub.usage.traces(parseUsageQuery(ctx.url, { traceId: true }), groupBy) })
+    })
+
+    .add("GET", "/api/usage/search", (ctx) => {
+      const query = ctx.url.searchParams.get("q") ?? ""
+      sendJson(ctx.res, 200, { hits: sanitize(ctx.hub.usage.searchTraces(query, parseUsageQuery(ctx.url, { traceId: true }))) })
     })
 
     .add("GET", "/api/usage/logs", (ctx) => {

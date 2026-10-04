@@ -171,6 +171,16 @@ for await (const event of mik.stream({ messages: [{ role: "user", content: "hi" 
 
 ## 3. `fetch` 适配器
 
+已有本地 MIK 服务时，在 Node.js 宿主入口写一行
+`import "model-infra-kit/auto"` 即可接管默认 OpenAI SDK 的 Chat Completions /
+Responses 和 Anthropic Messages（JSON / SSE）。默认探测 HTTP 回环 3211；可用
+`MIK_GATEWAY_URL` 指定服务，受保护服务用 `MIK_GATEWAY_TOKEN`。SDK 的标准
+API-key 环境变量仍用于构造客户端，实际上游凭据由 MIK 配置选择。
+服务不可用时环境与 fetch 不变；`restore()` 从同一子路径导出，恢复安装前值
+（保留宿主后来修改的值）。仅接管原生 fetch 的三个精确 API 域名与自己的
+本地 SDK 命名空间；自定义 transport、图片、embedding、文件与 batch API
+不在支持范围内。
+
 ```ts
 const client = new OpenAI({ apiKey: "unused", baseURL: mik.baseUrl, fetch: mik.fetch })
 ```

@@ -284,6 +284,7 @@ export class Store {
     path: string,
     schemaVersion: number,
     private readonly localSqlite = true,
+    onWarn?: (message: string) => void,
   ) {
     this.path = path
     this.schemaVersion = schemaVersion
@@ -291,7 +292,7 @@ export class Store {
     this.models = new ModelRepository(driver)
     this.pricing = new PricingRepository(driver)
     this.pricingCache = new PricingCacheRepository(driver)
-    this.usage = new UsageRepository(driver)
+    this.usage = new UsageRepository(driver, onWarn)
     this.settings = new SettingsRepository(driver)
   }
 
@@ -334,7 +335,7 @@ export class Store {
         if (!isStorageAdapter(adapter)) throw storageError("Storage factory must return a synchronous StorageAdapter")
         const driver = wrapDriverErrors(adapter)
         try {
-          return new Store(driver, config?.type === "sqlite" ? config.path ?? ":adapter:" : ":adapter:", migrate(driver), false)
+          return new Store(driver, config?.type === "sqlite" ? config.path ?? ":adapter:" : ":adapter:", migrate(driver), false, options.onWarn)
         } catch (error) { closeQuietly(driver); throw error }
       }
       options = { ...options, path: config?.type === "sqlite" ? config.path ?? options.path : options.path }
@@ -344,7 +345,7 @@ export class Store {
     assertWritableFile(path)
 
     const first = await connect(path, options)
-    if (first.kind === "ok") return new Store(first.driver, path, first.version)
+    if (first.kind === "ok") return new Store(first.driver, path, first.version, true, options.onWarn)
     if (path === ":memory:") {
       throw storageError(`Could not open the in-memory database: ${first.detail}`)
     }
@@ -371,7 +372,7 @@ export class Store {
     }
 
     options.onWarn?.(redact(corruptionWarning(path, first.detail, quarantined)))
-    return new Store(second.driver, path, second.version)
+    return new Store(second.driver, path, second.version, true, options.onWarn)
   }
 
   close(): void {

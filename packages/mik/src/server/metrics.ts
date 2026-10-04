@@ -43,10 +43,42 @@ function emptySample(provider: string, model: string): Sample {
 /** Per-listener lifetime counters. Scrapes never read the usage database. */
 export class MetricsExporter {
   private readonly apps = new Map<string, AppSamples>()
-  private readonly unsubscribe: () => void
-  constructor(private readonly hub: ModelInfra, private readonly secrets: readonly string[] = []) {
+  private readonly subscriptions = new Map<ModelInfra, () => void>()
+  private readonly configuredProviders = new WeakMap<ModelInfra, string[]>()
+  private readonly secrets: string[] = []
+  constructor(private readonly hub: ModelInfra, secrets: readonly string[] = []) {
     this.apps.set(hub.appId, { series: new Map(), providers: new Set(hub.providers.list().map(p => p.id)) })
-    this.unsubscribe = hub.usage.observe(event => this.observe(event))
+    this.attach(hub, secrets)
+  }
+
+  /** A listener keeps cumulative counters while its routing generations rotate. */
+  attach(hub: ModelInfra, secrets: readonly string[]): void {
+    this.configuredProviders.set(hub, hub.providers.list().map(provider => provider.id))
+    for (const secret of secrets) if (!this.secrets.includes(secret)) this.secrets.push(secret)
+    // Newly rotated credentials can coincide with a previously innocuous label.
+    for (const app of this.apps.values()) for (const [key, sample] of [...app.series]) {
+      if (!this.secrets.some(secret => sample.provider.includes(secret) || sample.model.includes(secret))) continue
+      sample.provider = identity(sample.provider, this.secrets)
+      sample.model = identity(sample.model, this.secrets)
+      const nextKey = key === "overflow" ? key : JSON.stringify([sample.provider, sample.model])
+      if (nextKey === key) continue
+      app.series.delete(key)
+      const existing = app.series.get(nextKey)
+      if (!existing) { app.series.set(nextKey, sample); continue }
+      existing.requests.ok += sample.requests.ok
+      existing.requests.error += sample.requests.error
+      existing.micros += sample.micros
+      existing.count += sample.count
+      existing.durationMs += sample.durationMs
+      for (let i = 0; i < TYPES.length; i++) existing.tokens[i] = existing.tokens[i]! + sample.tokens[i]!
+      for (let i = 0; i < BUCKETS.length; i++) existing.buckets[i] = existing.buckets[i]! + sample.buckets[i]!
+    }
+    if (!this.subscriptions.has(hub)) this.subscriptions.set(hub, hub.usage.observe(event => this.observe(event)))
+  }
+
+  detach(hub: ModelInfra): void {
+    this.subscriptions.get(hub)?.()
+    this.subscriptions.delete(hub)
   }
 
   private observe(event: UsageEvent): void {
@@ -80,11 +112,12 @@ export class MetricsExporter {
     for (let i = 0; i < BUCKETS.length; i++) if (ms <= BUCKETS[i]! * 1000) sample.buckets[i] = sample.buckets[i]! + 1n
   }
 
-  render(appId: string): string {
+  render(appId: string, activeHub: ModelInfra = this.hub): string {
     const output: string[] = []
     const app = this.apps.get(appId)
     const samples = [...(app?.series.values() ?? [])]
-    const base = (sample: Sample) => ({ provider: sample.provider, model: sample.model, app_id: identity(appId, this.secrets) })
+    const currentIdentity = (value: string) => this.secrets.some(secret => value.includes(secret)) ? identity(value, this.secrets) : value
+    const base = (sample: Sample) => ({ provider: currentIdentity(sample.provider), model: currentIdentity(sample.model), app_id: identity(appId, this.secrets) })
     const metadata = (name: string, help: string, type: string) => {
       output.push(`# HELP ${name} ${help}`, `# TYPE ${name} ${type}`)
     }
@@ -106,11 +139,13 @@ export class MetricsExporter {
     metadata("mik_cost_micros_total", "Cumulative integer micro-USD cost of provider attempts.", "counter")
     for (const sample of samples) output.push(`mik_cost_micros_total${labels(base(sample))} ${sample.micros}`)
     metadata("mik_provider_health_status", "Passive circuit health: CLOSED=1, OPEN or HALF_OPEN=0.", "gauge")
-    for (const provider of app?.providers ?? []) {
-      output.push(`mik_provider_health_status${labels({ provider: identity(provider, this.secrets) })} ${this.hub.providerHealth.state(provider) === "CLOSED" ? 1 : 0}`)
+    const providers = new Set(app?.providers)
+    if (appId === activeHub.appId) for (const provider of this.configuredProviders.get(activeHub) ?? []) providers.add(provider)
+    for (const provider of providers) {
+      output.push(`mik_provider_health_status${labels({ provider: identity(provider, this.secrets) })} ${activeHub.providerHealth.state(provider) === "CLOSED" ? 1 : 0}`)
     }
     return output.join("\n") + "\n"
   }
 
-  close(): void { this.unsubscribe(); this.apps.clear() }
+  close(): void { for (const unsubscribe of this.subscriptions.values()) unsubscribe(); this.subscriptions.clear(); this.apps.clear() }
 }

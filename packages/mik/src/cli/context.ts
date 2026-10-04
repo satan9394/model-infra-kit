@@ -28,6 +28,10 @@ export interface RunOptions {
 }
 
 export interface CliConfigFile {
+  /** Declarative serve routing generation; unlike one-time initialProviders. */
+  providers?: ProviderConfig[]
+  defaultModel?: string
+  watch?: boolean
   router?: import("../ai/smart-router.js").RouterConfig
   appId?: string
   db?: string
@@ -79,6 +83,7 @@ function readBudgetConfig(value: unknown): BudgetConfig | undefined {
 
 export interface CliContext {
   hub: ModelInfra
+  hubOptions: ModelInfraOptions
   io: CliIo
   env: NodeJS.ProcessEnv
   cwd: string
@@ -206,6 +211,9 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
     if (record.router !== undefined) config.router = readRouterConfig(record.router)
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
+    if (Array.isArray(record.providers)) config.providers = record.providers as ProviderConfig[]
+    if (typeof record.defaultModel === "string") config.defaultModel = record.defaultModel
+    if (typeof record.watch === "boolean") config.watch = record.watch
     return config
   } catch (error) {
     if (isModelInfraError(error)) throw error
@@ -292,7 +300,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
   const pricingDryRun =
     parsed.command?.name === "pricing" && parsed.action?.name === "sync" && flagBool(parsed.values, "dryRun")
 
-  const hub = await ModelInfra.init({
+  const hubOptions: ModelInfraOptions = {
     appId,
     db: dbPath,
     storage: dbFlag || env.MIK_DB ? undefined : config.storage,
@@ -301,6 +309,10 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     pricingFetch: offline ? offlineFetch : undefined,
     budget: config.budget,
     router: config.router,
+    env,
+    providers: parsed.command?.name === "serve" ? config.providers : undefined,
+    defaultModel: parsed.command?.name === "serve" ? config.defaultModel : undefined,
+    isolatedProviders: parsed.command?.name === "serve",
     // Only the `warning:` frame is localized; a warning's *message* may come from
     // a third-party library (`llm-pricing`) and is deliberately passed through
     // untranslated — see the G14 report for that known cross-layer debt.
@@ -310,10 +322,12 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
       onWarn: (message, error) => io.err(formatWarning(lang, message, error)),
       ...options.hub,
       pricingAutoSync: pricingDryRun ? false : options.hub?.pricingAutoSync,
-    })
+    }
+  const hub = await ModelInfra.init(hubOptions)
 
   return {
     hub,
+    hubOptions,
     io,
     env,
     cwd,

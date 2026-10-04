@@ -1,5 +1,13 @@
 # CHANGELOG — model-infra-kit
 
+## 1.4.0 — 本地发版候选（2026-10-03，待人类发布）
+
+- SQLite FTS5 检索保留的 Trace、标签中的 Prompt 文本、错误码、模型与供应商；写入索引前统一脱敏，MATCH 支持短语、布尔与前缀查询，BM25 排序与安全高亮片段。看板增加防抖搜索，沿用既有测试锚点；默认不保存原始 Prompt。
+- 文件配置热重载先完整校验、再原子替换上下文；新请求使用新配置，在途流式响应自然排空，失败保留旧配置。支持 SIGHUP、可选文件监听及 admin 保护的 POST /api/reload；微秒指标仅测量上下文替换，不代表配置解析或完整重载耗时。
+- import "model-infra-kit/auto" 提供进程内 SDK 自动接入：有限 loopback 服务发现、标准 BASE_URL 注入、OpenAI/Anthropic/DeepSeek 精确域名白名单转发与 restore()。保留官方 OpenAI 默认实例及原生 Responses/Anthropic 协议响应；非目标流量直通，无全局网络插件。
+- 干净目录 Tarball 电池新增 auto 运行时/类型入口、精确导出对账，以及已安装包的 FTS 脱敏与应用隔离、平滑重载与鉴权轮换、默认 SDK 与整数微美元冒烟；导出不符或 auto 产物缺失均以非零退出拒绝候选。
+- 仅本地 main 候选；最终门禁证据见 docs/releases/v1.4.0-candidate.md，push 与 npm publish 等待人类发布指令。
+
 ## 1.3.0 — 本地发版候选（2026-10-03，待人类发布）
 
 - 声明式虚拟模型别名按预估上下文路由，首个规则命中或默认目标；物理模型直通，Trace 保留别名与规则，实际供应商负责计费。原生字符估算器是线性启发式，不承诺精确分词，不估算媒体或工具 schema。

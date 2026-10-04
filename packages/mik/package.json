@@ -1,6 +1,6 @@
 {
   "name": "model-infra-kit",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "type": "module",
   "license": "MIT",
   "description": "Embeddable model layer for AI projects: multi-provider access, model catalog, token usage and cost tracking.",
@@ -16,7 +16,9 @@
   "engines": {
     "node": ">=22.13.0"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/auto.mjs"
+  ],
   "files": [
     "dist",
     "LICENSE"
@@ -34,7 +36,11 @@
       "types": "./dist/cli.d.mts",
       "default": "./dist/cli.mjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./auto": {
+      "types": "./dist/auto.d.mts",
+      "default": "./dist/auto.mjs"
+    }
   },
   "bin": {
     "mik": "./dist/cli.mjs"

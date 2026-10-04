@@ -6,6 +6,8 @@ import type { ResolvedProvider } from "./registry/registry.js"
 import type { TokenUsage } from "./types.js"
 import { redact } from "./util/redact.js"
 
+const anthropicWireProtocols: Readonly<Record<string, boolean>> = { anthropic: true }
+
 /** A call that was forwarded to a provider and should be metered. */
 export interface ForwardedCall {
   requestId: string
@@ -213,7 +215,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         meter(ZERO_USAGE(), target.modelId, undefined, true)
         return response
       }
-      const scanner = createSseScanner(startedAt, now)
+      const scanner = createSseScanner(startedAt, now, anthropicWireProtocols[provider.protocol] ?? false)
       let recorded = false
       const stream = response.body.pipeThrough(
         new TransformStream<Uint8Array, Uint8Array>({
@@ -239,7 +241,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
     } catch {
       parsed = null
     }
-    const found = readOpenAiUsage(parsed)
+    const found = anthropicWireProtocols[provider.protocol] ? readAnthropicUsage(parsed) : readOpenAiUsage(parsed)
     meter(found?.usage ?? ZERO_USAGE(), found?.model ?? target.modelId, undefined, false, found?.cost)
     return response
   }
@@ -376,13 +378,31 @@ export function readOpenAiUsage(payload: Record<string, unknown> | null): {
   }
 }
 
-/**
- * Scans a `text/event-stream` body for the frames that carry `usage`, without
- * changing a byte of what the caller receives.
- */
+/** Native Anthropic input excludes caches; normalized MIK input includes them. */
+function readAnthropicUsage(payload: Record<string, unknown> | null, previous?: TokenUsage): {
+  usage: TokenUsage
+  model?: string
+  cost?: ProviderCostReading
+} | null {
+  const message = asRecord(payload?.message) ?? payload
+  const raw = asRecord(message?.usage)
+  if (!raw) return null
+  const cacheRead = asCount(raw.cache_read_input_tokens) ?? previous?.cacheRead ?? 0
+  const cacheWrite = asCount(raw.cache_creation_input_tokens) ?? previous?.cacheWrite ?? 0
+  const uncached = asCount(raw.input_tokens)
+  return { usage: {
+    // Anthropic reports uncached input separately; MIK input includes caches.
+    input: uncached === undefined ? previous?.input ?? 0 : uncached + cacheRead + cacheWrite,
+    output: asCount(raw.output_tokens) ?? previous?.output ?? 0,
+    cacheRead, cacheWrite, reasoning: 0,
+  }, model: typeof message?.model === "string" ? message.model : undefined }
+}
+
+/** Scan usage frames without changing a byte of the adapter's response. */
 function createSseScanner(
   startedAt: number,
   now: () => number,
+  anthropic = false,
 ): {
   consume(chunk: Uint8Array): void
   finish(): void
@@ -413,15 +433,16 @@ function createSseScanner(
     }
     // The billed amount is read independently of the token counts: a gateway may
     // send `usage.cost` on a frame whose token fields this adapter does not use.
-    const reported = reportedCostFromUsage(parsed?.usage)
+    const wirePayload = asRecord(parsed?.response) ?? parsed
+    const reported = reportedCostFromUsage(wirePayload?.usage)
     if (reported.kind !== "absent") cost = reported
-    const found = readOpenAiUsage(parsed)
+    const found = anthropic ? readAnthropicUsage(parsed, usage) : readOpenAiUsage(wirePayload)
     if (found) {
       usage = found.usage
       if (found.model) model = found.model
       return
     }
-    if (parsed && typeof parsed.model === "string" && parsed.model) model = parsed.model
+    if (wirePayload && typeof wirePayload.model === "string" && wirePayload.model) model = wirePayload.model
   }
 
   const drain = (flush: boolean) => {

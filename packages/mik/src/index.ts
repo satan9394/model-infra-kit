@@ -122,6 +122,7 @@ export type {
   UsageEventInput,
   ToolCallAttribution,
   UsagePage,
+  UsageSearchHit,
   UsageQuery,
   UsageSummary,
   UsageTraceGroup,

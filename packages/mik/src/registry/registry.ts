@@ -1,7 +1,7 @@
 import type { CredentialStore } from "../credential/store.js"
 import { ModelInfraError } from "../errors.js"
 import { KeyPool, normalizeRefs } from "../router/key-pool.js"
-import type { Store } from "../store/database.js"
+import { Store } from "../store/database.js"
 import type { Protocol, ProviderConfig, ProviderPreset, ProviderRecord } from "../types.js"
 import { PROTOCOL_PACKAGES, getPreset } from "./presets.js"
 
@@ -59,6 +59,38 @@ function joinModelRef(providerId: string, modelId: string): string {
  */
 export class ProviderRegistry {
   private readonly keyPool = new KeyPool()
+  private isolatedStore: Store | undefined
+
+  /** Snapshot routing state without modifying the shared usage database. */
+  async isolate(configs?: ProviderConfig[], defaultModel?: string): Promise<void> {
+    const isolated = await Store.open({ path: ":memory:" })
+    const records = configs ?? this.list()
+    const fallback = defaultModel ?? this.defaultModel()
+    const previous = this.deps.store
+    this.deps.store = isolated
+    try {
+      for (const record of records) this.add(record)
+      if (fallback) this.setDefaultModel(fallback)
+      // Validate references now; later environment changes cannot alter this generation.
+      this.deps.credentials.snapshotEnvironment()
+      const refs = this.list().filter(record => record.enabled).flatMap(record => {
+        const preset = record.presetId ? getPreset(record.presetId) : undefined
+        return normalizeRefs(record.apiKeyRef ?? (preset?.envKey ? `env:${preset.envKey}` : undefined))
+      })
+      this.deps.credentials.snapshotReferences(configs ? refs : refs.filter(ref => this.deps.credentials.tryResolve(ref) !== null))
+      if (configs) for (const record of this.list().filter(record => record.enabled)) this.resolve(record.id)
+    } catch (error) {
+      this.deps.store = previous
+      isolated.close()
+      throw error
+    }
+    this.isolatedStore?.close()
+    this.isolatedStore = isolated
+  }
+
+  /** Release only the private routing snapshot, never the caller's usage store. */
+  close(): void { this.isolatedStore?.close() }
+
   constructor(private readonly deps: ProviderRegistryDeps) {}
 
   list(): ProviderRecord[] {

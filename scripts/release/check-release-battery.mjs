@@ -13,7 +13,7 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "../..")
 const PACKAGE_ROOT = join(REPO_ROOT, "packages", "mik")
 const PACKAGE_JSON_PATH = join(PACKAGE_ROOT, "package.json")
 const CONTRACT_MARKER = "<!-- release-battery-runtime-exports:v1 -->"
-const EXPECTED_ENTRYPOINTS = [".", "./cli", "./server"]
+const EXPECTED_ENTRYPOINTS = [".", "./auto", "./cli", "./server"]
 
 function commandName(command) {
   return process.platform === "win32" && (command === "pnpm" || command === "npm") ? `${command}.cmd` : command
@@ -153,7 +153,16 @@ function contractFailureSelfCheck() {
     detected = error instanceof Error && error.message.includes("runtime exports differ")
   }
   assert.equal(detected, true, "contract failure self-check did not detect the deliberate mismatch")
+  assert.throws(() => compareExports("./auto", expected["./auto"], []), /runtime exports differ/, "missing auto exports must fail")
   process.stderr.write("[self-test] deliberate runtime export mismatch detected; exit code 1 is expected\n")
+}
+
+function autoArtifactFailureSelfCheck() {
+  const room = mkdtempSync(join(tmpdir(), "mik-release-missing-auto-"))
+  const manifest = { files: ["dist", "LICENSE"], exports: { "./auto": { import: "./dist/auto.mjs", types: "./dist/auto.d.mts" } } }
+  writeAbsolute(join(room, "package.json"), JSON.stringify(manifest))
+  assert.throws(() => checkPackageFiles(room, manifest), /auto.*target missing/, "missing auto artifact must fail")
+  process.stderr.write(`[self-test] deliberate missing auto artifact detected; retained=${room}; exit code 1 is expected\n`)
 }
 
 function installedRuntimeSource() {
@@ -164,7 +173,9 @@ import { resolve, sep } from "node:path"
 const root = resolve(process.cwd())
 const packageJson = fileURLToPath(await import.meta.resolve("model-infra-kit/package.json"))
 assert.ok(packageJson.startsWith(root + sep), "installed package resolved outside the clean consumer directory")
-const entries = [[".", "model-infra-kit"], ["./server", "model-infra-kit/server"], ["./cli", "model-infra-kit/cli"]]
+// Import auto in a deliberate no-service environment; export inspection must not adopt a running host gateway.
+process.env.MIK_GATEWAY_URL = "http://127.0.0.1:1"
+const entries = [[".", "model-infra-kit"], ["./server", "model-infra-kit/server"], ["./cli", "model-infra-kit/cli"], ["./auto", "model-infra-kit/auto"]]
 const output = {}
 for (const [entrypoint, specifier] of entries) output[entrypoint] = Object.keys(await import(specifier)).sort()
 console.log(JSON.stringify(output))
@@ -448,7 +459,148 @@ try {
 `
 }
 
+function evolutionSmokeSource() {
+  return String.raw`import assert from "node:assert/strict"
+import { createServer } from "node:http"
+import { readFileSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import OpenAI from "openai"
+import { ModelInfra, Store } from "model-infra-kit"
+import { createServer as createGateway } from "model-infra-kit/server"
+
+const root = process.cwd()
+const env = { PROVIDER: "sk-battery-provider-123", ADMIN: "battery-admin-old", READER: "battery-reader" }
+const calls = []
+let held
+let arrived
+const arrival = new Promise(resolve => { arrived = resolve })
+const chunk = (text, finish = null) => ({ id: "held", object: "chat.completion.chunk", created: 1, model: "mock-model", choices: [{ index: 0, delta: { content: text }, finish_reason: finish }] })
+const upstream = createServer(async (request, response) => {
+  let raw = ""
+  for await (const part of request) raw += part
+  const body = JSON.parse(raw)
+  calls.push({ path: request.url, authorization: request.headers.authorization, apiKey: request.headers["x-api-key"], marker: request.headers["x-mik-auto-protocol"] })
+  assert.ok(request.headers.authorization === "Bearer " + env.PROVIDER || request.headers["x-api-key"] === env.PROVIDER)
+  if (body.stream && request.url.startsWith("/old/")) {
+    held = response
+    response.writeHead(200, { "content-type": "text/event-stream" })
+    response.write("data: " + JSON.stringify(chunk("old-start")) + "\n\n")
+    arrived()
+    return
+  }
+  response.writeHead(200, { "content-type": "application/json" })
+  const usage = { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 }
+  if (request.url.endsWith("/responses")) {
+    response.end(JSON.stringify({ id: "resp-battery", object: "response", created_at: 1, model: "mock-model", status: "completed", output: [{ type: "message", id: "msg", role: "assistant", status: "completed", content: [{ type: "output_text", text: "responses ok", annotations: [] }] }], usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 } }))
+  } else if (request.url.endsWith("/messages")) {
+    response.end(JSON.stringify({ id: "msg-battery", type: "message", role: "assistant", model: "claude-test", content: [{ type: "text", text: "anthropic ok" }], usage: { input_tokens: 3, output_tokens: 4 } }))
+  } else {
+    response.end(JSON.stringify({ id: "chat-battery", object: "chat.completion", created: 1, model: "mock-model", choices: [{ index: 0, message: { role: "assistant", content: request.url.startsWith("/old/") ? "old-answer" : "new-answer" }, finish_reason: "stop" }], usage }))
+  }
+})
+await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve))
+const port = upstream.address().port
+const configPath = join(root, "reload.config.json")
+const db = join(root, "evolution.db")
+const options = { appId: "evolution", db, cacheDir: join(root, "evolution-cache"), maxRetries: 0, syncCatalog: false, pricingAutoSync: false, pricingFetch: async () => { throw new Error("offline") }, onWarn: () => {}, env }
+const providers = path => [
+  { id: "p", protocol: "openai-compatible", baseUrl: "http://127.0.0.1:" + port + "/" + path, apiKeyRef: "env:PROVIDER" },
+  { id: "a", protocol: "anthropic", baseUrl: "http://127.0.0.1:" + port + "/v1", apiKeyRef: "env:PROVIDER" },
+]
+const config = path => ({ providers: providers(path), defaultModel: "p:mock-model", serverTokens: [{ tokenRef: "env:ADMIN", scopes: ["admin"] }, { tokenRef: "env:READER", scopes: ["read:usage"] }] })
+let hub
+let gateway
+let auto
+let store
+try {
+  writeFileSync(configPath, JSON.stringify(config("old")))
+  hub = await ModelInfra.init({ ...options, providers: providers("old"), defaultModel: "p:mock-model" })
+  for (const modelId of ["mock-model", "claude-test"]) hub.pricing.setOverride({ modelId, inputPerM: 1, outputPerM: 2 })
+  const event = appId => ({ requestId: crypto.randomUUID(), appId, ts: Date.now(), source: "test", providerId: "p", modelRequested: "mock-model", modelActual: "mock-model", traceId: "needle-trace", status: "ok", isStreaming: false, usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }, cost: { usd: 0.000001, low: 0.000001, high: 0.000001, source: "override", basis: "manual" }, tags: { prompt: "needle timeout sk-battery-index-secret" } })
+  hub.usage.record(event("evolution")); hub.usage.record(event("other-app"))
+  const hits = hub.usage.searchTraces('needle AND timeout')
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].event.appId, "evolution")
+  assert.ok(hits[0].snippet.includes("\u0001"))
+  assert.ok(!JSON.stringify(hits).includes("battery-index-secret"))
+  assert.equal(hub.usage.withAppScope("other-app", () => hub.usage.searchTraces("needle", { appId: "evolution" }))[0].event.appId, "other-app")
+  store = await Store.open({ path: db })
+  const index = store.driver.prepare("SELECT * FROM usage_fts").all()
+  assert.equal(index.length, 2)
+  assert.ok(!JSON.stringify(index).includes("battery-index-secret"))
+  store.close(); store = undefined
+  gateway = await createGateway({ hub, port: 0, tokens: [{ token: env.ADMIN, scopes: ["admin"] }, { token: env.READER, scopes: ["read:usage"] }], reload: { configPath, hubOptions: options, env } })
+  const send = (path, token = env.ADMIN, method = "GET", body) => fetch(gateway.url + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(5000) })
+  assert.equal((await send("/api/reload", env.READER, "POST")).status, 403)
+  const responsePromise = send("/v1/chat/completions", env.ADMIN, "POST", { model: "p:mock-model", stream: true, messages: [{ role: "user", content: "hello" }] })
+  await Promise.race([arrival, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error("held stream never arrived")), 5000); timer.unref() })])
+  const heldBody = (await responsePromise).text()
+  const oldAdmin = env.ADMIN
+  env.ADMIN = "battery-admin-new"
+  writeFileSync(configPath, JSON.stringify(config("new")))
+  const reload = await send("/api/reload", oldAdmin, "POST")
+  assert.equal(reload.status, 200)
+  const reloadResult = await reload.json()
+  assert.equal(reloadResult.reloaded, true)
+  assert.ok(reloadResult.swapMicros >= 0)
+  assert.equal((await send("/v1/models", oldAdmin)).status, 401)
+  assert.equal((await (await send("/v1/chat/completions", env.ADMIN, "POST", { model: "p:mock-model", messages: [{ role: "user", content: "hi" }] })).json()).choices[0].message.content, "new-answer")
+  writeFileSync(configPath, '{"invalid": "sk-battery-invalid-secret"')
+  const invalid = await send("/api/reload", env.ADMIN, "POST")
+  assert.equal(invalid.status, 400)
+  assert.equal((await invalid.json()).reloaded, false)
+  assert.equal((await (await send("/v1/chat/completions", env.ADMIN, "POST", { model: "p:mock-model", messages: [{ role: "user", content: "still works" }] })).json()).choices[0].message.content, "new-answer")
+  held.end("data: " + JSON.stringify({ ...chunk("old-end", "stop"), usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 } }) + "\n\ndata: [DONE]\n\n")
+  const text = await heldBody
+  assert.ok(text.includes("old-start") && text.includes("old-end") && text.includes("[DONE]"))
+  held = undefined
+  process.env.MIK_GATEWAY_URL = gateway.url
+  process.env.MIK_GATEWAY_TOKEN = env.ADMIN
+  process.env.OPENAI_API_KEY = "sk-battery-sdk-caller"
+  const originalFetch = globalThis.fetch
+  const baseKeys = ["OPENAI_BASE_URL", "ANTHROPIC_BASE_URL", "DEEPSEEK_BASE_URL"]
+  const before = baseKeys.map(key => process.env[key])
+  auto = await import("model-infra-kit/auto")
+  const sdk = new OpenAI()
+  const answer = await sdk.chat.completions.create({ model: "mock-model", messages: [{ role: "user", content: "default SDK" }], seed: 42 })
+  assert.equal(answer.choices[0].message.content, "new-answer")
+  assert.equal((await sdk.responses.create({ model: "mock-model", input: "native responses" })).output_text, "responses ok")
+  const native = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": "sk-battery-sdk-caller" }, body: JSON.stringify({ model: "claude-test", messages: [{ role: "user", content: "native" }], max_tokens: 10 }) })
+  assert.equal(native.status, 200)
+  assert.equal((await native.json()).content[0].text, "anthropic ok")
+  auto.restore()
+  assert.equal(globalThis.fetch, originalFetch)
+  for (let i = 0; i < baseKeys.length; i++) assert.ok(process.env[baseKeys[i]] === before[i], "adapter-owned base URL restoration failed")
+  assert.ok(calls.every(call => call.marker === undefined))
+  assert.ok(calls.slice(-3).every(call => call.authorization === "Bearer " + env.PROVIDER || call.apiKey === env.PROVIDER))
+  await gateway.close(); gateway = undefined
+  await hub.close(); hub = undefined
+  store = await Store.open({ path: db })
+  const billed = store.driver.prepare("SELECT CAST(ROUND(cost_usd * 1000000) AS INTEGER) AS cost_micros FROM usage_events WHERE source <> 'test'").all()
+  assert.equal(billed.length, 6)
+  assert.ok(billed.every(row => String(row.cost_micros) === "11"))
+  assert.equal(billed.reduce((sum, row) => sum + BigInt(row.cost_micros), 0n), 66n)
+  const stored = store.driver.prepare("SELECT * FROM usage_events").all()
+  assert.ok(!JSON.stringify(stored).includes(env.ADMIN))
+  assert.ok(!JSON.stringify(stored).includes(env.PROVIDER))
+  console.log(JSON.stringify({ ftsScoped: true, redactedIndex: true, snippets: true, reloadContinuity: true, invalidReloadSafe: true, adminRotation: true, defaultOpenAiSdk: true, nativeResponses: true, nativeAnthropic: true, restore: true, requests: billed.length, costMicros: "66" }))
+} finally {
+  auto?.restore()
+  held?.end()
+  if (gateway) await gateway.close()
+  if (hub) await hub.close()
+  if (store) store.close()
+  await new Promise(resolve => { upstream.close(resolve); upstream.closeAllConnections() })
+}
+`
+}
+
 async function main() {
+  if (process.argv.includes("--self-test-auto")) {
+    autoArtifactFailureSelfCheck()
+    process.exitCode = 1
+    return
+  }
   if (process.argv.includes("--self-test-contract")) {
     contractFailureSelfCheck()
     process.exitCode = 1
@@ -457,8 +609,8 @@ async function main() {
   const expected = contractFromDocs()
   const sourcePackageJson = readJson(PACKAGE_JSON_PATH)
   assert.equal(sourcePackageJson.name, "model-infra-kit")
-  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.3.0", "root release version mismatch")
-  assert.equal(sourcePackageJson.version, "1.3.0", "package release version mismatch")
+  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.4.0", "root release version mismatch")
+  assert.equal(sourcePackageJson.version, "1.4.0", "package release version mismatch")
   assertAbsoluteCwd(REPO_ROOT, "repository")
   assertAbsoluteCwd(PACKAGE_ROOT, "package")
 
@@ -502,7 +654,7 @@ async function main() {
   writeAbsolute(runtimeExportsPath, installedRuntimeSource())
   const batteryKey = `release-battery-${process.pid}-${Date.now()}`
   const smokeEnv = { ...process.env, MIK_RELEASE_BATTERY_KEY: batteryKey, MIK_BATTERY_EXPECTED_VERSION: sourcePackageJson.version }
-  await run("pnpm", ["add", "--save-exact", "--ignore-scripts", tarballPath, "@ai-sdk/openai-compatible@3.0.45"], {
+  await run("pnpm", ["add", "--save-exact", "--ignore-scripts", tarballPath, "@ai-sdk/openai-compatible@3.0.45", "openai@7.12.1"], {
     cwd: consumerDir,
     label: "consumer pnpm install",
     env: smokeEnv,
@@ -524,6 +676,9 @@ async function main() {
     env: smokeEnv,
     redactSecrets: [batteryKey],
   })
+  const evolutionPath = join(consumerDir, "evolution-smoke.mjs")
+  writeAbsolute(evolutionPath, evolutionSmokeSource())
+  await run("node", [evolutionPath], { cwd: consumerDir, label: "installed FTS, reload and default SDK smoke", env: smokeEnv, redactSecrets: [batteryKey] })
   process.stdout.write(`[result] release battery passed; retained clean room=${cleanRoom}\n`)
 }
 

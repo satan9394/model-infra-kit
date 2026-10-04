@@ -454,4 +454,8 @@ export const zh = {
   "connections.rtt": "探测 RTT",
   "connections.pending": "正在探测连接…",
   "connections.offline": "连接探测不可用",
+  "search.label": "检索保留的 Trace 与日志",
+  "search.placeholder": "关键词或 FTS5 语法，如 timeout OR retry",
+  "search.scope": "检索 Trace ID、标签、错误码、模型和供应商。不会存储原始提示词或工具结果。",
+  "search.results": "{0} 条匹配（最多 50 条），按相关度排序",
 } as const

@@ -430,6 +430,13 @@ export interface UsageTraceGroup {
   archivedRequests: number
 }
 
+/** Safe retained-detail full-text result; snippet uses \u0001 / \u0002 match markers. */
+export interface UsageSearchHit {
+  event: UsageEvent
+  score: number
+  snippet: string
+}
+
 export interface UsagePage {
   total: number
   events: UsageEvent[]

@@ -454,4 +454,8 @@ export const en = {
   "connections.rtt": "Probe RTT",
   "connections.pending": "Probing connection…",
   "connections.offline": "Connection probe unavailable",
+  "search.label": "Search retained traces and logs",
+  "search.placeholder": "Keywords or FTS5 syntax, e.g. timeout OR retry",
+  "search.scope": "Searches trace IDs, tags, error codes, models and providers. Raw prompts and tool results are never stored.",
+  "search.results": "{0} matches (up to 50), most relevant first",
 } as const
