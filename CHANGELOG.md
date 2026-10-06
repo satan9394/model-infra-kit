@@ -64,7 +64,7 @@
 - 切换日期预设后，自定义日期输入框同步到实际查询范围。
 
 > 本文件把 **42 个 Release / 41 个 npm 版本**（`v0.1.0` / `0.1.2` → `0.3.1`）压成可读的一条线。
-> **权威细节**仍在 `docs/product-evolution.md`（每片留痕）与 GitHub Releases（逐版说明）；
+> **权威细节**在 GitHub Releases（逐版说明）；
 > 本文件只回答「哪一版是什么、我该装哪个、为什么会有这么多版本」。
 
 ## 这条版本线怎么读（**先读这一段**）
@@ -100,7 +100,7 @@
    版本号（`git diff --stat 285e23a^ 285e23a -- packages/mik` 只有 1 文件 1 行）。它是一次
    「验证片也照规矩发版」的产物。
 
-**已修正**：`AGENTS.md` 的发布闸门已收窄为「**只有当已发布包（`packages/mik`）的行为或公共接口
+**已修正**：项目约定的发布闸门已收窄为「**只有当已发布包（`packages/mik`）的行为或公共接口
 发生变化时才升版发布**；验证片 / 文档片 / 看板片只提交、不发版」。
 
 ## 装哪个
@@ -202,5 +202,5 @@ npm i model-infra-kit          # → 0.3.1（等价于 0.3.0 的代码）
 
 ## 待推进与当前活动项
 
-- **G97（进行中/待办）**：看板 UI 质感重塑与浅色模式（Light Mode）支持，基于 Tailwind v4 `@theme` 建立语义化设计令牌体系与 Light / Dark / System 三态切换，消除模板感。任务卡见 [`tasks/EVO-G97-dashboard-ui-redesign.md`](tasks/EVO-G97-dashboard-ui-redesign.md)。
+- **G97（进行中/待办）**：看板 UI 质感重塑与浅色模式（Light Mode）支持，基于 Tailwind v4 `@theme` 建立语义化设计令牌体系与 Light / Dark / System 三态切换，消除模板感。
 - **发版规划**：待 G97 完成且外部真实 Agent 业务联调稳定后，提升版本至 `v1.1.0`，经人类确认后执行 `git push` 与 npm 发布。

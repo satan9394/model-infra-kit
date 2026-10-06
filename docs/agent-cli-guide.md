@@ -515,4 +515,4 @@ $ node --import ./scripts/e2e/loader.mjs examples/agent-cli/pitfalls.ts
 - API 速查：[`packages/mik/README.md`](../packages/mik/README.md)
 - 契约（唯一真相）：[`docs/interfaces.md`](interfaces.md)
 - 三种接入面：[`README.md`](../README.md)（嵌入式库 / fetch 适配器 / HTTP 服务）
-- 取舍理由：[`docs/decisions.md`](decisions.md)；本机实测事实：[`docs/verified-facts.md`](verified-facts.md)
+- 取舍理由：[`docs/decisions.md`](decisions.md)。

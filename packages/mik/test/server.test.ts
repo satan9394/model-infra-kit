@@ -17,7 +17,7 @@ import {
 const TEST_KEY = "sk-t07-server-testkey-1234"
 const TOKEN = "t07-bearer-token-abcdef"
 
-/** The shape `docs/verified-facts.md` §1 recorded from a real run. */
+/** The token-count shape recorded from a real run. */
 const COMPLETION = {
   id: "chatcmpl-t07",
   object: "chat.completion",

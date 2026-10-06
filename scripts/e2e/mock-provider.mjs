@@ -6,7 +6,7 @@
  * `GET /v1/models`, non-streaming chat completions, SSE streaming and tool
  * calls — so the whole suite can prove metering without a real provider.
  *
- * Token counts mirror the numbers recorded in `docs/verified-facts.md` §1 so the
+ * Token counts mirror numbers recorded from a real run so the
  * AI SDK's usage mapping is exercised the same way a real provider would.
  */
 import { createServer } from "node:http"

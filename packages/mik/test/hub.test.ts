@@ -24,7 +24,7 @@ import type {
 
 const TEST_KEY = "sk-t05-hub-testkey-1234"
 
-/** The shape `docs/verified-facts.md` §1 recorded from a real run. */
+/** The token-count shape recorded from a real run. */
 const COMPLETION = {
   id: "chatcmpl-hub",
   object: "chat.completion",

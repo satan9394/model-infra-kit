@@ -23,7 +23,7 @@
 | `@ai-sdk/*` 是**可选 peer**，用哪个协议装哪个包；缺包时 `loadProviderFactory()` 给出「装哪个包」的可读错误 | `packages/mik/README.md`、`packages/mik/src/index.ts` 导出 `loadProviderFactory` |
 | Node ≥ 22.13（`node:sqlite`），本机 24.14 | `README.md`、`packages/mik/package.json` 的 `engines` |
 | 端口：`mik serve` **3211**、看板 **3210**、示例 mock 供应商 **3212** | `README.md` 端口表、`apps/dashboard/package.json`、`apps/dashboard/scripts/mock-openai.mjs` |
-| 禁止使用 3080 / 3001 / 3111 / 8899（已被本机其它项目占用） | `README.md`、`AGENTS.md` |
+| 禁止使用 3080 / 3001 / 3111 / 8899（已被本机其它项目占用） | `README.md`、项目约定 |
 | 看板不随 npm 包发布；装包环境跑 `mik dashboard` 会报错并给指引 | `packages/mik/package.json` 的 `files`、`README.md`「看板」一节 |
 | 看板只走 HTTP API，从不打开 SQLite | `apps/dashboard/lib/config.ts`、`apps/dashboard/README.md` |
 | `mik serve` 默认不开 CORS（`cors` 选项默认关闭；CLI 提供 `--cors <origin>` 开关，见 §5.2） | `packages/mik/src/server/server.ts` 的 `ServerOptions.cors`、`packages/mik/src/cli/args.ts` 的 `serve` flags |
@@ -245,14 +245,14 @@ Q6 只想看成本、完全不想改宿主代码？
 | `python examples/python-host/host.py http://127.0.0.1:3211/v1 <provider:model>` | `examples/python-host/host.py`、`examples/python-host/README.md` |
 | `curl -s http://127.0.0.1:3211/api/health` / `.../v1/chat/completions` | `README.md`「三种接入方式 ③」 |
 | `mik usage logs --config mik.config.json` | `examples/python-host/README.md` |
-| `netstat -ano \| findstr :<端口>` | `README.md` 端口表、`AGENTS.md` |
+| `netstat -ano \| findstr :<端口>` | `README.md` 端口表、项目约定 |
 
 ### 7.2 端点存在性（源码 grep）
 
 - `packages/mik/src/server/api.ts` 的 `router.add(...)` 注册了：`/api/health`、`/api/providers`(GET/POST)、`/api/providers/:id`(PATCH/DELETE)、`/api/providers/:id/test`、`/api/providers/:id/models`(GET)、`/api/providers/:id/models/refresh`(POST)、`/api/models`、`/api/models/:ref`、`/api/pricing`(GET)、`/api/pricing/:modelId`(PUT/DELETE)、`/api/pricing/sync`(POST)、`/api/usage/summary|trends|by-provider|by-model|logs|logs/:id`、`/api/usage/events`(POST，F19)、`/api/events`。
 - `packages/mik/src/server/server.ts:152-156` 注册 `GET /openapi.json`、`POST /v1/chat/completions`、`GET /v1/models`。
 - `apps/dashboard/app/api/mik/[...path]/route.ts`（GET/POST/PUT/PATCH/DELETE 全转发到 `<MIK_SERVER_URL>/api/<path>`）、`apps/dashboard/app/api/events/route.ts`（SSE 透传 `GET /api/events`）。
-- **反向确认（T11 时点）**：当时全仓 grep `usage/events` 只命中 `tasks/T11-integration-playbook.md` 与本文件；F19 已在该文件注册 `/api/usage/events`（见上方清单与 §0）。
+- **反向确认（T11 时点）**：当时全仓 grep `usage/events` 只命中本文件；F19 已在该文件注册 `/api/usage/events`（见上方清单与 §0）。
 
 ### 7.3 本卡实测（活服务探针）
 
@@ -274,7 +274,7 @@ POST /api/usage/events  → 200 {"accepted":1,"duplicates":0,"rejected":0}   （
 
 ### 7.4 本卡读过的文件
 
-`tasks/T11-integration-playbook.md`、`README.md`、`packages/mik/README.md`、`packages/mik/package.json`、`packages/mik/src/index.ts`、`packages/mik/src/types.ts`、`packages/mik/src/server/{api,server,index,openai}.ts`、`packages/mik/src/cli/{index,args}.ts`、`packages/mik/src/cli/commands/serve.ts`、`docs/SPEC.md`、`docs/interfaces.md`、`docs/decisions.md`、`docs/verified-facts.md`、`docs/verify-checklist.md`、`apps/dashboard/README.md`、`apps/dashboard/package.json`、`apps/dashboard/app/{layout,page}.tsx`、`apps/dashboard/app/api/{events,mik/[...path]}/route.ts`、`apps/dashboard/lib/{config,mik,server-data}.ts`、`apps/dashboard/scripts/serve-mik.mjs`、`scripts/e2e/run.mjs`、`examples/{cli-agent,openai-sdk,python-host}/README.md`、`examples/python-host/host.py`、`tasks/BOARD.md`、`AGENTS.md`。
+`README.md`、`packages/mik/README.md`、`packages/mik/package.json`、`packages/mik/src/index.ts`、`packages/mik/src/types.ts`、`packages/mik/src/server/{api,server,index,openai}.ts`、`packages/mik/src/cli/{index,args}.ts`、`packages/mik/src/cli/commands/serve.ts`、`docs/SPEC.md`、`docs/interfaces.md`、`docs/decisions.md`、`apps/dashboard/README.md`、`apps/dashboard/package.json`、`apps/dashboard/app/{layout,page}.tsx`、`apps/dashboard/app/api/{events,mik/[...path]}/route.ts`、`apps/dashboard/lib/{config,mik,server-data}.ts`、`apps/dashboard/scripts/serve-mik.mjs`、`scripts/e2e/run.mjs`、`examples/{cli-agent,openai-sdk,python-host}/README.md`、`examples/python-host/host.py`、项目约定。
 
 ---
 

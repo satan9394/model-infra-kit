@@ -2,7 +2,7 @@
 /**
  * `mik` — the model-infra-kit command line.
  *
- * Design constraints from `tasks/T06-cli.md`: Node built-ins only (no CLI
+ * Design constraints for the CLI: Node built-ins only (no CLI
  * framework), human-readable output, and never a secret on stdout.
  *
  * Dependency direction (EVO-G03): `index → repl → dispatch` and

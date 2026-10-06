@@ -3,7 +3,7 @@
 `model-infra-kit` 的薄看板：成本、token、供应商、模型目录、价格表与请求日志。
 
 - 技术栈：Next.js App Router + Tailwind CSS v4 + Recharts（无组件库全家桶）
-- 端口：**3210**（`AGENTS.md` 约定；起服务前先查占用，被占直接报错，不硬抢）
+- 端口：**3210**（项目约定 约定；起服务前先查占用，被占直接报错，不硬抢）
 - 数据源：**只走 `mik serve` 的 HTTP API**，默认 `http://127.0.0.1:3211`。看板从不打开 SQLite 文件。
 
 ## 快速开始

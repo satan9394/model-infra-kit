@@ -12,7 +12,7 @@ catalogue is pinned to an unreachable URL on purpose.
 
 ## What it proves
 
-| Check | Scenario (`docs/SPEC.md` §6, `tasks/T09-examples-e2e.md`) |
+| Check | Scenario (`docs/SPEC.md` §6) |
 |---|---|
 | AC1 | Fresh temp dir + temp db → `mik init` → `mik serve` boots with **zero providers**; the port is released again on shutdown |
 | AC2 | Mock provider: `mik provider add` → connection test ok → model list non-empty → default model set |

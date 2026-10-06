@@ -10,7 +10,7 @@ const SK_KEY = "sk-abcdefgh12345678"
 const HEX_KEY = "abcdef0123456789abcdef0123456789"
 const HEADER_VALUE = "header-secret-value-1234"
 
-/** AGENTS.md rule 4: no branch may put a credential-shaped string into `message`. */
+/** project conventions rule 4: no branch may put a credential-shaped string into `message`. */
 function expectNoSecret(message: string): void {
   expect(message).not.toContain(SK_KEY)
   expect(message).not.toMatch(/sk-[A-Za-z0-9]{8,}/)

@@ -1,13 +1,13 @@
 // Port guard for `pnpm dev` / `pnpm start`.
 //
-// AGENTS.md: the dashboard owns 3210 and must fail loudly instead of stealing a
+// project conventions: the dashboard owns 3210 and must fail loudly instead of stealing a
 // port. `next dev` would happily pick 3211 by itself, so this runs first and
 // exits non-zero when something is already listening.
 //
 // Port resolution, highest priority first:
 //   1. process.argv[2]  — `pnpm dev` / `pnpm start` pass 3210 explicitly
 //   2. PORT             — honoured only when no positional argument is given
-//   3. 3210             — AGENTS.md default
+//   3. 3210             — project conventions default
 // Host resolution: process.argv[3], otherwise 127.0.0.1.
 import { createConnection } from "node:net"
 

@@ -20,7 +20,7 @@
 **理由**：
 
 1. **协议差异是数据，不是分支**。项目硬性规则 3 要求「禁止 `if (providerId === "deepseek")`」。做法是「协议 → 包 → 工厂选项」三张查表（`presets.ts:10-18`、`ai/protocols.ts` 的 `SDK_PROTOCOLS` / `MODEL_LIST_PROTOCOLS`），新增供应商 = 加一行预设，不动任何调用点。这条约束只有在协议实现被封装成可替换对象时才成立。
-2. **usage 形状才是真难点**。本机实测（`verified-facts.md` §1）AI SDK 给出的 `inputTokens` 含缓存、`cacheWriteTokens` 可能缺失、`reasoningTokens` 已含在 `outputTokens` 内——这些映射规则每家厂商都不同，自研等于永久维护一张易碎的兼容表。
+2. **usage 形状才是真难点**。实测（AI SDK 给出的 `inputTokens` 含缓存、`cacheWriteTokens` 可能缺失、`reasoningTokens` 已含在 `outputTokens` 内——这些映射规则每家厂商都不同，自研等于永久维护一张易碎的兼容表。
 3. **工具循环 / 流式 / 重试**已由 SDK 提供（`generateText`、`streamText`、`stepCountIs`、`maxRetries`），自研这几百行只增加缺陷面。
 4. **可测性**：`@ai-sdk/test-server`（msw）让全部协议路径离线可测，`test/` 里没有一条依赖真实网络的用例。
 
@@ -67,7 +67,7 @@
 
 **背景**：单次调用成本常在 $1e-4 ~ $1e-6 量级。SQLite 没有 DECIMAL，`REAL` 是 IEEE754 双精度。
 
-**决策**：**落库与聚合全程整数微美元**；只在最后展示时转回美元。SQL 聚合统一写 `SUM(CAST(ROUND(cost * 1000000) AS INTEGER))`，禁止 `SUM(CAST(cost AS REAL))`（`AGENTS.md` 硬性规则 2）。
+**决策**：**落库与聚合全程整数微美元**；只在最后展示时转回美元。SQL 聚合统一写 `SUM(CAST(ROUND(cost * 1000000) AS INTEGER))`，禁止 `SUM(CAST(cost AS REAL))`（项目约定 硬性规则 2）。
 
 **理由**：
 
@@ -114,7 +114,7 @@
 ## D5 — 不拆 CC Switch 相关能力
 
 **状态**：已生效
-**依据**：`SPEC.md` §5（非目标）、`AGENTS.md` 硬性规则 1
+**依据**：`SPEC.md` §5（非目标）、项目约定 硬性规则 1
 
 **背景**：CC Switch 一类工具会跨 agent 导入会话与用量、按各家特殊的 cache 计费口径去重与合并。曾有把这块抽进模型层的想法。
 
@@ -161,7 +161,7 @@
 2. 回退仍拿不到、且 preset 声明了 `envKey` → 抛 `CREDENTIAL`，文案说明「设置 `<ENV>` 或配置 `apiKeyRef`」。
 3. `ResolvedProvider.apiKeySource` 显式标注来源：`"ref"` / `"env"` / `"none"`，让宿主能区分「不需要密钥」与「忘了配密钥」。
 
-**为什么这两条要一起收口**：它们是同一类缺陷——**契约语义含糊，调用点用「恰好能跑」掩盖过去**（`AGENTS.md` 复盘第一条：契约缺陷会以强转的形式暴露）。收窄的原则是：**把「缺失」表达出来，而不是猜一个默认值**。同一个原则也解释了 `SPEC.md` §4 的「字段缺失一律降级为 `undefined`，不得当作 0」。
+**为什么这两条要一起收口**：它们是同一类缺陷——**契约语义含糊，调用点用「恰好能跑」掩盖过去**（项目约定 复盘第一条：契约缺陷会以强转的形式暴露）。收窄的原则是：**把「缺失」表达出来，而不是猜一个默认值**。同一个原则也解释了 `SPEC.md` §4 的「字段缺失一律降级为 `undefined`，不得当作 0」。
 
 **代价**：破坏性变更（`get()` 增加可选参数、`resolve()` 可能新抛 `CREDENTIAL`），但发生在 0.1.0 内部迭代期，且已同步进 `interfaces.md`。
 
@@ -194,7 +194,7 @@
 | 启动阻塞 | `init()` 不因目录/价格/模型同步失败而抛错，只降级 + `onWarn` | 宿主进程不该因为上游抖动起不来（硬性规则 6） |
 | 密钥 | 只存引用（`env:` / `file:` / `keychain:`），日志与响应统一走 `redact()` | 硬性规则 4；上游 401/403 时不再把响应体拼进错误文案（S9） |
 | 删除语义 | 删除文件必须进回收站（`~/.model-infra-kit/trash/`），禁止 `rm -rf` | 本机铁律；凭据文件删除同理（S15 → F04） |
-| 并行开发 | 一张卡一个隔离 Worker，只拥有卡里写明的文件；Worker 只跑自己的测试 | 并行 Worker 的半成品会污染彼此的验证（见 `AGENTS.md` 复盘） |
+| 并行开发 | 一张卡一个隔离 Worker，只拥有卡里写明的文件；Worker 只跑自己的测试 | 并行 Worker 的半成品会污染彼此的验证（见 项目约定 复盘） |
 
 ---
 

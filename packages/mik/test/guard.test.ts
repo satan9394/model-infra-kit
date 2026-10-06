@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { PROTOCOL_PACKAGES, PROVIDER_PRESETS } from "../src/registry/presets.js"
 
 /**
- * S9: protocol dispatch is a first-class rule (`AGENTS.md` rule 3), so the guard
+ * S9: protocol dispatch is a first-class rule (project conventions rule 3), so the guard
  * has to look at the whole package, not three hand-picked files, and it has to
  * recognise the ways a vendor id can sneak into control flow.
  */

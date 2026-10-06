@@ -2,7 +2,7 @@
 /**
  * `scripts/e2e/run.mjs` — one command, every acceptance scenario.
  *
- * Walks `docs/SPEC.md` §6 and `tasks/T09-examples-e2e.md` end to end against a
+ * Walks `docs/SPEC.md` §6 end to end against a
  * local mock provider. Nothing here touches the public internet: the mock
  * provider is an HTTP server on 127.0.0.1, and the price catalogue is pinned to
  * an unreachable URL so its bundled archive has to answer (that is scenario 6).
