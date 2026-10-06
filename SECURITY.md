@@ -13,9 +13,8 @@
 
 请**不要**通过公开 Issue 或 PR 披露漏洞细节。请使用：
 
-1. **GitHub 私密漏洞报告**（首选）：本仓库 **Security → Report a vulnerability**，
-   报告对公众不可见，直达维护者。
-2. 邮件：`security-contact@users.noreply.github.com`（主题前缀 `[SECURITY]`），仅在无法使用 GitHub 时使用。
+**GitHub 私密漏洞报告**：本仓库 **Security → Report a vulnerability**，
+报告对公众不可见，直达维护者。请优先使用该渠道，不要在公开 Issue 或 PR 中讨论细节。
 
 报告中请尽量包含：
 
@@ -43,6 +42,5 @@
 - 修复发布后：披露摘要（向量类别、影响、修复方式）。
 
 ---
-For English: report privately via **Security → Report a vulnerability**, or email
-`security-contact@users.noreply.github.com` with the subject prefix `[SECURITY]`. Please do not open a public issue
-for vulnerabilities.
+For English: report privately via **Security → Report a vulnerability**.
+Please do not open a public issue for vulnerabilities.

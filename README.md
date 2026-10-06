@@ -478,10 +478,7 @@ const other = await ModelInfra.init({ appId: "quant-lab", db: "~/.model-infra-ki
 | [`packages/mik/README.md`](packages/mik/README.md) | API 速查：`init/generate/stream/fetch/providers/models/pricing/usage` 与字段表 |
 | [`examples/`](examples/) | 三种接入面的可跑示例（`cli-agent` / `openai-sdk` / `python-host`） |
 | [`docs/decisions.md`](docs/decisions.md) | 关键取舍与理由 |
-| [`docs/verified-facts.md`](docs/verified-facts.md) | 本机实测事实（AI SDK usage 形状、环境坑） |
 | [`apps/dashboard/README.md`](apps/dashboard/README.md) | 看板页面、环境变量、代理层、已知限制 |
-| [`tasks/BOARD.md`](tasks/BOARD.md) | 任务看板与进度 |
-| [`AGENTS.md`](AGENTS.md) | 项目规则与硬性约束 |
 
 ## V0.1 明确不做
 
