@@ -193,7 +193,7 @@ export function ModelsClient({
                         .filter((binding) => binding.modelId === model.id)
                         .map((binding) => (
                           <Badge key={`${binding.providerId}:${binding.upstreamModelName}`} tone={binding.status === "available" ? "ok" : "warn"}>
-                            {binding.providerId}/{binding.protocol}:{binding.upstreamModelName} · {binding.status}
+                            {binding.providerId}/{binding.protocol}:{binding.upstreamModelName} · {t(`model.status.${binding.status}`)}
                           </Badge>
                         ))}
                     </div>

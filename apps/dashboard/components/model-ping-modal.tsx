@@ -43,7 +43,7 @@ export function ModelPingModal({ refName, onClose, onResult }: { refName: string
           <div><dt className="text-xs text-subtle"> {t("s121")} </dt><dd className="mt-1 text-xs">{result.dnsMs === null ? t("s122") : `${result.dnsMs} ms`}</dd></div>
         </dl>
         <p className="mt-3 text-xs text-subtle"> {t("s123")} </p>
-        <details className="mt-3 text-xs"><summary className="cursor-pointer"> {t("s124")} </summary><p className="mt-2 break-all">Prompt: {result.prompt} · Completion: {result.outputTokens} · Reasoning: {result.reasoningTokens} · {result.dnsNote}</p><pre className="mt-2 whitespace-pre-wrap break-all rounded bg-surface-muted p-2">{result.text}</pre></details>
+        <details className="mt-3 text-xs"><summary className="cursor-pointer"> {t("s124")} </summary><p className="mt-2 break-all">{t("ping.prompt")}: {result.prompt} · {t("ping.completion")}: {result.outputTokens} · {t("ping.reasoning")}: {result.reasoningTokens} · {t(result.dnsMs === null ? "ping.dnsUnavailable" : "ping.dnsPreflight")}</p><pre className="mt-2 whitespace-pre-wrap break-all rounded bg-surface-muted p-2">{result.text}</pre></details>
       </> : null}
     </div>
   </dialog>

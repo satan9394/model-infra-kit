@@ -9,7 +9,7 @@ const navigation = readFileSync(new URL("../components/nav.tsx", import.meta.url
 
 test("EVO-G96: Agent trace groups show cost bands, reasoning tokens, and archived detail state", () => {
   assert.match(navigation, /href: "\/traces", label: message\("s129"\)/)
-  assert.equal(translator("zh")("s129"), "Agent 任务")
+  assert.equal(translator("zh")("s129"), "智能体任务")
   assert.equal(translator("en")("s129"), "Agent tasks")
   assert.match(traces, /loadTraces\(query, groupBy\)/)
   assert.match(traces, /formatUsdSpan\(group\.costLowUsd, group\.costHighUsd\)/)

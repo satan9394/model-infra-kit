@@ -187,6 +187,11 @@ export class ProviderRegistry {
     this.deps.store.providers.setEnabled(id, enabled)
   }
 
+  /** Resolve a temporary credential using this generation's store, without registering it. */
+  resolveCredential(ref: string): string {
+    return this.deps.credentials.resolve(ref)
+  }
+
   /** Resolve a provider to its record, protocol and secret. */
   resolve(id: string): ResolvedProvider {
     const record = this.deps.store.providers.get(id)

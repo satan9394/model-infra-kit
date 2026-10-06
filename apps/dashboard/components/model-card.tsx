@@ -45,8 +45,8 @@ export function ModelCard({ model, providerName, firstTokenMs, isDefault, busy, 
       <div><dt className="text-subtle"> {t("s107")} </dt><dd className="mt-1 font-mono">{perThousand(model.pricing?.inputPerM)}</dd></div>
       <div><dt className="text-subtle"> {t("s108")} </dt><dd className="mt-1 font-mono">{perThousand(model.pricing?.outputPerM)}</dd></div>
     </dl>
-    <p className="mt-3 break-all text-[10px] text-subtle">{model.ref} · {model.source} · {model.pricing?.source ?? t("s109")}</p>
-    {model.pricing ? <p className="mt-1 text-[10px] text-subtle"> {t("s110")} {formatRate(model.pricing.cacheReadPerM)} / {formatRate(model.pricing.cacheWritePerM)}{model.pricing.contextTierAbove ? ` · >${compactContext(model.pricing.contextTierAbove)} tier` : ""}{model.pricing.reasoningMode ? " · Thinking tier" : ""}</p> : null}
+    <p className="mt-3 break-all text-[10px] text-subtle">{model.ref} · {t(`model.source.${model.source}`)} · {model.pricing?.source ? t(`price.source.${model.pricing.source}`) : t("s109")}</p>
+    {model.pricing ? <p className="mt-1 text-[10px] text-subtle"> {t("s110")} {formatRate(model.pricing.cacheReadPerM)} / {formatRate(model.pricing.cacheWritePerM)}{model.pricing.contextTierAbove ? ` · ${t("price.contextTier", compactContext(model.pricing.contextTierAbove))}` : ""}{model.pricing.reasoningMode ? ` · ${t("price.reasoningTier")}` : ""}</p> : null}
     {firstTokenMs !== undefined ? <p className={`mt-2 font-mono text-xs ${LATENCY_TONES[latencyLevel(firstTokenMs)]}`}> {t("s111")} {firstTokenMs} ms</p> : null}
   </article>
 }

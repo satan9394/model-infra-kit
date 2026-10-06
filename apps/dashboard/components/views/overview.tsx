@@ -238,7 +238,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       {shell.health ? (
         <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-subtle">
           <Badge tone={shell.health.pricing.status === "fresh" ? "ok" : "warn"}>
-            pricing {shell.health.pricing.status}
+            <span data-testid="overview-pricing-status">{t("pricing.label")} {t(shell.health.pricing.status === "fresh" ? "pricing.fresh" : shell.health.pricing.status === "stale" ? "pricing.stale" : shell.health.pricing.status === "error" ? "pricing.error" : "s160")}</span>
           </Badge>
           <span className="min-w-0 break-words"> {t("s322")} {Math.round(shell.health.uptimeMs / 1000)} {t("s323")} {" "}
             <code className="break-all text-muted-foreground">{shell.health.baseUrl}</code>

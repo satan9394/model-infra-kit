@@ -663,6 +663,27 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           },
         },
       },
+      "/api/providers/probe": {
+        post: {
+          tags: ["providers"],
+          summary: "Discover models from temporary configuration without saving it (5 second deadline).",
+          requestBody: body({ type: "object", required: ["protocol"], properties: {
+            baseUrl: { type: "string" }, apiKeyRef: { type: "string" },
+            protocol: { type: "string", enum: ["openai-compatible", "openai", "anthropic", "google", "deepseek", "moonshotai", "xai"] },
+          } }),
+          responses: {
+            "200": ok("Redacted one-shot result; upstream failures set status.ok=false.", { type: "object", properties: {
+              status: { allOf: [ref("ProviderStatus"), { type: "object", properties: { errorCode: { type: "string" } } }] },
+              baseUrl: { type: "string", description: "Normalized successful base URL, suitable for saving." },
+              models: { type: "array", items: { type: "object", required: ["modelId"], properties: {
+                modelId: { type: "string" }, displayName: { type: "string" }, contextWindow: { type: "integer" },
+                maxOutputTokens: { type: "integer" }, capabilities: ref("ModelCapabilities"),
+              } } },
+            } }),
+            "400": error("Invalid configuration or unsafe outbound URL."),
+          },
+        },
+      },
       "/api/providers/{id}": {
         patch: {
           tags: ["providers"],

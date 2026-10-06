@@ -14,8 +14,8 @@ import {
 test("provider protocol options match the dashboard API contract", () => {
   assert.deepEqual(PROVIDER_PROTOCOLS, [
     "openai-compatible",
-    "openai",
     "anthropic",
+    "openai",
     "google",
     "deepseek",
     "moonshotai",

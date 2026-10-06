@@ -71,6 +71,7 @@ export class ProviderRegistry {
   add(config: ProviderConfig): ProviderRecord        // 未给 protocol 时按 preset 补全
   remove(id: string): boolean
   setEnabled(id: string, enabled: boolean): void
+  resolveCredential(ref: string): string            // 只读解析临时凭据，沿用当前 generation 的 resolver，不注册、不写库
   resolve(id: string): ResolvedProvider              // 缺失抛 PROVIDER_NOT_FOUND / CREDENTIAL
   defaultModel(): string | null                      // 形如 "deepseek:deepseek-chat"
   setDefaultModel(ref: string): void
@@ -297,6 +298,7 @@ GET  /api/budget/status       （G101：整数微美元日/月软预算状态；
 GET  /api/providers            POST /api/providers
 PATCH/DELETE /api/providers/:id
 POST /api/providers/:id/test
+POST /api/providers/probe
 GET  /api/providers/:id/models   POST /api/providers/:id/models/refresh
 GET  /api/catalog              （内置标准模型事实 + 供应商端点绑定，不访问上游）
 GET  /api/models               GET /api/models/:ref
@@ -318,6 +320,16 @@ POST /api/usage/events         （F19 新增：宿主自己调模型，把用量
 GET  /openapi.json
 POST /v1/chat/completions      GET /v1/models
 ```
+
+### EVO-G120 — 未入库供应商探测
+
+`POST /api/providers/probe` 接受 `{ baseUrl?: string, apiKeyRef?: string, protocol: Protocol }`，沿用供应商管理的鉴权门禁。`apiKeyRef` 仅接受 `env:/file:/keychain:` 凭据引用；省略时允许无密钥上游。凭据由 `ProviderRegistry.resolveCredential(ref)` 只读解析，沿用当前 hub / reload generation 的注入环境；已配置且冻结的引用取既有快照，新提供的文件引用在探测时读取。不注册引用、不修改 SQLite、模型目录或用量。
+
+返回 `{ status, models, baseUrl? }`：`status` 为 `ProviderStatus`（`providerId: "probe"`，附可选 `errorCode`），`models` 为协议适配器的 `DiscoveredModel[]`（`modelId`、可选 `displayName/contextWindow/maxOutputTokens/capabilities`）。成功返回可直接保存的归一化 `baseUrl`；上游鉴权、连通、模型列表或超时失败返回 HTTP 200 + `status.ok: false` + 空列表。请求字段或 URL 不合法返回常规 HTTP 400。
+
+OpenAI / OpenAI 兼容协议剥离末尾 `/chat/completions`；根地址先尝试 `/v1/models`，仅 HTTP 404 时回退 `/models`。Anthropic 根地址使用 `/v1/models`，已有版本路径或 `/models` 不重复追加。其他协议沿用其模型列表适配器的路径与鉴权。省略 `baseUrl` 时取同名预设默认地址；无对应默认地址则 400。地址不得包含用户名、密码、查询或片段。
+
+原始地址及每个候选目标均经过 `assertSafeOutboundUrl`；禁止自动重定向（`redirect: "error"`）。单次探测包含回退与响应正文读取，合计硬性限时 5 秒。所有返回模型、错误与地址经 `redact.ts`，并额外替换实际解析出的密钥（覆盖无标准前缀的密钥）。探测不发警告日志，也不执行计量请求。
 
 **EVO-G103（1.1.0）开发与鉴权默认**：无 Token 时仅本地回环请求放行，CLI 明确告警；非回环请求要求配置 Token。配置 Master Token 或作用域 Token 时，除 `GET /api/health` 与 CORS 预检外需要 Bearer。越权返回精确的 403 `{"error":{"message":"insufficient_scope","code":"FORBIDDEN"}}`，无效凭据返回 401。供应商管理/配置/探测要求 admin；作用域详情见文末 EVO-G103。该用户授权策略取代 G01 的无 Token 写入一律 401。另：`readJsonBody` 只接受 `application/json`（含 `+json`、charset），否则 415；`provider test` / `models refresh` / `pricing sync` 出站前校验 URL（仅 http(s)，禁链路本地/云元数据地址如 169.254.0.0/16、fe80::/10、0.0.0.0、`[::]`，loopback 127.0.0.0/8、`::1` 放行），违规 400「INVALID_REQUEST」。
 

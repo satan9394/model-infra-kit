@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { AddProviderModal } from "@/components/add-provider-modal"
 import { EditProviderModal } from "@/components/edit-provider-modal"
+import { createProvider } from "@/lib/provider-create"
+import { providerStatusText } from "@/lib/provider-status"
 import { apiCall } from "@/lib/client-api"
 import { getProviderBrand } from "@/lib/provider-brands"
 import type {
@@ -69,7 +71,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
       error: result.ok ? undefined : result.error,
     })
     if (result.ok) {
-      setNotice({ tone: result.data.status.ok ? "ok" : "bad", text: `${id}：${result.data.status.message}` })
+      setNotice({ tone: result.data.status.ok ? "ok" : "bad", text: `${id}：${providerStatusText(result.data.status, t)}` })
     } else {
       setNotice({ tone: "bad", text: `${id}：${result.error}` })
     }
@@ -139,13 +141,15 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
   }
 
   const handleCreateProvider = async (
-    payload: ProviderCreatePayload
+    payload: ProviderCreatePayload,
+    defaultModelId?: string
   ): Promise<string | null> => {
     setBusy("__create__")
-    const result = await apiCall("/providers", { method: "POST", body: payload })
+    const result = await createProvider(payload, defaultModelId)
     setBusy(null)
     if (result.ok) {
-      setNotice({ tone: "ok", text: t("s187", payload.id) })
+      const { defaultError } = result.data
+      setNotice(defaultError ? { tone: "bad", text: t("provider.savedDefaultFailed", payload.id, defaultError) } : { tone: "ok", text: t("s187", payload.id) })
       setIsAddModalOpen(false)
       router.refresh()
       return null
@@ -365,7 +369,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                           row.status.ok ? "text-subtle" : "font-medium text-danger"
                         }`}
                       >
-                        {row.status.message}
+                        {providerStatusText(row.status, t)}
                       </p>
                     ) : null}
                     {row.status?.checkedAt ? (
@@ -394,13 +398,13 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                             {row.models?.map((model) => (
                               <span
                                 key={model.ref}
-                                title={t("s224", model.source, model.contextWindow ? t("s225", model.contextWindow) : "")}
+                                title={t("s224", t(`model.source.${model.source}`), model.contextWindow ? t("s225", model.contextWindow) : "")}
                                 className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-0.5 shadow-2xs"
                               >
                                 <code className="truncate font-mono text-[11px] text-foreground/90">
                                   {model.modelId}
                                 </code>
-                                <span className="shrink-0 text-[9px] text-subtle">{model.source}</span>
+                                <span className="shrink-0 text-[9px] text-subtle">{t(`model.source.${model.source}`)}</span>
                               </span>
                             ))}
                           </div>

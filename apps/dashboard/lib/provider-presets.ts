@@ -3,8 +3,8 @@ import type { Protocol } from "./types"
 
 export const PROVIDER_PROTOCOLS = [
   "openai-compatible",
-  "openai",
   "anthropic",
+  "openai",
   "google",
   "deepseek",
   "moonshotai",

@@ -13,6 +13,9 @@ import {
   type ProviderDraft,
   type ProviderPresetId,
 } from "@/lib/provider-presets"
+import { apiCall } from "@/lib/client-api"
+import { providerProbeError, providerStatusText } from "@/lib/provider-status"
+import type { ProviderStatus } from "@/lib/types"
 import { getProviderBrand } from "@/lib/provider-brands"
 
 const inputClass =
@@ -23,13 +26,22 @@ export function AddProviderModal({
   onCreate,
 }: {
   onClose: () => void
-  onCreate: (payload: ProviderCreatePayload) => Promise<string | null>
+  onCreate: (payload: ProviderCreatePayload, defaultModelId?: string) => Promise<string | null>
 }) {
   const { t } = useI18n()
 
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [draft, setDraft] = useState<ProviderDraft>(() => emptyProviderDraft())
   const [selectedPreset, setSelectedPreset] = useState<ProviderPresetId>("custom")
+  const [presetSearch, setPresetSearch] = useState("")
+  const [probing, setProbing] = useState(false)
+  const [probeError, setProbeError] = useState<string | null>(null)
+  const [probeStatus, setProbeStatus] = useState<ProviderStatus | null>(null)
+  const [models, setModels] = useState<{ modelId: string }[]>([])
+  const [defaultModelId, setDefaultModelId] = useState("")
+  const probeController = useRef<AbortController | null>(null)
+  const cancelProbe = () => { probeController.current?.abort(); probeController.current = null }
+  const close = () => { cancelProbe(); onClose() }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,20 +54,53 @@ export function AddProviderModal({
     const input = document.getElementById("provider-id")
     if (input) input.focus()
     return () => {
+      cancelProbe()
       if (dialog.open) dialog.close()
       trigger?.focus()
     }
   }, [])
 
   const selectPreset = (presetId: ProviderPresetId) => {
+    cancelProbe()
+    setProbing(false); setModels([]); setDefaultModelId(""); setProbeStatus(null); setProbeError(null)
     setSelectedPreset(presetId)
     setDraft(draftFromPreset(presetId))
     setError(null)
   }
 
   const updateDraft = (patch: Partial<ProviderDraft>) => {
+    if (patch.baseUrl !== undefined || patch.apiKeyRef !== undefined || patch.protocol !== undefined) {
+      cancelProbe()
+      setProbing(false); setModels([]); setDefaultModelId(""); setProbeStatus(null); setProbeError(null)
+    }
     setDraft((current) => ({ ...current, ...patch }))
     setSelectedPreset("custom")
+  }
+
+  const probe = async () => {
+    cancelProbe()
+    const controller = new AbortController()
+    probeController.current = controller
+    setProbing(true); setProbeError(null); setProbeStatus(null); setModels([]); setDefaultModelId("")
+    const timer = window.setTimeout(() => controller.abort(), 5000)
+    try {
+      const result = await apiCall<{ status: ProviderStatus & { errorCode?: string }; models: { modelId: string }[]; baseUrl?: string }>("/providers/probe", {
+        method: "POST", signal: controller.signal,
+        body: { protocol: draft.protocol, ...(draft.baseUrl.trim() ? { baseUrl: draft.baseUrl.trim() } : {}), ...(draft.apiKeyRef.trim() ? { apiKeyRef: draft.apiKeyRef.trim() } : {}) },
+      })
+      if (probeController.current !== controller) return
+      if (controller.signal.aborted) { setProbeError(t("provider.probeTimeout")); return }
+      if (!result.ok) { setProbeError(providerProbeError({ message: result.error }, t)); return }
+      setProbeStatus(result.data.status)
+      if (result.data.status.ok) {
+        setModels(result.data.models)
+        const baseUrl = result.data.baseUrl
+        if (baseUrl) setDraft((current) => ({ ...current, baseUrl }))
+      } else setProbeError(providerProbeError(result.data.status, t))
+    } finally {
+      window.clearTimeout(timer)
+      if (probeController.current === controller) { probeController.current = null; setProbing(false) }
+    }
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -69,9 +114,11 @@ export function AddProviderModal({
     setSaving(true)
     setError(null)
     try {
-      const err = await onCreate(parsed.value)
+      cancelProbe()
+      setProbing(false)
+      const err = await onCreate(parsed.value, defaultModelId || undefined)
       if (err) setError(err)
-      else onClose()
+      else close()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError))
     } finally {
@@ -86,7 +133,7 @@ export function AddProviderModal({
       className="m-auto max-h-[min(92vh,52rem)] w-[min(100%-2rem,46rem)] overflow-y-auto rounded-2xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm"
       onCancel={(event) => {
         event.preventDefault()
-        if (!saving) onClose()
+        if (!saving) close()
       }}
     >
       <form onSubmit={(event) => void submit(event)}>
@@ -102,7 +149,7 @@ export function AddProviderModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             disabled={saving}
             aria-label={t("s2")}
             className="rounded-lg p-1.5 text-lg leading-none text-subtle hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
@@ -118,44 +165,17 @@ export function AddProviderModal({
               <span> {t("s3")} </span>
               <span className="text-[11px] font-normal text-subtle"> {t("s4")} </span>
             </legend>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-              {PROVIDER_PRESETS.map((preset) => {
+            <label className="block">
+              <span className="sr-only">{t("provider.searchPresets")}</span>
+              <input type="search" className={inputClass} value={presetSearch} onChange={(event) => setPresetSearch(event.target.value)} placeholder={t("provider.searchPresets")} />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {PROVIDER_PRESETS.filter((preset) => `${t(preset.label)} ${t(preset.hint)} ${preset.id}`.toLowerCase().includes(presetSearch.trim().toLowerCase())).map((preset) => {
                 const selected = selectedPreset === preset.id
-                const presetId = "presetId" in preset ? (preset as { presetId?: string }).presetId : undefined
-                const brand = getProviderBrand(preset.providerId || preset.id, presetId)
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => selectPreset(preset.id)}
-                    className={`group relative flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                      selected
-                        ? "border-primary bg-primary-soft shadow-sm"
-                        : "border-border bg-surface hover:border-border-strong hover:bg-surface-hover"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className="inline-flex size-6 items-center justify-center rounded-md font-mono text-[10px] font-bold text-white shadow-xs"
-                        style={{ backgroundColor: brand.color }}
-                      >
-                        {brand.shortTag}
-                      </span>
-                      {selected ? (
-                        <span className="size-2 rounded-full bg-primary" aria-hidden="true" />
-                      ) : null}
-                    </div>
-                    <div className="mt-2">
-                      <span className={`block truncate text-xs font-semibold ${selected ? "text-primary" : "text-foreground"}`}>
-                        {t(preset.label)}
-                      </span>
-                      <span className="mt-0.5 block truncate text-[10px] text-subtle">
-                        {t(preset.hint)}
-                      </span>
-                    </div>
-                  </button>
-                )
+                const brand = getProviderBrand(preset.providerId || preset.id)
+                return <button key={preset.id} type="button" aria-pressed={selected} onClick={() => selectPreset(preset.id)} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-hover"}`}>
+                  <span aria-hidden="true" className="size-1.5 rounded-full" style={{ backgroundColor: brand.color }} />{t(preset.label)}
+                </button>
               })}
             </div>
           </fieldset>
@@ -163,7 +183,7 @@ export function AddProviderModal({
           {/* Core Configuration Fields */}
           <div className="grid gap-4 sm:grid-cols-2">
             <label htmlFor="provider-id" className="text-xs font-medium text-muted-foreground">
-              Provider ID <span className="text-danger">*</span>
+              {t("s46")} <span className="text-danger">*</span>
               <input
                 id="provider-id"
                 className={`${inputClass} font-mono text-xs`}
@@ -219,7 +239,7 @@ export function AddProviderModal({
           </div>
 
           <label className="block text-xs font-medium text-muted-foreground">
-            Base URL
+            {t("provider.baseUrl")}
             <input
               className={`${inputClass} font-mono text-xs`}
               value={draft.baseUrl}
@@ -230,6 +250,24 @@ export function AddProviderModal({
             />
             <span className="mt-1 block text-[10px] font-normal text-subtle"> {t("s14")} </span>
           </label>
+
+          <section aria-label={t("provider.probe")} className="space-y-2" data-testid="provider-probe">
+            <button type="button" onClick={() => void probe()} disabled={probing || saving} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">
+              {probing ? <span aria-hidden="true" className="size-3 rounded-full border-2 border-current border-t-transparent motion-safe:animate-spin" /> : <span aria-hidden="true">↓</span>}
+              {t(probing ? "provider.probing" : "provider.probe")}
+            </button>
+            <div aria-live="polite" role="status" className="text-xs">
+              {probeError ? <p className="break-all text-danger" role="alert">{t(probeError)}</p> : probeStatus ? <p className="text-success">{providerStatusText(probeStatus, t)}</p> : null}
+            </div>
+            {models.length ? <>
+              <p className="text-xs text-subtle">{t("provider.chooseDefault")}</p>
+              <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+                {models.slice(0, 50).map((model) => <button type="button" key={model.modelId} aria-pressed={defaultModelId === model.modelId} onClick={() => setDefaultModelId(model.modelId)} className={`max-w-full break-all rounded-full border px-2.5 py-1 text-xs focus-visible:ring-2 focus-visible:ring-primary ${defaultModelId === model.modelId ? "border-primary bg-primary-soft text-primary" : "border-border hover:bg-surface-hover"}`}>{model.modelId}</button>)}
+              </div>
+              {models.length > 50 ? <p className="text-xs text-subtle">{t("provider.modelsLimited", models.length)}</p> : null}
+              {defaultModelId ? <p className="break-all text-xs text-primary">{t("s257")}{defaultModelId}</p> : null}
+            </> : null}
+          </section>
 
           {/* Enabled Switch */}
           <label className="flex items-center gap-3 rounded-xl border border-border bg-surface-muted/50 p-3 text-xs text-muted-foreground">
@@ -250,7 +288,7 @@ export function AddProviderModal({
             <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"> {t("s17")} </summary>
             <div className="border-t border-border p-4">
               <label htmlFor="provider-headers" className="text-xs font-medium text-muted-foreground">
-                Headers（JSON）
+                {t("provider.headers")}
               </label>
               <textarea
                 id="provider-headers"
@@ -277,7 +315,7 @@ export function AddProviderModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={close}
               disabled={saving}
               className="rounded-lg border border-border-strong px-4 py-2 text-xs font-medium text-foreground hover:bg-surface-hover disabled:opacity-50"
             > {t("s20")} </button>

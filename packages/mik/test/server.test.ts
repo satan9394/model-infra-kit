@@ -1560,6 +1560,7 @@ describe("GET /openapi.json", () => {
     "/api/connections",
     "/api/budget/status",
     "/api/providers",
+    "/api/providers/probe",
     "/api/providers/{id}",
     "/api/providers/{id}/test",
     "/api/providers/{id}/models",

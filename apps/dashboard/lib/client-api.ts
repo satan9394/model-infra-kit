@@ -11,7 +11,7 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
 export async function apiCall<T>(
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<ApiResult<T>> {
   const headers: Record<string, string> = { accept: "application/json" }
   let body: string | undefined
@@ -26,6 +26,7 @@ export async function apiCall<T>(
       headers,
       body,
       cache: "no-store",
+      signal: init.signal,
     })
     const text = await response.text()
     if (!response.ok) {

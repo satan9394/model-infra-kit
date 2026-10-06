@@ -937,7 +937,7 @@ async function main() {
         assert(new RegExp(`tabular-nums[^>]*>${expected.requests}<`).test(home), `the overview does not show the request count ${expected.requests}`)
         assert(home.includes(expected.tokens), `the overview does not show the token total ${expected.tokens}`)
         assert(home.includes(APP_ID), `the overview does not name the app ${APP_ID}`)
-        assert(home.includes("pricing stale"), "the overview does not show the price source badge (pricing stale)")
+        assert(testIdText(home, "overview-pricing-status") === "价格目录 已过期", "the overview does not show the localized stale pricing badge")
         assert(home.includes("mock"), "the overview does not list the mock provider bucket")
 
         // EVO-G91: the *same* money cell on `/trends`. It is a second surface

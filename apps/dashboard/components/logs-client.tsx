@@ -60,7 +60,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
               <KeyValue label="appId">{event.appId}</KeyValue>
               <KeyValue label={t("s82")}>{event.source}</KeyValue>
               <KeyValue label={t("s83")}>
-                <Badge tone={event.status === "ok" ? "ok" : "bad"}>{event.status}</Badge>
+                <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
                 {event.errorCode ? <span className="ml-2 text-danger">{event.errorCode}</span> : null}
               </KeyValue>
               <KeyValue label={t("s84")}>{event.isStreaming ? t("s85") : t("s86")}</KeyValue>
@@ -212,7 +212,7 @@ export function LogsClient({
                 <Td className="text-right font-mono tabular-nums text-xs">{formatUsd(event.cost.usd)}</Td>
                 <Td className="text-right font-mono tabular-nums text-xs">{formatMs(event.latencyMs)}</Td>
                 <Td>
-                  <Badge tone={event.status === "ok" ? "ok" : "bad"}>{event.status}</Badge>
+                  <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
                   {event.errorCode ? <div className="mt-1 text-[11px] text-danger">{event.errorCode}</div> : null}
                 </Td>
                 <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle"><button type="button" aria-label={`${t("s78")}: ${event.requestId}`} onClick={() => setOpenId(event.requestId)} className="underline">{event.requestId}</button></Td>

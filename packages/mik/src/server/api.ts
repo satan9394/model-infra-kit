@@ -13,6 +13,7 @@ import { assertSafeOutboundUrl } from "./outbound.js"
 import type { Router } from "./router.js"
 import { registerBudgetRoutes } from "./routes/budget.js"
 import { SseStream } from "./sse.js"
+import { probeProvider } from "./provider-probe.js"
 
 function isProtocol(value: unknown): value is Protocol {
   return typeof value === "string" && Object.hasOwn(PROTOCOL_PACKAGES, value)
@@ -401,6 +402,19 @@ export function registerApiRoutes(router: Router): void {
       }
       const record = ctx.hub.providers.add({ id: body.id.trim(), ...readProviderFields(body) })
       sendJson(ctx.res, 201, { provider: sanitize(record) })
+    })
+
+    .add("POST", "/api/providers/probe", async (ctx) => {
+      const body = await readJsonBody(ctx.req)
+      if (!isProtocol(body.protocol)) throw new HttpError(400, '"protocol" must be a supported protocol.', "INVALID_REQUEST")
+      for (const field of ["baseUrl", "apiKeyRef"] as const) {
+        if (body[field] !== undefined && typeof body[field] !== "string") {
+          throw new HttpError(400, `"${field}" must be a string.`, "INVALID_REQUEST")
+        }
+      }
+      sendJson(ctx.res, 200, await probeProvider({ protocol: body.protocol,
+        baseUrl: body.baseUrl as string | undefined, apiKeyRef: body.apiKeyRef as string | undefined },
+      ref => ctx.hub.providers.resolveCredential(ref)))
     })
 
     .add("PATCH", "/api/providers/:id", async (ctx) => {
