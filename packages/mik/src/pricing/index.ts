@@ -8,4 +8,4 @@ export type {
   PricingSyncOptions,
   PricingSyncResult,
 } from "./service.js"
-export type { ModelPricingTier, ModelPricingTierRates, ModelPricingTierSource, PriceRule, MultimodalUsage } from "./tiers.js"
+export type { ModelPricingTier, ModelPricingTierRates, ModelPricingTierSource, TimeOfDayDiscount, PricingRequestFacts, PriceRule, MultimodalUsage } from "./tiers.js"

@@ -176,6 +176,8 @@ export interface ToolCall {
 }
 
 export interface ModelRequest {
+  /** Apply the local 50% batch base-rate discount. */
+  batch?: boolean
   /** Measured media quantities priced only by explicitly configured media rates. */
   media?: MultimodalUsage
   /** `provider:model`, or a bare model id resolved against the default provider. */
@@ -445,11 +447,12 @@ export interface UsagePage {
 }
 
 /**
- * Soft spend budget (EVO-G07). **Advisory only**: crossing the threshold sends
- * one `onWarn` per process per window — it never refuses, queues or rate-limits
- * a call. Absent config means the feature is off (no query, no warning).
+ * Local UTC spend budget. Advisory by default; hardCap opts HTTP generation
+ * into pre-dispatch enforcement. Absent config disables budget checks.
  */
 export interface BudgetConfig {
+  /** Block HTTP generation before dispatch when a local UTC limit is reached. */
+  hardCap?: boolean
   /** Legacy single-window threshold in USD. Must be positive when supplied. */
   usd?: number
   /**
@@ -459,9 +462,9 @@ export interface BudgetConfig {
   window?: "day" | "month"
   /** Only `"warn"` is supported today; any other value is treated as invalid config. */
   onExceed?: "warn"
-  /** Read-only status limit for the UTC day, in integer micro-USD. */
+  /** UTC day limit, in integer micro-USD. */
   dailyMicros?: number
-  /** Read-only status limit for the UTC calendar month, in integer micro-USD. */
+  /** UTC calendar month limit, in integer micro-USD. */
   monthlyMicros?: number
   /** Status currency. USD is the only supported currency. */
   currency?: "USD"
@@ -489,8 +492,8 @@ export interface ModelInfraConfig {
   /** Cache directory for the pricing catalogue. Defaults to `~/.model-infra-kit/cache`. */
   cacheDir?: string
   /**
-   * Soft, warn-only spend threshold for this `appId`. Default: not configured,
-   * which means the whole feature is inactive. Never blocks a request.
+   * Spend thresholds for this appId. Advisory unless hardCap is enabled for
+   * HTTP generation. Default: not configured.
    */
   budget?: BudgetConfig
   /** Called for non-fatal problems (catalogue sync failure, missing price). */

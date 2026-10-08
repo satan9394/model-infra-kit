@@ -33,6 +33,8 @@ async function forwardNative(ctx: ServerContext, protocol: string, endpoint: str
     if (candidates.length === 1) target = ctx.hub.resolveModel(`${candidates[0]!.id}:${payload.model}`)
   }
   if (!target || !protocols.includes(ctx.hub.providers.get(target.providerId)!.protocol ?? "openai-compatible")) throw new HttpError(400, "No unambiguous provider for the client protocol. Use provider:model.", "INVALID_REQUEST")
+  delete payload.batch
+  delete payload["X-Mik-Batch"]
   ctx.updateConnectionModel?.(target.modelId)
   const controller = new AbortController()
   const abort = () => { if (!ctx.res.writableFinished) controller.abort() }
@@ -40,7 +42,7 @@ async function forwardNative(ctx: ServerContext, protocol: string, endpoint: str
   ctx.req.once("aborted", abort)
   try {
     const headers = new Headers()
-    for (const [key, value] of Object.entries(ctx.req.headers)) if (value !== undefined && key !== "x-mik-auto-protocol") headers.set(key, Array.isArray(value) ? value.join(", ") : value)
+    for (const [key, value] of Object.entries(ctx.req.headers)) if (value !== undefined && !["x-mik-auto-protocol", "x-mik-batch", "x-mik-bypass-budget"].includes(key)) headers.set(key, Array.isArray(value) ? value.join(", ") : value)
     const response = await ctx.hub.fetch(`${ctx.origin}/v1/${endpoint}${ctx.url.search}`, {
       method: "POST", headers, body: JSON.stringify({ ...payload, model: `${target.providerId}:${target.modelId}` }), signal: controller.signal,
     })

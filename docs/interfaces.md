@@ -1437,3 +1437,50 @@ Successful generate/stream/fetch calls and priced HTTP usage reports snapshot po
 The default state file is `daemon.json` in the user's model-infra-kit home; `MIK_DAEMON_FILE` isolates instances. PID, start timestamp, pipe endpoint, port and canonical non-secret arguments are recorded. Credentials/gateway tokens are inherited through environment or config references, never serialized into the state or command line. Errors/output use the project redactor. PID reuse/control identity mismatch is refused before signalling. Readiness and control are bounded; established-service stop timeouts never force-kill.
 
 Lifecycle mutations use an exclusive directory lock. Released locks are renamed to recoverable `.released` directories, and stopped metadata is retained; no filesystem deletion is required. An interrupted mutation may leave a lock needing inspection before retry. The control pipe is a local OS service-control boundary separate from gateway HTTP auth; protect the user state directory. Each machine supports one daemon per state-file path. Release gates retain generated artifacts and test scratch directories.
+
+
+## EVO-G125: local discounts and hard budget caps
+
+A pricing snapshot's `rates.timeOfDayDiscounts` contains UTC hour windows:
+
+```json
+{"startHourUtc":22,"endHourUtc":6,"inputMultiplier":0.5,"outputMultiplier":0.25}
+```
+
+Hours are integers (start 0–23, end 0–24); equal endpoints are invalid.
+Start is inclusive and end exclusive. A lower end wraps across midnight;
+0–24 covers the full day. Multipliers are finite values between 0 and 1.
+The first matching rule wins. Snapshots retain these rules in the existing
+integer rate cache; `PricingService.importSnapshot()` validates them before
+writing. Request timestamps select rules locally, without a network dependency.
+`GET /api/pricing` returns `discounts` with each model's windows and active rule.
+
+Set `X-Mik-Batch: true`, a JSON `batch: true` or `"X-Mik-Batch": true`, or the
+embedded `ModelRequest.batch` flag for 50% base-rate billing. Batch stacks with
+UTC and long-context token multipliers. BigInt numerators combine fresh input,
+cache reads/writes, text/reasoning output and media before one final micro-dollar
+rounding. Batch also halves media rates; time windows apply to token input/output.
+Recorded cache savings compare the same discounted input rates. Provider-reported
+billed amounts remain authoritative and are never discounted a second time.
+MIK control fields and headers are consumed locally, never forwarded upstream.
+
+Configure `budget: { hardCap: true, dailyMicros: 1000000, monthlyMicros: 20000000 }`
+in the hub/config file, or pass `budget` to `createServer()`. All three HTTP
+generation endpoints check the authenticated app's local UTC totals before
+provider resolution/dispatch. At either limit, HTTP 429 returns
+`error.code: "BUDGET_EXCEEDED"`. Without `hardCap`, behavior remains advisory.
+The status API reports the same effective configuration as enforcement.
+
+A valid admin/wildcard token, or an authenticated caller explicitly setting
+`X-Mik-Bypass-Budget: true`, bypasses the cap with a redacted warning. On a
+loopback server configured without tokens, the explicit header is also available;
+implicit local admin access alone does not bypass a cap. Server `onWarn` can
+capture these warnings. No gateway credentials are written to the ledger.
+
+ponytail: this guard stops new dispatches once recorded spend reaches a limit;
+it does not reserve predicted spend, cancel in-flight work, or cap embedded calls.
+Unpriced requests and retained rollup allocation retain the status API's existing
+limitations. Price refresh failure does not block generation.
+
+Runnable focused checks:
+`pnpm exec vitest run packages/mik/test/pricing-time-of-day.test.ts packages/mik/test/hard-budget-cap.test.ts packages/mik/test/batch-gateway.test.ts`.

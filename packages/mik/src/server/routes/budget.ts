@@ -5,6 +5,6 @@ import { sendJson } from "../http.js"
 /** Register the read-only advisory budget endpoint. */
 export function registerBudgetRoutes(router: Router): void {
   router.add("GET", "/api/budget/status", (ctx: ServerContext) => {
-    sendJson(ctx.res, 200, ctx.hub.budgetStatus())
+    sendJson(ctx.res, 200, ctx.budgetStatus?.() ?? ctx.hub.budgetStatus())
   })
 }

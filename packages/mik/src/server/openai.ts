@@ -391,6 +391,7 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
   const tools = toTools(body.tools)
 
   const request: ModelRequest = { messages: prompt.messages }
+  if (ctx.req.headers["x-mik-batch"] === "true" || body.batch === true || body["X-Mik-Batch"] === true || body["X-Mik-Batch"] === "true") request.batch = true
   if (prompt.system !== undefined) request.system = prompt.system
   if (tools !== undefined) request.tools = tools
   if (model !== undefined) request.model = model

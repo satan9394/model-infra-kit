@@ -1,4 +1,5 @@
 import type { BudgetConfig } from "../types.js"
+import { requestCostMicrosBigInt } from "./tool-attribution.js"
 
 export type BudgetStatusLevel = "ok" | "warning" | "exceeded"
 
@@ -41,14 +42,14 @@ export interface BudgetPeriod {
 
 export interface BudgetStatus {
   currency: "USD"
-  advisory: true
+  advisory: boolean
+  hardCap?: boolean
   daily: BudgetPeriod | null
   monthly: BudgetPeriod | null
 }
 
 type BudgetUsageInput = BudgetUsageReader | BudgetUsageSnapshot
 
-const MICROS_PER_USD = 1_000_000
 const PERCENT_WARNING = 80
 
 function safeInteger(value: unknown): number {
@@ -79,7 +80,7 @@ function legacyLimitMicros(config: BudgetConfig, window: "day" | "month"): numbe
     return undefined
   }
   if ((config.window ?? "day") !== window) return undefined
-  const micros = Math.round(config.usd * MICROS_PER_USD)
+  const micros = Number(requestCostMicrosBigInt(config.usd))
   return Number.isSafeInteger(micros) && micros > 0 ? micros : undefined
 }
 
@@ -151,6 +152,7 @@ function period(
  */
 export function checkBudgetStatus(usage: BudgetUsageInput, config: BudgetConfig | undefined, now = Date.now()): BudgetStatus {
   const result: BudgetStatus = { currency: "USD", advisory: true, daily: null, monthly: null }
+  if (config?.hardCap === true) { result.hardCap = true; result.advisory = false }
   if (!config || (config.currency !== undefined && config.currency !== "USD")) return result
   validTimestamp(now)
 

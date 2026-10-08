@@ -76,6 +76,8 @@ function readBudgetConfig(value: unknown): BudgetConfig | undefined {
     return undefined
   }
   const budget: BudgetConfig = {}
+  if (Object.hasOwn(source, "hardCap") && typeof source.hardCap !== "boolean") return undefined
+  if (typeof source.hardCap === "boolean") budget.hardCap = source.hardCap
   if (typeof source.usd === "number" && Number.isFinite(source.usd)) budget.usd = source.usd
   if (source.window === "day" || source.window === "month") budget.window = source.window
   if (source.onExceed === "warn") budget.onExceed = source.onExceed

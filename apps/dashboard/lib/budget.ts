@@ -14,7 +14,8 @@ export interface BudgetPeriod {
 }
 export interface BudgetStatus {
   currency: "USD"
-  advisory: true
+  advisory: boolean
+  hardCap?: boolean
   daily: BudgetPeriod | null
   monthly: BudgetPeriod | null
 }

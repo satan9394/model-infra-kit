@@ -268,7 +268,15 @@ export interface ProviderStatusPayload {
   status: ProviderStatus
 }
 
+export interface PricingDiscount {
+  modelId: string
+  providerId: string
+  rules: { startHourUtc: number; endHourUtc: number; inputMultiplier: number; outputMultiplier: number }[]
+  active: { inputMultiplier: number; outputMultiplier: number } | null
+}
+
 export interface PricingPayload {
+  discounts?: PricingDiscount[]
   state: PricingState
   overrides: PricingOverride[]
 }

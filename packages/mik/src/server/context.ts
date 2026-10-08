@@ -45,6 +45,7 @@ export class InFlightTracker {
  * context, which keeps the HTTP layer free of framework state.
  */
 export interface ServerContext {
+  budgetStatus?: () => import("../usage/budget.js").BudgetStatus
   hub: ModelInfra
   /** Token metadata only; the bearer secret never reaches handlers. */
   auth?: { scopes: string[]; appId?: string }

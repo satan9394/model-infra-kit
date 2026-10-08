@@ -30,6 +30,7 @@ export function BudgetPill({ showAlert = false }: { showAlert?: boolean }) {
       <summary className="cursor-pointer select-none rounded focus-visible:outline-2 focus-visible:outline-primary" data-testid={showAlert ? "overview-budget-pill" : "budget-pill"}>
         <span aria-hidden="true" className={`mr-2 inline-block h-2 w-2 rounded-full bg-current ${level === "warning" ? "motion-safe:animate-pulse" : ""}`} />
         {error ? t("s25") : !status ? t("s26") : periods.length === 0 ? t("s27") : periods.map(([label, period]) => `${label} ${period!.percent}%`).join(" · ")}
+        {status?.hardCap && !error ? <span role="status" data-testid="budget-hard-cap" className="ml-2">{level === "exceeded" ? t("budget.hardBlocked") : t("budget.hardReady")}</span> : null}
       </summary>
       <div className="mt-3 space-y-3">
         {periods.map(([label, period]) => period ? <div key={label} className={`rounded-lg border p-2 ${BUDGET_TONES[period.status]}`}>
@@ -40,7 +41,7 @@ export function BudgetPill({ showAlert = false }: { showAlert?: boolean }) {
           {period.unpricedRequests > 0 || period.archivedRequests > 0 ? <p className="mt-1"> {t("s30")} {period.unpricedRequests} {t("s31")} {period.archivedRequests} {t("s32")} </p> : null}
         </div> : null)}
         {periods.length === 0 ? <p> {t("s33")} </p> : null}
-        <p> {t("s34")} </p>
+        <p> {status?.hardCap ? t("budget.hardDetail") : t("s34")} </p>
       </div>
     </details>
     {showAlert && !error && level !== "ok" ? <p role="status" className={`mt-2 rounded-lg border p-3 ${BUDGET_TONES[level]}`} data-testid="budget-alert">{level === "exceeded" ? t("s35") : t("s36")}</p> : null}

@@ -3,6 +3,40 @@ export type { MultimodalUsage } from "../types.js"
 
 export type ModelPricingTierSource = "builtin" | "synced" | "manual"
 
+export interface TimeOfDayDiscount {
+  startHourUtc: number
+  endHourUtc: number
+  inputMultiplier: number
+  outputMultiplier: number
+}
+
+export interface PricingRequestFacts {
+  at?: number
+  batch?: boolean
+}
+
+export function isTimeOfDayDiscount(value: unknown): value is TimeOfDayDiscount {
+  if (!value || typeof value !== "object") return false
+  const rule = value as TimeOfDayDiscount
+  return Object.keys(rule).every(key => ["startHourUtc", "endHourUtc", "inputMultiplier", "outputMultiplier"].includes(key))
+    && Number.isInteger(rule.startHourUtc) && rule.startHourUtc >= 0 && rule.startHourUtc < 24
+    && Number.isInteger(rule.endHourUtc) && rule.endHourUtc >= 0 && rule.endHourUtc <= 24
+    && rule.startHourUtc !== rule.endHourUtc
+    && [rule.inputMultiplier, rule.outputMultiplier].every(value => Number.isFinite(value) && value >= 0 && value <= 1)
+}
+
+/** UTC, inclusive start and exclusive end. First matching rule wins. */
+export function timeOfDayDiscountAt(rules: readonly TimeOfDayDiscount[], at: number): TimeOfDayDiscount | undefined {
+  const hour = new Date(at).getUTCHours()
+  if (!Number.isFinite(hour)) throw new RangeError("pricing time must be a valid Date timestamp")
+  return rules.find(rule => {
+    if (!isTimeOfDayDiscount(rule)) throw new RangeError("invalid time-of-day discount")
+    return rule.startHourUtc < rule.endHourUtc
+      ? hour >= rule.startHourUtc && hour < rule.endHourUtc
+      : hour >= rule.startHourUtc || hour < rule.endHourUtc
+  })
+}
+
 export interface PriceRule {
   image_per_megapixel_micros?: number
   audio_input_micros_per_second?: number
@@ -19,6 +53,7 @@ export function validateMultimodalUsage(media: MultimodalUsage | undefined): voi
 }
 
 export interface ModelPricingTierRates extends PriceRule {
+  timeOfDayDiscounts?: TimeOfDayDiscount[]
   inputMicrosPerMillion: number
   cachedInputMicrosPerMillion?: number
   cacheWriteMicrosPerMillion?: number
@@ -39,6 +74,7 @@ export interface ModelPricingTier {
 }
 
 export interface ModelPricingTierInput extends PriceRule {
+  timeOfDayDiscounts?: TimeOfDayDiscount[]
   modelId: string
   providerId: string
   source: ModelPricingTierSource
@@ -124,6 +160,11 @@ export function deriveModelPricingTier(input: ModelPricingTierInput): ModelPrici
     outputMicrosPerMillion: outputRate,
   }
 
+  if (input.timeOfDayDiscounts !== undefined) {
+    if (!Array.isArray(input.timeOfDayDiscounts) || !input.timeOfDayDiscounts.every(isTimeOfDayDiscount)) throw new RangeError("invalid time-of-day discounts")
+    rates.timeOfDayDiscounts = input.timeOfDayDiscounts.map(rule => ({ ...rule }))
+  }
+
   const reasoningRate = input.reasoningOutputPerM ?? (modelIsGpt6 ? input.outputPerM : undefined)
   for (const key of ["image_per_megapixel_micros", "audio_input_micros_per_second", "audio_output_micros_per_second"] as const) {
     const rate = input[key]
@@ -166,6 +207,7 @@ export function calculateTierCostMicros(
   tier: ModelPricingTier,
   usage: Partial<TokenUsage>,
   media?: MultimodalUsage,
+  facts: PricingRequestFacts = {},
 ): { costLowMicros: number; costHighMicros: number } {
   validateMultimodalUsage(media)
   const input = usage.input === undefined ? undefined : tokenCount(usage.input)
@@ -185,8 +227,9 @@ export function calculateTierCostMicros(
     tier.rates.longContextThresholdTokens !== undefined &&
     input >= tier.rates.longContextThresholdTokens
 
-  const inputMultiplier = multiplierScaled(tier.rates.longContextInputMultiplier, longContext)
-  const outputMultiplier = multiplierScaled(tier.rates.longContextOutputMultiplier, longContext)
+  const discount = timeOfDayDiscountAt(tier.rates.timeOfDayDiscounts ?? [], facts.at ?? Date.now())
+  const inputMultiplier = multiplierScaled(tier.rates.longContextInputMultiplier, longContext) * multiplierScaled(discount?.inputMultiplier, true)
+  const outputMultiplier = multiplierScaled(tier.rates.longContextOutputMultiplier, longContext) * multiplierScaled(discount?.outputMultiplier, true)
   const cachedRate = BigInt(tier.rates.cachedInputMicrosPerMillion ?? tier.rates.inputMicrosPerMillion)
   const cacheWriteRate = BigInt(tier.rates.cacheWriteMicrosPerMillion ?? tier.rates.inputMicrosPerMillion)
   const reasoningRate = BigInt(tier.rates.reasoningOutputMicrosPerMillion ?? tier.rates.outputMicrosPerMillion)
@@ -202,7 +245,8 @@ export function calculateTierCostMicros(
     BigInt(tier.rates.image_per_megapixel_micros ?? 0) * BigInt(media?.image_pixels ?? 0) * MULTIPLIER_SCALE +
     BigInt(tier.rates.audio_input_micros_per_second ?? 0) * BigInt(media?.audio_input_ms ?? 0) * (COST_DENOMINATOR / 1000n) +
     BigInt(tier.rates.audio_output_micros_per_second ?? 0) * BigInt(media?.audio_output_ms ?? 0) * (COST_DENOMINATOR / 1000n)
-  const micros = toSafeNumber(roundedRatio(numerator + mediaNumerator, COST_DENOMINATOR))
+  const micros = toSafeNumber(roundedRatio(numerator + mediaNumerator * MULTIPLIER_SCALE,
+    COST_DENOMINATOR * MULTIPLIER_SCALE * (facts.batch ? 2n : 1n)))
   return { costLowMicros: micros, costHighMicros: micros }
 }
 
@@ -223,6 +267,7 @@ export function isModelPricingTier(value: unknown): value is ModelPricingTier {
   ) return false
   const validRate = (rate: unknown) => typeof rate === "number" && Number.isSafeInteger(rate) && rate >= 0
   return (
+    (rates.timeOfDayDiscounts === undefined || (Array.isArray(rates.timeOfDayDiscounts) && rates.timeOfDayDiscounts.every(isTimeOfDayDiscount))) &&
     validRate(rates.inputMicrosPerMillion) &&
     validRate(rates.outputMicrosPerMillion) &&
     (rates.image_per_megapixel_micros === undefined || validRate(rates.image_per_megapixel_micros)) &&

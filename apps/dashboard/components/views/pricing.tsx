@@ -28,6 +28,7 @@ export default async function PricingView({ embedded }: ViewProps = {}) {
       <UpstreamNotice message={errors[0]} />
       {!embedded ? null : <p className="mb-4 text-xs text-subtle"> {t("s325")} </p>}
       <PricingClient
+        discounts={pricing.ok ? pricing.data.discounts ?? [] : []}
         state={pricing.ok ? pricing.data.state : null}
         overrides={pricing.ok ? pricing.data.overrides : []}
         models={shell.models}

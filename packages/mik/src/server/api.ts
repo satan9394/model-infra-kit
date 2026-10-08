@@ -500,6 +500,7 @@ export function registerApiRoutes(router: Router): void {
 
     .add("GET", "/api/pricing", (ctx) => {
       sendJson(ctx.res, 200, {
+        discounts: ctx.hub.pricing.discountRules(),
         state: ctx.hub.pricing.state(),
         overrides: sanitize(ctx.hub.pricing.listOverrides()),
       })

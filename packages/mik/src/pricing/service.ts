@@ -22,6 +22,8 @@ import { createFileCache } from "./cache.js"
 import { verifyCatalogIntegrity } from "./catalog.js"
 import { exportPriceSnapshot, importPriceSnapshot, priceKey, type PriceModels } from "./snapshot.js"
 import { calculateTierCostMicros, deriveModelPricingTier, validateMultimodalUsage, type ModelPricingTier, type MultimodalUsage } from "./tiers.js"
+import { pricingRequest } from "./request-context.js"
+import { timeOfDayDiscountAt, type PricingRequestFacts } from "./tiers.js"
 import { cacheSavingsMicros } from "../usage/cache-savings.js"
 
 export interface PricingDeps {
@@ -69,7 +71,7 @@ export interface PricingSyncResult extends PricingState {
   dryRun: boolean
 }
 
-export interface EstimateInput {
+export interface EstimateInput extends PricingRequestFacts {
   media?: MultimodalUsage
   model: string
   providerId?: string
@@ -141,6 +143,14 @@ export class PricingService {
     for (const tier of verifyCatalogIntegrity(this.store, (message) => this.onWarn(message))) this.tiers.set(tierKey(tier.providerId, tier.modelId), tier)
   }
 
+  discountRules(at = Date.now()) {
+    return [...this.tiers.values()].filter(tier => !this.findOverride(`${tier.providerId}:${tier.modelId}`)).map(tier => ({
+      modelId: tier.modelId, providerId: tier.providerId,
+      rules: tier.rates.timeOfDayDiscounts ?? [],
+      active: timeOfDayDiscountAt(tier.rates.timeOfDayDiscounts ?? [], at) ?? null,
+    }))
+  }
+
   exportSnapshot(): string {
     const models: PriceModels = Object.create(null)
     for (const tier of this.tiers.values()) models[priceKey(tier)] = tier
@@ -182,7 +192,11 @@ export class PricingService {
       return { ...state, syncedModels: 0, updatedModels: 0, dryRun: options.dryRun ?? false }
     }
 
-    const candidates = this.syncedTiers()
+    const candidates = this.syncedTiers().map(tier => {
+      const rules = this.tiers.get(tierKey(tier.providerId, tier.modelId))?.rates.timeOfDayDiscounts
+      if (rules !== undefined) tier.rates.timeOfDayDiscounts = rules.map(rule => ({ ...rule }))
+      return tier
+    })
     const changed = candidates.filter((tier) => !sameTierRates(this.tiers.get(tierKey(tier.providerId, tier.modelId)), tier))
     if (!options.dryRun) {
       for (const tier of changed) {
@@ -212,16 +226,17 @@ export class PricingService {
   }
 
   cacheSavings(input: EstimateInput): number {
+    input = { ...pricingRequest.getStore(), ...input, batch: input.batch ?? pricingRequest.getStore()?.batch }
     if (!input.usage.cacheRead) return 0
     const manual = this.findOverride(input.model)
-    const tier = manual ? manualTier(manual, input.model, input.providerId) ?? (manual.inputPerM === undefined ? undefined : deriveModelPricingTier({
+    const tier = manual ? manualTier(manual, input.model, input.providerId, input.batch) ?? (manual.inputPerM === undefined ? undefined : deriveModelPricingTier({
       modelId: input.model, providerId: input.providerId ?? "manual", source: "manual", updatedAt: new Date(manual.updatedAt).toISOString(),
       inputPerM: manual.inputPerM, outputPerM: manual.outputPerM ?? 0, cacheReadPerM: manual.cacheReadPerM, cacheWritePerM: manual.cacheWritePerM,
     }))
       : this.cachedTier(input.model, input.providerId) ?? this.liveTier(input.model, input.at, input.providerId, {
         promptTokens: input.usage.input, usedReasoning: (input.usage.reasoning ?? 0) > 0,
       })
-    if (tier) return cacheSavingsMicros(tier, input.usage)
+    if (tier) return cacheSavingsMicros(tier, input.usage, input)
     if (manual) return 0
     const card = this.catalog.getPrice(input.model, input.at, { promptTokens: input.usage.input })
     if (!card) return 0
@@ -229,22 +244,23 @@ export class PricingService {
     if (pricing.inputPerM === undefined || pricing.cacheReadPerM === undefined) return 0
     return cacheSavingsMicros(deriveModelPricingTier({ modelId: input.model, providerId: input.providerId ?? "catalog", source: "synced",
       updatedAt: new Date().toISOString(), inputPerM: pricing.inputPerM, outputPerM: 0, cacheReadPerM: pricing.cacheReadPerM, cacheWritePerM: pricing.cacheWritePerM,
-    }), input.usage)
+    }), input.usage, input)
   }
 
   estimate(input: EstimateInput): CostInfo {
+    input = { ...pricingRequest.getStore(), ...input, batch: input.batch ?? pricingRequest.getStore()?.batch }
     validateMultimodalUsage(input.media)
     // A manual price outranks every catalogue, so a hit must not start a load:
     // `warm()` would queue models.dev's ~4 MB `api.json` for a model whose
     // price is already known locally.
     const manual = this.findOverride(input.model)
     if (manual) {
-      const tier = manualTier(manual, input.model, input.providerId)
-      return tier ? tierCost(tier, input.usage, true, input.media) : this.manualCost(manual, input.usage, input.model)
+      const tier = manualTier(manual, input.model, input.providerId, input.batch)
+      return tier ? tierCost(tier, input.usage, true, input.media, input) : this.manualCost(manual, input.usage, input.model)
     }
 
     const cachedTier = this.cachedTier(input.model, input.providerId)
-    if (cachedTier) return tierCost(cachedTier, input.usage, false, input.media)
+    if (cachedTier) return tierCost(cachedTier, input.usage, false, input.media, input)
 
     this.warm()
 
@@ -252,8 +268,18 @@ export class PricingService {
       promptTokens: finite(input.usage.input),
       usedReasoning: input.usage.reasoning === undefined ? undefined : input.usage.reasoning > 0,
     })
-    if (liveTier) return tierCost(liveTier, input.usage, false, input.media)
+    if (liveTier) return tierCost(liveTier, input.usage, false, input.media, input)
 
+    if (input.batch) {
+      const card = this.catalog.getPrice(input.model, input.at, { promptTokens: input.usage.input, usedReasoning: (input.usage.reasoning ?? 0) > 0 })
+      if (card) {
+        const rates = pricingFromCard(card)
+        if (rates.inputPerM !== undefined || rates.outputPerM !== undefined) return tierCost(deriveModelPricingTier({
+          ...rates, modelId: input.model, providerId: input.providerId ?? card.providerId ?? "catalogue", source: card.source === "fallback" ? "builtin" : "synced",
+          updatedAt: new Date(input.at ?? Date.now()).toISOString(), inputPerM: rates.inputPerM ?? 0, outputPerM: rates.outputPerM ?? 0,
+        }), input.usage, false, input.media, input)
+      }
+    }
     const estimate = this.catalog.estimate(this.toArgs(input))
     const pricing = estimate.pricing
     if (!pricing) {
@@ -557,8 +583,8 @@ function tierFromCard(
   })
 }
 
-function manualTier(override: PricingOverride, model: string, providerId?: string): ModelPricingTier | undefined {
-  const modelId = canonicalGpt6Id(model)
+function manualTier(override: PricingOverride, model: string, providerId?: string, batch = false): ModelPricingTier | undefined {
+  const modelId = canonicalGpt6Id(model) ?? (batch ? model : undefined)
   if (!modelId) return undefined
   const metadata = MODEL_METADATA.find((item) => item.id === modelId)
   return deriveModelPricingTier({
@@ -573,8 +599,8 @@ function manualTier(override: PricingOverride, model: string, providerId?: strin
   })
 }
 
-function tierCost(tier: ModelPricingTier, usage: Partial<TokenUsage>, manual: boolean, media?: MultimodalUsage): CostInfo {
-  const { costLowMicros, costHighMicros } = calculateTierCostMicros(tier, usage, media)
+function tierCost(tier: ModelPricingTier, usage: Partial<TokenUsage>, manual: boolean, media?: MultimodalUsage, facts: PricingRequestFacts = {}): CostInfo {
+  const { costLowMicros, costHighMicros } = calculateTierCostMicros(tier, usage, media, facts)
   if (requestCostMicrosBigInt(costLowMicros / MILLION) !== BigInt(costLowMicros)
     || requestCostMicrosBigInt(costHighMicros / MILLION) !== BigInt(costHighMicros)) {
     throw new RangeError("Tier cost cannot be represented exactly by the USD number boundary")

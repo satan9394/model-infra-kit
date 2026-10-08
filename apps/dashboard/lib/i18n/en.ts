@@ -505,4 +505,12 @@ export const en = {
   "cache.status": "Request cache status",
   "cache.hit": "Cache hit",
   "cache.miss": "Cache miss",
+  "budget.hardReady": "Hard cap ready",
+  "budget.hardBlocked": "Budget exceeded: generation blocked",
+  "budget.hardDetail": "Generation is blocked when either UTC daily or monthly limit is reached; privileged requests can bypass it.",
+  "price.discountTitle": "Time-of-day and batch discounts",
+  "price.batchRule": "Batch requests cost 50% of base rates and stack with time-of-day discounts.",
+  "price.timeRule": "UTC {0}:00 to {1}:00 · Input multiplier {2} · Output multiplier {3}",
+  "price.discountActive": "Active now: input multiplier {0}, output multiplier {1}",
+  "price.discountInactive": "No time-of-day discount active",
 } as const

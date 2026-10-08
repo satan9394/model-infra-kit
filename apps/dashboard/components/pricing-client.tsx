@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { apiCall } from "@/lib/client-api"
 import { formatDateTime, formatRate } from "@/lib/format"
-import type { ModelInfo, PricingOverride, PricingState } from "@/lib/types"
+import type { ModelInfo, PricingOverride, PricingState, PricingDiscount } from "@/lib/types"
 import { Badge, Card, EmptyState, TableWrap, Td, Th } from "@/components/ui"
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000
@@ -34,10 +34,12 @@ function parseRate(value: string): number | undefined | null {
 }
 
 export function PricingClient({
+  discounts = [],
   state,
   overrides,
   models,
 }: {
+  discounts?: PricingDiscount[]
   state: PricingState | null
   overrides: PricingOverride[]
   models: ModelInfo[]
@@ -125,6 +127,14 @@ export function PricingClient({
 
   return (
     <div className="space-y-4">
+      <Card title={t("price.discountTitle")}>
+        <p data-testid="pricing-batch-rule">{t("price.batchRule")}</p>
+        {discounts.filter(item => item.rules.length > 0).map(item => <div key={`${item.providerId}:${item.modelId}`} data-testid="pricing-time-rule" className="mt-2 text-sm">
+          <p className="font-mono">{item.providerId}:{item.modelId}</p>
+          {item.rules.map((rule, index) => <p key={index}>{t("price.timeRule", rule.startHourUtc, rule.endHourUtc, rule.inputMultiplier, rule.outputMultiplier)}</p>)}
+          <p>{item.active ? t("price.discountActive", item.active.inputMultiplier, item.active.outputMultiplier) : t("price.discountInactive")}</p>
+        </div>)}
+      </Card>
       {notice ? (
         <div
           className={

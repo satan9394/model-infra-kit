@@ -4,6 +4,7 @@ import { HttpError } from "./context.js"
 import { ModelInfraError } from "../errors.js"
 import type { UsageQuery } from "../types.js"
 import { redact } from "../util/redact.js"
+import { pricingRequest } from "../pricing/request-context.js"
 
 /** Bodies are whole chat payloads; anything larger is a mistake or an attack. */
 export const MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -17,7 +18,7 @@ export interface CorsOptions {
   credentials?: boolean
 }
 
-const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "x-mik-app-id", "accept"]
+const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "x-mik-app-id", "accept", "x-mik-batch", "x-mik-bypass-budget"]
 
 /**
  * Normalise the `cors` option; `undefined`/`false` means "no CORS headers"
@@ -132,7 +133,10 @@ export async function readJsonBody(req: IncomingMessage): Promise<Record<string,
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new HttpError(400, "The request body must be a JSON object.", "INVALID_REQUEST")
   }
-  return parsed as Record<string, unknown>
+  const body = parsed as Record<string, unknown>
+  const facts = pricingRequest.getStore()
+  if (facts && (body.batch === true || body["X-Mik-Batch"] === true || body["X-Mik-Batch"] === "true")) facts.batch = true
+  return body
 }
 
 /**

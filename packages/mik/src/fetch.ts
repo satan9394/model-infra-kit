@@ -1,3 +1,4 @@
+import { pricingRequest } from "./pricing/request-context.js"
 import { randomUUID } from "node:crypto"
 import { MODEL_LIST_PROTOCOLS } from "./ai/protocols.js"
 import { isModelInfraError, ModelInfraError, type ModelInfraErrorCode } from "./errors.js"
@@ -10,6 +11,7 @@ const anthropicWireProtocols: Readonly<Record<string, boolean>> = { anthropic: t
 
 /** A call that was forwarded to a provider and should be metered. */
 export interface ForwardedCall {
+  batch?: boolean
   requestId: string
   /** When the caller sent the request. */
   at: number
@@ -105,6 +107,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
 
     const bodyText = await readBody(request)
     const payload = bodyText ? parseJson(bodyText) : null
+    const batch = request.headers.get("x-mik-batch") === "true" || payload?.batch === true || payload?.["X-Mik-Batch"] === true || payload?.["X-Mik-Batch"] === "true" || pricingRequest.getStore()?.batch === true
     const requestedModel = typeof payload?.model === "string" ? payload.model : undefined
     const metadata = payload ? asRecord(payload.metadata) : null
     const sessionId = textValue(payload?.session_id) ?? textValue(payload?.user) ?? textValue(request.headers.get("x-mik-session-id"))
@@ -146,6 +149,8 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
     // These MIK-only attribution fields are consumed locally and are not sent
     // to providers that may reject OpenAI-compatible extension properties.
     if (outgoing) {
+      delete outgoing.batch
+      delete outgoing["X-Mik-Batch"]
       delete outgoing.session_id
       delete outgoing.trace_id
     }
@@ -161,6 +166,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       })
     } catch (error) {
       options.onCall({
+        ...(batch ? { batch: true } : {}),
         requestId,
         at: startedAt,
         providerId: target.providerId,
@@ -186,6 +192,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       providerCost?: ProviderCostReading,
     ) => {
       options.onCall({
+        ...(batch ? { batch: true } : {}),
         requestId,
         at: startedAt,
         providerId: target.providerId,
@@ -302,7 +309,7 @@ function forwardHeaders(incoming: Headers, provider: ResolvedProvider): Record<s
   const headers: Record<string, string> = {}
   incoming.forEach((value, key) => {
     const lower = key.toLowerCase()
-    if (AUTH_HEADERS.includes(lower) || HOP_HEADERS.includes(lower)) return
+    if (AUTH_HEADERS.includes(lower) || HOP_HEADERS.includes(lower) || ["x-mik-batch", "x-mik-bypass-budget"].includes(lower)) return
     headers[lower] = value
   })
   const auth = MODEL_LIST_PROTOCOLS[provider.protocol]?.headers(provider) ?? {}

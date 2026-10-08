@@ -55,6 +55,8 @@ export {
 
 export {
   PricingService,
+  type TimeOfDayDiscount,
+  type PricingRequestFacts,
   createFileCache,
   type EstimateInput,
   type PricingDeps,

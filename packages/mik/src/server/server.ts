@@ -1,4 +1,8 @@
 import { autoBypass } from "../auto-context.js"
+import { pricingRequest } from "../pricing/request-context.js"
+import { redact } from "../util/redact.js"
+import { checkBudgetStatus } from "../usage/budget.js"
+import type { BudgetConfig } from "../types.js"
 import { handleMessages, handleNativeCompletion } from "./native.js"
 import { createServer as createNodeServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { createConnection, type AddressInfo } from "node:net"
@@ -31,6 +35,8 @@ export const DEFAULT_PORT = 3211
 export const DEFAULT_HEARTBEAT_MS = 15_000
 
 export interface ServerOptions {
+  budget?: BudgetConfig
+  onWarn?: (message: string) => void
   hub: ModelInfra
   /** Opt-in file reload; the CLI supplies its resolved configuration path. */
   reload?: ReloadOptions
@@ -283,6 +289,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
       }
 
       const ctx: ServerContext = {
+        budgetStatus: () => options.budget ? checkBudgetStatus(hub.usage, options.budget) : hub.budgetStatus(),
         hub,
         bus,
         req,
@@ -304,6 +311,16 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
       const routePath = segments.join("/")
       const kind = method === "POST" && ["v1/chat/completions", "v1/messages", "v1/responses"].includes(routePath) ? "chat"
         : method === "GET" && routePath === "api/events" ? "events" : undefined
+      if (kind === "chat") {
+        const status = hub.usage.withAppScope(ctx.appId!, () => ctx.budgetStatus!())
+        if (status.hardCap && [status.daily, status.monthly].some(period => period?.status === "exceeded")) {
+          const bypass = principal?.scopes.includes("admin") || principal?.scopes.includes("*")
+            || req.headers["x-mik-bypass-budget"] === "true"
+          if (!bypass) throw new HttpError(429, redact("Local hard budget limit reached."), "BUDGET_EXCEEDED")
+          const warning = redact("BUDGET_EXCEEDED: privileged budget bypass allowed.")
+          try { (options.onWarn ?? console.warn)(warning) } catch { /* A warning sink cannot block dispatch. */ }
+        }
+      }
       if (kind) {
         const connection = connections.start({ kind, model: "pending", ip: req.socket.remoteAddress ?? "unknown", appId: ctx.appId! })
         ctx.updateConnectionModel = connection.updateModel
@@ -319,7 +336,8 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
         res.once("error", cleanup)
         req.once("aborted", cleanup)
       }
-      await autoBypass.run(true, () => hub.usage.withAppScope(ctx.appId!, () => match.route!.handler(ctx)))
+      await pricingRequest.run({ at: Date.now(), batch: req.headers["x-mik-batch"] === "true" },
+        () => autoBypass.run(true, () => hub.usage.withAppScope(ctx.appId!, () => match.route!.handler(ctx))))
     } catch (error) {
       const mapped = toHttpError(error)
       // A streamed response already committed its status; all that is left is

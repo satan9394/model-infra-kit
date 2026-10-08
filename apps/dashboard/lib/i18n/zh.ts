@@ -505,4 +505,12 @@ export const zh = {
   "cache.status": "请求缓存状态",
   "cache.hit": "缓存命中",
   "cache.miss": "缓存未命中",
+  "budget.hardReady": "硬熔断已就绪",
+  "budget.hardBlocked": "预算超额，已熔断",
+  "budget.hardDetail": "达到任一协调世界时日或月预算限额后，生成请求将被阻断；特权通道可豁免。",
+  "price.discountTitle": "时段与批处理折价",
+  "price.batchRule": "批处理请求按基础单价的 50% 计费，可与时段折价叠加。",
+  "price.timeRule": "协调世界时 {0}:00 至 {1}:00 · 输入倍率 {2} · 输出倍率 {3}",
+  "price.discountActive": "当前生效：输入倍率 {0}，输出倍率 {1}",
+  "price.discountInactive": "当前时段无折价",
 } as const

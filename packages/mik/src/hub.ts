@@ -171,9 +171,9 @@ function reportedCostOf(usage: { raw?: unknown } | undefined, providerMetadata: 
  */
 function costFor(
   pricing: PricingService,
-  input: { model: string; providerId?: string; at: number; usage: Partial<TokenUsage>; reported: readonly ProviderCostReading[]; media?: ModelRequest["media"] },
+  input: { model: string; providerId?: string; at: number; usage: Partial<TokenUsage>; reported: readonly ProviderCostReading[]; batch?: boolean; media?: ModelRequest["media"] },
 ): { cost: CostInfo; reported: ProviderCostReading } {
-  const catalogue = pricing.estimate({ model: input.model, providerId: input.providerId, at: input.at, usage: input.usage, media: input.media })
+  const catalogue = pricing.estimate({ model: input.model, providerId: input.providerId, at: input.at, usage: input.usage, media: input.media, batch: input.batch })
   const reported = combineReportedCosts(input.reported)
   if (reported.kind !== "accepted") return { cost: catalogue, reported }
   return {
@@ -776,6 +776,7 @@ export class ModelInfra {
               usage: pricing,
               reported: reported.length > 0 ? reported : [reportedCostFromProviderMetadata(result.providerMetadata)],
               media: request.media,
+              batch: request.batch,
             })
             const response: ModelResponse = {
               text: result.text,
@@ -1177,6 +1178,7 @@ export class ModelInfra {
           usage: normalized.pricing,
           reported,
           media: request.media,
+          batch: request.batch,
         })
         cost = priced.cost
         billed = priced.reported
@@ -1337,6 +1339,7 @@ export class ModelInfra {
       at: call.at,
       usage: call.usage,
       reported: billed.kind === "absent" ? [] : [billed],
+      batch: call.batch,
     })
     this.record({
       requestId: call.requestId,
@@ -1353,13 +1356,14 @@ export class ModelInfra {
       isStreaming: call.isStreaming,
       sessionId: call.sessionId,
       traceId: call.traceId,
-      diagnosticTags: providerCostTags(billed),
+      diagnosticTags: { ...providerCostTags(billed), ...(call.batch ? { _mik_batch: "true" } : {}) },
     })
   }
 
   private record(input: UsageRecordInput): void {
     const savings = input.status === "ok" ? this.pricingService.cacheSavings({
       model: input.actual, providerId: input.resolved.providerId, at: input.at, usage: input.usage,
+      batch: input.request?.batch ?? (input.diagnosticTags?._mik_batch === "true" ? true : undefined),
     }) : 0
     const diagnostic = { ...input.diagnosticTags,
       ...(savings > 0 ? { _mik_cache_savings_micros: String(savings) } : {}),
