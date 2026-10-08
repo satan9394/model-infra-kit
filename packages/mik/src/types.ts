@@ -300,6 +300,8 @@ export interface UsageSummary {
   costHighUsd: number
   tokens: TokenUsage
   cacheHitRate: number
+  /** Recorded cache discount savings, summed only as integer micro-USD. */
+  cacheSavingsMicros?: number
   /**
    * `undefined` when **no event in the range recorded one** (EVO-G82, audit
    * R232 F3). A zero-length average and an absent measurement are different
@@ -466,6 +468,8 @@ export interface BudgetConfig {
 }
 
 export interface ModelInfraConfig {
+  /** Virtual models with weighted primary channels and priority standbys. */
+  loadBalancer?: import("./router/load-balancer.js").LoadBalancerConfig
   /** Exact virtual model aliases evaluated before provider dispatch. */
   router?: RouterConfig
   /** Owning application. Stored on every usage event; lets one DB serve many apps. */

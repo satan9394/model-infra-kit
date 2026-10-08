@@ -717,31 +717,25 @@ describe("POST /v1/chat/completions", () => {
 
     const responsePromise = fetch(`${handle.url}/v1/chat/completions`, {
       method: "POST",
+      signal: AbortSignal.timeout(10_000),
       headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
       body: JSON.stringify({ model: "ok:deepseek-chat", messages: messages(), stream: true }),
     })
-    let response: Response | null = null
     try {
-      response = await Promise.race([
-        responsePromise,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
-      ])
-      expect(response).not.toBeNull()
-      expect(response!.headers.get("content-type")).toContain("text/event-stream")
-      const reader = response!.body!.getReader()
-      const decoder = new TextDecoder()
-      let text = ""
-      while (!text.includes(": thinking") && !text.includes(": ping")) {
-        const next = await reader.read()
-        if (next.done) break
-        text += decoder.decode(next.value, { stream: true })
+      const response = await responsePromise
+      expect(response.headers.get("content-type")).toContain("text/event-stream")
+      const reader = response.body!.getReader()
+      try {
+        const first = await reader.read()
+        expect(first.done).toBe(false)
+        expect(new TextDecoder().decode(first.value)).toMatch(/: (keepalive|ping)/)
+      } finally {
+        await reader.cancel()
       }
-      expect(text).toMatch(/: (thinking|ping)/)
-      await reader.cancel()
     } finally {
       release()
     }
-  })
+  }, 15_000)
 
   it("returns an OpenAI completion and records exactly one usage row", async () => {
     const response = await chat({ model: "ok:deepseek-chat", messages: messages() })

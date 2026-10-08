@@ -595,6 +595,100 @@ try {
 `
 }
 
+function resilienceSmokeSource() {
+  return String.raw`
+import assert from "node:assert/strict"
+import { createServer } from "node:http"
+import { createServer as createSocket } from "node:net"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { ModelInfra, redact } from "model-infra-kit"
+import { createServer as createGateway } from "model-infra-kit/server"
+
+const calls = []
+let failing = true
+const upstream = createServer(async (req, res) => {
+  const provider = req.url.split("/")[1]
+  calls.push(provider)
+  for await (const chunk of req) {}
+  if (provider === "a" && failing) {
+    res.writeHead(429, { "content-type": "application/json" })
+    res.end(JSON.stringify({ error: { message: "rate limited" } }))
+    return
+  }
+  res.writeHead(200, { "content-type": "application/json" })
+  res.end(JSON.stringify({ id: "evolution", object: "chat.completion", created: 1, model: "model",
+    choices: [{ index: 0, message: { role: "assistant", content: provider }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1000, completion_tokens: 1, total_tokens: 1001, prompt_tokens_details: { cached_tokens: 800 } } }))
+})
+await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve))
+const root = "http://127.0.0.1:" + upstream.address().port
+const options = { db: ":memory:", cacheDir: join(process.cwd(), "evolution-cache"), syncCatalog: false, pricingAutoSync: false,
+  pricingFetch: async () => { throw new Error("offline") }, maxRetries: 0, onWarn: () => {},
+  providers: ["a", "b", "c"].map(id => ({ id, baseUrl: root + "/" + id })) }
+let hub
+let gateway
+try {
+  hub = await ModelInfra.init({ ...options, loadBalancer: { auto: [{ model: "a:model" }, { model: "b:model", priority: 1 }, { model: "c:model", priority: 2 }] } })
+  hub.pricing.setOverride({ modelId: "model", inputPerM: 2, outputPerM: 4, cacheReadPerM: 0.2 })
+  gateway = await createGateway({ hub, port: 0 })
+  for (let i = 0; i < 4; i++) {
+    const response = await fetch(gateway.url + "/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "hello" }] }) })
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).choices[0].message.content, "b")
+  }
+  assert.equal(calls.filter(id => id === "a").length, 3)
+  assert.equal(hub.providerHealth.state("a"), "OPEN")
+  const events = hub.usage.query().events
+  const successes = events.filter(event => event.status === "ok")
+  assert.equal(successes.length, 4)
+  assert.ok(successes.every(event => event.tags.is_fallback === "true" && event.tags.failover_reason))
+  assert.ok(events.filter(event => event.status === "error").every(event => successes.some(ok => ok.traceId === event.traceId)))
+  assert.equal(hub.usage.summary().cacheSavingsMicros, 5760)
+  hub.pricing.setOverride({ modelId: "model", inputPerM: 4, outputPerM: 4, cacheReadPerM: 0.2 })
+  assert.equal(hub.usage.summary().cacheSavingsMicros, 5760)
+  const summary = await (await fetch(gateway.url + "/api/usage/summary")).json()
+  assert.equal(summary.summary.cacheSavingsMicros, 5760)
+  assert.equal(summary.summary.cacheHitRate, 0.8)
+  await gateway.close(); gateway = undefined
+  await hub.close(); hub = undefined
+  failing = false; calls.length = 0
+  hub = await ModelInfra.init({ ...options, loadBalancer: { auto: [{ model: "a:model", weight: 3, maxConcurrency: 1 }, { model: "b:model", weight: 1 }] } })
+  await Promise.all(Array.from({ length: 16 }, () => hub.generate({ model: "auto", messages: [{ role: "user", content: "hello" }] })))
+  assert.equal(calls.filter(id => id === "a").length, 12)
+  assert.equal(calls.filter(id => id === "b").length, 4)
+} finally {
+  if (gateway) await gateway.close()
+  if (hub) await hub.close()
+  await new Promise(resolve => { upstream.close(resolve); upstream.closeAllConnections() })
+}
+const socket = createSocket()
+await new Promise(resolve => socket.listen(0, "127.0.0.1", resolve))
+const port = socket.address().port
+await new Promise(resolve => socket.close(resolve))
+const cli = fileURLToPath(import.meta.resolve("model-infra-kit/cli"))
+const execute = promisify(execFile)
+const env = { ...process.env, MIK_LANG: undefined, LC_ALL: "en_US.UTF-8", LANG: "en_US.UTF-8", MIK_DAEMON_FILE: join(process.cwd(), "daemon.json") }
+async function daemon(args) { return execute(process.execPath, [cli, "daemon", ...args], { cwd: process.cwd(), env, windowsHide: true, timeout: 25_000 }) }
+let started = false
+try {
+  await daemon(["start", "--port", String(port), "--db", join(process.cwd(), "daemon.db"), "--cache-dir", join(process.cwd(), "daemon-cache"), "--offline"])
+  started = true
+  const status = JSON.parse((await daemon(["status"])).stdout)
+  const metadata = JSON.parse(readFileSync(env.MIK_DAEMON_FILE, "utf8"))
+  assert.equal(status.pid, metadata.pid)
+  assert.equal(status.listening, true)
+  assert.ok(status.rss > 0)
+  assert.equal((await fetch("http://127.0.0.1:" + port + "/api/health")).status, 200)
+} finally { if (started) await daemon(["stop"]) }
+assert.ok((await daemon(["status"])).stdout.includes("stopped"))
+console.log(redact(JSON.stringify({ weightedRoundRobin: true, failoverAudit: true, threeFailureCircuit: true, immutableCacheSavingsMicros: 5760, daemonLifecycle: true })))
+`
+}
+
 async function main() {
   if (process.argv.includes("--self-test-auto")) {
     autoArtifactFailureSelfCheck()
@@ -609,8 +703,8 @@ async function main() {
   const expected = contractFromDocs()
   const sourcePackageJson = readJson(PACKAGE_JSON_PATH)
   assert.equal(sourcePackageJson.name, "model-infra-kit")
-  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.4.0", "root release version mismatch")
-  assert.equal(sourcePackageJson.version, "1.4.0", "package release version mismatch")
+  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.5.0", "root release version mismatch")
+  assert.equal(sourcePackageJson.version, "1.5.0", "package release version mismatch")
   assertAbsoluteCwd(REPO_ROOT, "repository")
   assertAbsoluteCwd(PACKAGE_ROOT, "package")
 
@@ -650,6 +744,8 @@ async function main() {
   writeAbsolute(consumerDirPackageJson, JSON.stringify({ name: "mik-release-battery-consumer", private: true, type: "module" }, null, 2) + "\n")
   const smokePath = join(consumerDir, "smoke.mjs")
   writeAbsolute(smokePath, smokeSource())
+  const resiliencePath = join(consumerDir, "resilience-smoke.mjs")
+  writeAbsolute(resiliencePath, resilienceSmokeSource())
   const runtimeExportsPath = join(consumerDir, "runtime-exports.mjs")
   writeAbsolute(runtimeExportsPath, installedRuntimeSource())
   const batteryKey = `release-battery-${process.pid}-${Date.now()}`
@@ -679,6 +775,7 @@ async function main() {
   const evolutionPath = join(consumerDir, "evolution-smoke.mjs")
   writeAbsolute(evolutionPath, evolutionSmokeSource())
   await run("node", [evolutionPath], { cwd: consumerDir, label: "installed FTS, reload and default SDK smoke", env: smokeEnv, redactSecrets: [batteryKey] })
+  await run("node", [resiliencePath], { cwd: consumerDir, label: "installed v1.5.0 evolution", env: smokeEnv, redactSecrets: [batteryKey] })
   process.stdout.write(`[result] release battery passed; retained clean room=${cleanRoom}\n`)
 }
 

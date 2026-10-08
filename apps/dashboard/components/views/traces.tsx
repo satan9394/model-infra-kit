@@ -1,4 +1,5 @@
 import { TraceSearch } from "@/components/trace-search"
+import { CacheStatus } from "@/components/cache-metrics"
 import { getI18n } from "@/lib/i18n/server"
 import { TraceWaterfall } from "@/components/trace-waterfall"
 import { traceTimeline } from "@/lib/trace-timeline"
@@ -158,6 +159,9 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                 {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} {t("s352")} </span> : null}
               </div>
               <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
+              <ul aria-label={t("cache.status")} className="my-3 space-y-1">
+                {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} />)}
+              </ul>
               <p className="text-xs text-subtle">Reasoning {formatInt(events.reduce((sum, event) => sum + event.usage.reasoning, 0))}</p>
             </div>
           )}

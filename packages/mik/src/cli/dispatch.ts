@@ -18,6 +18,7 @@ import { runModelCatalog, runModels } from "./commands/models.js"
 import { runPricing } from "./commands/pricing.js"
 import { runProvider } from "./commands/provider.js"
 import { runServe } from "./commands/serve.js"
+import { runDaemon } from "./commands/daemon.js"
 import { runDb } from "./commands/db.js"
 import { runUsage } from "./commands/usage.js"
 import { redact } from "../util/redact.js"
@@ -46,6 +47,8 @@ export function report(error: unknown, io: CliIo, lang: Lang = "en"): number {
 /** Route one already-parsed invocation to its command runner. */
 export async function dispatch(parsed: ParsedCli, options: RunOptions): Promise<number> {
   switch (parsed.command?.name) {
+    case "daemon":
+      return runDaemon(parsed, options)
     case "init":
       return runInit(parsed, options)
     case "serve":

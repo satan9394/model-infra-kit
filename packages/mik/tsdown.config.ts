@@ -9,6 +9,7 @@ export default defineConfig({
   },
   format: ["esm"],
   dts: true,
-  clean: true,
+  // ponytail: retain generated files; release battery validates the tarball whitelist.
+  clean: false,
   treeshake: true,
 })

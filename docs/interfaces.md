@@ -1399,3 +1399,41 @@ Each request acquires one context before authentication. It retains its hub, tok
 SIGHUP triggers reload while enabled (OS delivery on supported platforms); `watch: true` uses 250ms file-stat polling by default. Tests can inject `watchIntervalMs`. Repeated listener activation is idempotent. Server close retains existing explicit shutdown behavior (close SSE/sockets), unregisters signal/watch listeners and awaits generation disposal; reload itself never shuts down a held request.
 
 Focused verification: `pnpm exec vitest run packages/mik/test/hot-reload.test.ts` **21/21 PASS**; core/dashboard typechecks exit 0. The suite holds a real upstream HTTP SSE and a live events subscription across URL/key/router/admin rotation, verifies complete old output, new-generation events without reconnect and exclusion of another app; covers cumulative integer metrics (246 micros across two generations, 369 after another rotation), historical-label secret rotation, concurrent publication/drain, malformed config/provider/router/credential rollback, scoped/trailing-slash admin rejection, file-key snapshots, retained edits, signal/watch cleanup, CLI options and in-memory rejection without caller mutation. Raw logs: `.tmp/evo-v140/g117-tests.log`, `g117-core-typecheck.log`, `g117-dashboard-typecheck.log`. Integrated all-locale/release gates belong to G119.
+
+## EVO-G121 — Weighted virtual-model channels
+
+`ModelInfraConfig.loadBalancer` and `mik.config.json` accept the same channel map; atomic reload validates enabled provider targets before swapping. Example:
+
+```json
+{
+  "loadBalancer": {
+    "auto": [
+      { "model": "primary:model", "weight": 3, "priority": 0, "maxConcurrency": 4 },
+      { "model": "secondary:model", "weight": 1, "priority": 0, "maxConcurrency": 4 },
+      { "model": "standby:model", "priority": 1 }
+    ]
+  }
+}
+```
+
+Lower priority numbers win; healthy channels in the winning tier use smooth weighted round robin. Diagnostic model lookup never advances rotation. Policies take precedence over smart-router aliases with the same name. They apply to `generate`, `stream`, and gateway `/v1/chat/completions`; existing physical-model and raw fetch/native-protocol behavior remains compatible. Explicit channels may use different SDK protocols. The classes live in internal router modules; runtime package exports retain their exact existing contract.
+
+There are at most 128 virtual names and 64 channels per name. Channels require distinct physical references of at most 256 characters. Weight/concurrency are positive safe integers; priority is non-negative; values are at most 1,000,000. Unknown fields fail without echoing configuration. A physical channel shared by aliases must have consistent capacity. Per-hub FIFO leases release on completion/error/consumer return, and request abort removes queued waiters. Circuit health is rechecked after waiting for capacity. Caller signals bound queue waits; configured transport timeouts retain existing semantics.
+
+Health remains per provider. Three consecutive retryable route failures open the circuit by default (connection/timeouts, 429, any 5xx), with a 30-second cooldown and one half-open recovery probe. Existing per-key rotation precedes route failure accounting. Cancellation, nonretryable client errors, emitted model content, and started tool side effects prevent replay. Each attempt has a usage row; successful retries carry `is_fallback: "true"` and `failover_reason` as a classified code or `CIRCUIT_OPEN`. Attempts share the supplied Trace or a generated request Trace, and failed attempts bill zero. Raw upstream responses never become reason tags.
+
+## EVO-G122 — Immutable cache ROI and multimodal facts
+
+`PricingService.cacheSavings` uses a pure BigInt tier comparison in `usage/cache-savings.ts`: full input price versus cache-read price, with existing token clamping, long-context multipliers, and integer rounding. Premium cache pricing, missing cache counts, or unresolved rates produce zero savings. Savings are a rate-card estimate; a reported total bill does not invent its own cache unit price.
+
+Successful generate/stream/fetch calls and priced HTTP usage reports snapshot positive savings under machine tag `_mik_cache_savings_micros`; host tags cannot replace this calculated value on those paths. Validated image pixels and audio input/output milliseconds are retained under corresponding `_mik_` tags when supplied. Direct embedded `usage.record` remains an explicit trusted reporting interface. No media facts are guessed.
+
+`GET /api/usage/summary` populates integer `cacheSavingsMicros` with existing app/filter scoping. Hit ratio is cached-input tokens divided by total input (which already includes cached reads/writes), clamped to [0,1]. Schema v5 adds integer daily-rollup savings, defaulting historical rows to zero. Integer SQL sums and transactional conservation checks preserve savings through archive/rollup. Unsafe integer totals fail explicitly. Changing price cards never recalculates historical savings. The overview and Trace detail add translated savings/cache-status widgets; dictionary key/placeholder parity and existing test anchors are retained.
+
+## EVO-G123 — Detached daemon lifecycle
+
+`mik daemon start [--port <n>] [--db <path>]` detaches the built CLI with hidden Windows process creation; global config/app/cache/offline flags remain supported. Loopback port 3211 is the default and is checked before spawning. Occupied ports are refused; pick another free port explicitly. `status` checks process identity, listener state and RSS bytes. `stop` requests graceful shutdown over a local control pipe, invokes the existing serve signal lifecycle, and confirms exit within 15 seconds. This avoids relying on Windows SIGTERM process termination for graceful shutdown. Foreground `mik serve` remains compatible.
+
+The default state file is `daemon.json` in the user's model-infra-kit home; `MIK_DAEMON_FILE` isolates instances. PID, start timestamp, pipe endpoint, port and canonical non-secret arguments are recorded. Credentials/gateway tokens are inherited through environment or config references, never serialized into the state or command line. Errors/output use the project redactor. PID reuse/control identity mismatch is refused before signalling. Readiness and control are bounded; established-service stop timeouts never force-kill.
+
+Lifecycle mutations use an exclusive directory lock. Released locks are renamed to recoverable `.released` directories, and stopped metadata is retained; no filesystem deletion is required. An interrupted mutation may leave a lock needing inspection before retry. The control pipe is a local OS service-control boundary separate from gateway HTTP auth; protect the user state directory. Each machine supports one daemon per state-file path. Release gates retain generated artifacts and test scratch directories.

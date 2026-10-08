@@ -446,4 +446,11 @@ export const en: Record<string, string> = {
   "pricing.snapshot.exported": "Exported %s model prices.",
   "pricing.snapshot.imported": "Imported %s model prices; manual overrides preserved.",
   "pricing.snapshot.invalid": "Invalid price snapshot; no prices were changed.",
+  "cmd.daemon.summary": "Manage the background HTTP service",
+  "cmd.daemon.start.summary": "Start a detached service",
+  "cmd.daemon.status.summary": "Inspect service health, port and memory",
+  "cmd.daemon.stop.summary": "Gracefully stop the service",
+  "daemon.started": "Daemon started: PID %s, port %s.",
+  "daemon.stopped": "Daemon is stopped.",
+  "daemon.alreadyRunning": "Daemon is already running.",
 }

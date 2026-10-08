@@ -1,4 +1,7 @@
 import { createServer as createHttpServer } from "node:http"
+import { execFile, spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { promisify } from "node:util"
 import { createServer } from "node:net"
 import type { AddressInfo } from "node:net"
 import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
@@ -21,6 +24,7 @@ import type { ModelInfraOptions } from "../src/hub.js"
 import { Store } from "../src/store/database.js"
 import type { UsageEvent } from "../src/types.js"
 import { UsageService } from "../src/usage/service.js"
+import { daemonControl } from "../src/cli/commands/daemon.js"
 
 /**
  * The interactive `mik init` wizard is exercised headless: `prompt()` would
@@ -36,6 +40,105 @@ vi.mock("../src/cli/prompt.js", () => ({
 }))
 
 const tempDirs: string[] = []
+
+describe("G123 daemon lifecycle", () => {
+  const execute = promisify(execFile)
+  async function freePort(): Promise<number> {
+    const socket = createServer()
+    await new Promise<void>(resolve => socket.listen(0, "127.0.0.1", resolve))
+    const port = (socket.address() as AddressInfo).port
+    await new Promise<void>(resolve => socket.close(() => resolve()))
+    return port
+  }
+  async function daemon(args: string[], dir: string): Promise<{ code: number; stdout: string; stderr: string }> {
+    try {
+      const result = await execute(process.execPath, [fileURLToPath(new URL("../dist/cli.mjs", import.meta.url)), "daemon", ...args], {
+        cwd: dir, windowsHide: true, timeout: 25_000,
+        env: { ...process.env, MIK_LANG: undefined, LC_ALL: "en_US.UTF-8", LANG: "en_US.UTF-8", MIK_DAEMON_FILE: join(dir, "daemon.json") },
+      })
+      return { code: 0, ...result }
+    } catch (error) {
+      const failed = error as Error & { code: number; stdout: string; stderr: string }
+      return { code: failed.code, stdout: failed.stdout, stderr: failed.stderr }
+    }
+  }
+  it("detaches, reports PID/listening/RSS, rejects duplicates and gracefully closes the ledger", async () => {
+    const dir = tempDir()
+    const port = await freePort()
+    const start = await daemon(["start", "--port", String(port), "--db", join(dir, "usage.db"), "--cache-dir", join(dir, "cache"), "--offline"], dir)
+    expect(start, start.stderr).toMatchObject({ code: 0 })
+    const state = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8"))
+    try {
+      expect(state).toMatchObject({ port, state: "running" })
+      expect(state.pid).not.toBe(process.pid)
+      expect(state.args).toContain("--db")
+      const status = await daemon(["status"], dir)
+      expect(status.code, status.stderr).toBe(0)
+      expect(JSON.parse(status.stdout)).toMatchObject({ pid: state.pid, port, listening: true, state: "running" })
+      expect(JSON.parse(status.stdout).rss).toBeGreaterThan(0)
+      const health = await fetch(`http://127.0.0.1:${port}/api/health`)
+      expect(health.status).toBe(200)
+      const duplicate = await daemon(["start", "--port", String(port), "--offline"], dir)
+      expect(duplicate.code).toBe(1)
+      expect(duplicate.stderr).toContain("already running")
+      await expect(daemonControl({ ...state, startedAt: state.startedAt + 1 }, "stop")).rejects.toThrow()
+      expect((await daemon(["status"], dir)).code).toBe(0)
+    } finally {
+      const stopped = await daemon(["stop"], dir)
+      expect(stopped.code, stopped.stderr).toBe(0)
+    }
+    expect((await daemon(["status"], dir)).stdout).toContain("stopped")
+    expect(await portInUse(port)).toBe(false)
+    const store = await Store.open({ path: join(dir, "usage.db") }); store.close()
+  }, 30_000)
+  it("refuses occupied ports and rejects malformed state without sending a signal", async () => {
+    const dir = tempDir()
+    const socket = createServer()
+    await new Promise<void>(resolve => socket.listen(0, "127.0.0.1", resolve))
+    try {
+      const occupied = await daemon(["start", "--port", String((socket.address() as AddressInfo).port), "--offline"], dir)
+      expect(occupied.code).toBe(1)
+      expect(occupied.stderr).toContain("already in use")
+    } finally { await new Promise<void>(resolve => socket.close(() => resolve())) }
+    writeFileSync(join(dir, "daemon.json"), JSON.stringify({ pid: "invalid" }))
+    const malformed = await daemon(["stop"], dir)
+    expect(malformed.code).toBe(1)
+    expect(malformed.stderr).toContain("refusing to signal")
+  })
+  it("requires an action and permits port only on start", () => {
+    expect(() => parseCliArgs(["daemon"])).toThrow(CliUsageError)
+    expect(parseCliArgs(["daemon", "start", "--port", "3211"]).values.port).toBe("3211")
+    expect(() => parseCliArgs(["daemon", "stop", "--port", "3211"])).toThrow(CliUsageError)
+  })
+  it("reports redacted startup errors without leaving a listener or running state", async () => {
+    const dir = tempDir()
+    const port = await freePort()
+    const config = join(dir, "bad.json")
+    writeFileSync(config, JSON.stringify({ router: { invalid: true } }))
+    const result = await daemon(["start", "--port", String(port), "--config", config, "--db", join(dir, "usage.db"), "--offline"], dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("Invalid smart router configuration")
+    expect(await portInUse(port)).toBe(false)
+    expect((await daemon(["status"], dir)).stdout).toContain("stopped")
+  })
+  it("closes a ready worker when its parent disappears before persisting and detaching it", async () => {
+    const dir = tempDir()
+    const port = await freePort()
+    const id = randomUUID()
+    const pipe = process.platform === "win32" ? `\\\\.\\pipe\\mik-daemon-${id}` : join(dir, `mik-daemon-${id}.sock`)
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../dist/cli.mjs", import.meta.url)), "daemon", "start", "--port", String(port), "--db", join(dir, "usage.db"), "--cache-dir", join(dir, "cache"), "--offline"], {
+      cwd: dir, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"],
+      env: { ...process.env, MIK_DAEMON_WORKER: "1", MIK_DAEMON_STARTED_AT: String(Date.now()), MIK_DAEMON_PIPE: pipe },
+    })
+    const exit = new Promise<number | null>((resolve, reject) => { child.once("exit", resolve); child.once("error", reject) })
+    try {
+      await new Promise<void>((resolve, reject) => { child.once("message", () => resolve()); child.once("error", reject); child.once("exit", () => reject(new Error("Worker exited before readiness"))) })
+      child.disconnect()
+      expect(await exit).toBe(0)
+      expect(await portInUse(port)).toBe(false)
+    } finally { if (child.exitCode === null) child.kill("SIGTERM") }
+  }, 20_000)
+})
 
 function tempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "mik-cli-"))

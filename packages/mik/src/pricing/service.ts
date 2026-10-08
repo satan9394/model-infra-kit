@@ -22,6 +22,7 @@ import { createFileCache } from "./cache.js"
 import { verifyCatalogIntegrity } from "./catalog.js"
 import { exportPriceSnapshot, importPriceSnapshot, priceKey, type PriceModels } from "./snapshot.js"
 import { calculateTierCostMicros, deriveModelPricingTier, validateMultimodalUsage, type ModelPricingTier, type MultimodalUsage } from "./tiers.js"
+import { cacheSavingsMicros } from "../usage/cache-savings.js"
 
 export interface PricingDeps {
   store: Store
@@ -208,6 +209,27 @@ export class PricingService {
       source: catalogState.source,
       lastError: this.lastError,
     }
+  }
+
+  cacheSavings(input: EstimateInput): number {
+    if (!input.usage.cacheRead) return 0
+    const manual = this.findOverride(input.model)
+    const tier = manual ? manualTier(manual, input.model, input.providerId) ?? (manual.inputPerM === undefined ? undefined : deriveModelPricingTier({
+      modelId: input.model, providerId: input.providerId ?? "manual", source: "manual", updatedAt: new Date(manual.updatedAt).toISOString(),
+      inputPerM: manual.inputPerM, outputPerM: manual.outputPerM ?? 0, cacheReadPerM: manual.cacheReadPerM, cacheWritePerM: manual.cacheWritePerM,
+    }))
+      : this.cachedTier(input.model, input.providerId) ?? this.liveTier(input.model, input.at, input.providerId, {
+        promptTokens: input.usage.input, usedReasoning: (input.usage.reasoning ?? 0) > 0,
+      })
+    if (tier) return cacheSavingsMicros(tier, input.usage)
+    if (manual) return 0
+    const card = this.catalog.getPrice(input.model, input.at, { promptTokens: input.usage.input })
+    if (!card) return 0
+    const pricing = pricingFromCard(card)
+    if (pricing.inputPerM === undefined || pricing.cacheReadPerM === undefined) return 0
+    return cacheSavingsMicros(deriveModelPricingTier({ modelId: input.model, providerId: input.providerId ?? "catalog", source: "synced",
+      updatedAt: new Date().toISOString(), inputPerM: pricing.inputPerM, outputPerM: 0, cacheReadPerM: pricing.cacheReadPerM, cacheWritePerM: pricing.cacheWritePerM,
+    }), input.usage)
   }
 
   estimate(input: EstimateInput): CostInfo {

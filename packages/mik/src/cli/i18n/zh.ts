@@ -419,4 +419,11 @@ export const zh: Record<string, string> = {
   "pricing.snapshot.exported": "已导出 %s 条模型价格。",
   "pricing.snapshot.imported": "已导入 %s 条模型价格；保留手动价格。",
   "pricing.snapshot.invalid": "价格快照无效；未修改任何价格。",
+  "cmd.daemon.summary": "管理后台 HTTP 服务",
+  "cmd.daemon.start.summary": "启动独立后台服务",
+  "cmd.daemon.status.summary": "查看服务存活、端口和内存",
+  "cmd.daemon.stop.summary": "优雅停止后台服务",
+  "daemon.started": "守护进程已启动：PID %s，端口 %s。",
+  "daemon.stopped": "守护进程已停止。",
+  "daemon.alreadyRunning": "守护进程已在运行。",
 }

@@ -375,6 +375,14 @@ const QUERY_FLAGS: readonly FlagSpec[] = [
 
 export const COMMANDS: readonly CommandSpec[] = [
   {
+    name: "daemon", summary: "Manage the background HTTP service", usage: "mik daemon <start|status|stop>",
+    actions: [
+      { name: "start", summary: "Start a detached service", usage: "mik daemon start [--port <n>] [--db <path>]", flags: [FLAG_PORT_SERVE] },
+      { name: "status", summary: "Inspect service health, port and memory", usage: "mik daemon status" },
+      { name: "stop", summary: "Gracefully stop the service", usage: "mik daemon stop" },
+    ],
+  },
+  {
     name: "db",
     summary: "Archive usage and maintain the local SQLite database (all apps)",
     usage: "mik db <archive|vacuum> [options]",

@@ -386,10 +386,11 @@ describe("EVO-G74 — unpriced coverage in `usage summary`", () => {
     // added 21 catalog command/help labels → 347; EVO-G94 added three pricing
     // sync labels → 350; EVO-G104 adds seven snapshot labels → 357;
     // EVO-G113 adds thirteen database maintenance labels → 370. Parity is the real invariant.
-    expect(Object.keys(zh)).toHaveLength(370)
-    expect(Object.keys(en)).toHaveLength(370)
+    // EVO-G123 adds seven daemon labels; retain full key parity below.
+    expect(Object.keys(zh)).toHaveLength(377)
+    expect(Object.keys(en)).toHaveLength(377)
     expect([...Object.keys(zh)].sort()).toEqual([...Object.keys(en)].sort())
-    expect(i18nKeys()).toHaveLength(370)
+    expect(i18nKeys()).toHaveLength(377)
     expect(tr("en", "usage.summary.unpriced.title")).toBe("Unpriced coverage")
     expect(tr("zh", "usage.summary.unpriced.title")).toBe("未定价覆盖")
   })

@@ -501,4 +501,8 @@ export const zh = {
   "price.source.missing": "未定价",
   "price.contextTier": "上下文超过 {0} 的阶梯价",
   "price.reasoningTier": "推理阶梯价",
+  "cache.savings": "已节省成本",
+  "cache.status": "请求缓存状态",
+  "cache.hit": "缓存命中",
+  "cache.miss": "缓存未命中",
 } as const

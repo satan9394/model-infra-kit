@@ -1,5 +1,6 @@
 import { readStorageConfig, type StorageConfig } from "../store/adapter.js"
 import { readRouterConfig } from "../ai/smart-router.js"
+import { readLoadBalancerConfig } from "../router/load-balancer.js"
 import { isModelInfraError } from "../errors.js"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -20,6 +21,8 @@ export interface CliIo {
 }
 
 export interface RunOptions {
+  /** Internal daemon readiness hook, after shutdown listeners are installed. */
+  onServeReady?: () => void | Promise<void>
   io?: Partial<CliIo>
   cwd?: string
   env?: NodeJS.ProcessEnv
@@ -33,6 +36,7 @@ export interface CliConfigFile {
   defaultModel?: string
   watch?: boolean
   router?: import("../ai/smart-router.js").RouterConfig
+  loadBalancer?: import("../router/load-balancer.js").LoadBalancerConfig
   appId?: string
   db?: string
   storage?: StorageConfig
@@ -210,6 +214,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     config.budget = readBudgetConfig(record.budget)
     if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
     if (record.router !== undefined) config.router = readRouterConfig(record.router)
+    if (record.loadBalancer !== undefined) config.loadBalancer = readLoadBalancerConfig(record.loadBalancer)
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     if (Array.isArray(record.providers)) config.providers = record.providers as ProviderConfig[]
     if (typeof record.defaultModel === "string") config.defaultModel = record.defaultModel
@@ -309,6 +314,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     pricingFetch: offline ? offlineFetch : undefined,
     budget: config.budget,
     router: config.router,
+    loadBalancer: config.loadBalancer,
     env,
     providers: parsed.command?.name === "serve" ? config.providers : undefined,
     defaultModel: parsed.command?.name === "serve" ? config.defaultModel : undefined,

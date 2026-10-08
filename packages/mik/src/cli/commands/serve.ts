@@ -86,7 +86,7 @@ export async function loadServerModule(from: string | URL = import.meta.url, lan
 }
 
 /** Resolve on SIGINT/SIGTERM after the handle has been closed. */
-function waitForShutdown(stop: () => void | Promise<void>): Promise<void> {
+function waitForShutdown(stop: () => void | Promise<void>, ready?: () => void | Promise<void>): Promise<void> {
   return new Promise((resolve, reject) => {
     const finish = (): void => {
       process.off("SIGINT", onSignal)
@@ -108,6 +108,10 @@ function waitForShutdown(stop: () => void | Promise<void>): Promise<void> {
     }
     process.once("SIGINT", onSignal)
     process.once("SIGTERM", onSignal)
+    void Promise.resolve().then(ready).catch(async error => {
+      finish()
+      try { await stop() } finally { reject(error) }
+    })
   })
 }
 
@@ -149,7 +153,7 @@ export async function runServe(parsed: ParsedCli, options: RunOptions): Promise<
       context.io.out(typeof cors === "object" ? tr(lang, "serve.corsOrigin", cors.origin) : tr(lang, "serve.corsAny"))
     }
     context.io.out(tr(lang, "serve.pressCtrlC"))
-    await waitForShutdown(() => handle.close())
+    await waitForShutdown(() => handle.close(), () => options.onServeReady?.())
     context.io.out(tr(lang, "serve.stopped"))
     return 0
   })

@@ -501,4 +501,8 @@ export const en = {
   "price.source.missing": "Unpriced",
   "price.contextTier": "Context >{0} tier",
   "price.reasoningTier": "Thinking tier",
+  "cache.savings": "Cache Savings",
+  "cache.status": "Request cache status",
+  "cache.hit": "Cache hit",
+  "cache.miss": "Cache miss",
 } as const

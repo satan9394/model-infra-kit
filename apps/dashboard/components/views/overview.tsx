@@ -1,4 +1,5 @@
 import { getI18n } from "@/lib/i18n/server"
+import { CacheSavings } from "@/components/cache-metrics"
 import Link from "next/link"
 import { BudgetPill } from "@/components/budget-pill"
 import { CostTrendChart } from "@/components/charts/cost-trend"
@@ -136,6 +137,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
         </Card>
         <Card title={t("s304")} subtitle={t("s305")}>
           <dl className="divide-y divide-border/70">
+            <CacheSavings micros={summaryData?.cacheSavingsMicros} label={t("cache.savings")} />
             <div className="pb-5">
               <dt className="text-xs text-muted-foreground"> {t("s306")} </dt>
               <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-primary">

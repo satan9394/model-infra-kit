@@ -183,6 +183,7 @@ function storedToolCalls(raw: unknown, totalMicros: number): UsageEvent["tool_ca
 }
 
 interface AggregateRow {
+  cacheSavingsMicros: number
   requests: number
   successes: number
   tokens: TokenUsage
@@ -273,6 +274,7 @@ function traceRollupSql(groupBy: UsageTraceGroupBy): string {
 
 function emptyAggregate(): AggregateRow {
   return {
+    cacheSavingsMicros: 0,
     requests: 0,
     successes: 0,
     tokens: EMPTY_TOKENS(),
@@ -287,6 +289,7 @@ function emptyAggregate(): AggregateRow {
 }
 
 function addAggregate(target: AggregateRow, source: AggregateRow): AggregateRow {
+  target.cacheSavingsMicros = safeSavings(Number(BigInt(target.cacheSavingsMicros) + BigInt(source.cacheSavingsMicros)))
   target.requests += source.requests
   target.successes += source.successes
   target.tokens.input += source.tokens.input
@@ -302,6 +305,11 @@ function addAggregate(target: AggregateRow, source: AggregateRow): AggregateRow 
   target.firstTokenSum += source.firstTokenSum
   target.firstTokenCount += source.firstTokenCount
   return target
+}
+
+function safeSavings(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError("Unsafe cache savings integer total")
+  return value
 }
 
 /**
@@ -350,7 +358,8 @@ export class UsageRepository {
       ...["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens"].map((field) => `SUM(${field})`),
       ...["", "low_", "high_"].map((part) => detail
         ? `SUM(CAST(ROUND(cost_${part}usd * 1000000) AS INTEGER))`
-        : `SUM(cost_${part}microusd)`)]
+        : `SUM(cost_${part}microusd)`),
+      detail ? "SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER))" : "SUM(cache_savings_micros)"]
     const row = this.driver.prepare(`SELECT ${fields.map((field, i) => `COALESCE(${field}, 0) AS v${i}`).join(", ")}
       FROM ${table}${cutoff === undefined ? "" : " WHERE ts < ?"}`).get(...(cutoff === undefined ? [] : [cutoff]))!
     return fields.map((_, i) => {
@@ -443,6 +452,7 @@ export class UsageRepository {
       .prepare(
         `SELECT
           COUNT(*) AS requests,
+          SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER)) AS cache_savings_micros,
           SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS successes,
           SUM(input_tokens) AS input_tokens,
           SUM(output_tokens) AS output_tokens,
@@ -462,6 +472,7 @@ export class UsageRepository {
     if (!row) return emptyAggregate()
     return {
       requests: asNumber(row.requests),
+      cacheSavingsMicros: safeSavings(asNumber(row.cache_savings_micros)),
       successes: asNumber(row.successes),
       tokens: {
         input: asNumber(row.input_tokens),
@@ -486,6 +497,7 @@ export class UsageRepository {
       .prepare(
         `SELECT
           SUM(request_count) AS requests,
+          SUM(cache_savings_micros) AS cache_savings_micros,
           SUM(success_count) AS successes,
           SUM(input_tokens) AS input_tokens,
           SUM(output_tokens) AS output_tokens,
@@ -505,6 +517,7 @@ export class UsageRepository {
     if (!row) return emptyAggregate()
     return {
       requests: asNumber(row.requests),
+      cacheSavingsMicros: safeSavings(asNumber(row.cache_savings_micros)),
       successes: asNumber(row.successes),
       tokens: {
         input: asNumber(row.input_tokens),
@@ -583,7 +596,7 @@ export class UsageRepository {
 
   summary(query: UsageQuery = {}): UsageSummary {
     const total = addAggregate(this.aggregateEvents(query), this.aggregateRollups(query))
-    const billableInput = total.tokens.input + total.tokens.cacheWrite
+    const billableInput = total.tokens.input
     return {
       requests: total.requests,
       successes: total.successes,
@@ -593,7 +606,8 @@ export class UsageRepository {
       costLowUsd: fromMicroUsd(total.lowMicro),
       costHighUsd: fromMicroUsd(total.highMicro),
       tokens: total.tokens,
-      cacheHitRate: billableInput === 0 ? 0 : total.tokens.cacheRead / billableInput,
+      cacheHitRate: billableInput === 0 ? 0 : Math.min(1, total.tokens.cacheRead / billableInput),
+      cacheSavingsMicros: total.cacheSavingsMicros,
       // EVO-G82 (audit R232 F3): no measurement is `undefined`, not `0`. Both of
       // these used to fall back to `0`, which the CLI rendered as `0 ms` — the
       // reader could not tell "instant" from "never recorded". `formatDuration`
@@ -1203,7 +1217,7 @@ export class UsageRepository {
             date, app_id, source, provider_id, model,
             request_count, success_count,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-            cost_microusd, cost_low_microusd, cost_high_microusd,
+            cost_microusd, cost_low_microusd, cost_high_microusd, cache_savings_micros,
             latency_sum_ms, latency_count, first_token_sum_ms, first_token_count
           )
           SELECT
@@ -1215,6 +1229,7 @@ export class UsageRepository {
             SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)),
             SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)),
             SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)),
+            SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER)),
             SUM(COALESCE(latency_ms, 0)),
             SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END),
             SUM(COALESCE(first_token_ms, 0)),
@@ -1233,6 +1248,7 @@ export class UsageRepository {
             cost_microusd = cost_microusd + excluded.cost_microusd,
             cost_low_microusd = cost_low_microusd + excluded.cost_low_microusd,
             cost_high_microusd = cost_high_microusd + excluded.cost_high_microusd,
+            cache_savings_micros = cache_savings_micros + excluded.cache_savings_micros,
             latency_sum_ms = latency_sum_ms + excluded.latency_sum_ms,
             latency_count = latency_count + excluded.latency_count,
             first_token_sum_ms = first_token_sum_ms + excluded.first_token_sum_ms,

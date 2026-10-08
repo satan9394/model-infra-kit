@@ -484,6 +484,18 @@ const other = await ModelInfra.init({ appId: "quant-lab", db: "~/.model-infra-ki
 
 智能路由、自动 failover、负载均衡、Key 池、预算限制、RPM/TPM 调度、团队管理、云同步、PostgreSQL、embedding、CC Switch 相关能力（跨 agent 导入 / 特殊 cache 计费 / 去重）。
 
+## Local 1.5.0 candidate
+
+Configure `loadBalancer` in `mik.config.json` to map virtual models to weighted `provider:model` channels and priority standbys. The gateway and embedded generate/stream paths share circuit health and retry safety. Usage summary exposes integer `cacheSavingsMicros`; the dashboard displays savings and per-request cache hits. Detailed contracts are in `docs/interfaces.md` (EVO-G121–G123).
+
+```bash
+mik daemon start --port 3211 --db ./usage.db
+mik daemon status
+mik daemon stop
+```
+
+Port 3211 is checked before startup; select a free port explicitly if occupied. The daemon requires a built/installed CLI and uses the same configuration and credential references as `mik serve`. Candidate verification is recorded in `docs/releases/v1.5.0-candidate.md`. Publishing remains a separate human decision.
+
 ## License
 
 MIT —— 全文见 [`packages/mik/LICENSE`](packages/mik/LICENSE)（该文件随 npm 包一起发布）。

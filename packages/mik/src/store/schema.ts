@@ -223,6 +223,14 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_usage_trace_rollups_group_date ON usage_trace_rollups(app_id, dimension, group_id, date)`,
     ],
   },
+  {
+    version: 5,
+    statements: [driver => {
+      if (!driver.prepare("PRAGMA table_info(usage_daily_rollups)").all().some(row => row.name === "cache_savings_micros")) {
+        driver.exec("ALTER TABLE usage_daily_rollups ADD COLUMN cache_savings_micros INTEGER NOT NULL DEFAULT 0")
+      }
+    }],
+  },
 ]
 
 export function migrate(driver: SqlDriver): number {

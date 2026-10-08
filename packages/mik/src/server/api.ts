@@ -347,6 +347,9 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
       ? hub.pricing.estimate({ model: modelActual || modelRequested, providerId, at: ts, usage: pricing, media })
       : MISSING_COST(modelActual))
 
+  const tags = readReportedTags(body.tags)
+  if (tags) Reflect.deleteProperty(tags, "_mik_cache_savings_micros")
+  const savings = status === "ok" ? hub.pricing.cacheSavings({ model: modelActual || modelRequested, providerId, at: ts, usage: pricing }) : 0
   return {
     requestId,
     appId,
@@ -366,7 +369,8 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
     isStreaming: optionalFlag(body.isStreaming, "isStreaming", false),
     traceId: optionalText(body.traceId, "traceId"),
     sessionId: optionalText(body.sessionId, "sessionId"),
-    tags: readReportedTags(body.tags),
+    tags: { ...tags, ...(savings > 0 ? { _mik_cache_savings_micros: String(savings) } : {}),
+      ...(media ? Object.fromEntries(Object.entries(media).map(([key, value]) => [`_mik_${key}`, String(value)])) : {}) },
     pricingBasis: cost.basis,
     pricingSource: cost.source,
   }

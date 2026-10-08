@@ -39,6 +39,7 @@ import { ToolTraceCollector, requestCostMicros } from "./usage/tool-attribution.
 import { validateMultimodalUsage } from "./pricing/tiers.js"
 import { redact } from "./util/redact.js"
 import { SmartRouter } from "./ai/smart-router.js"
+import { LoadBalancer } from "./router/load-balancer.js"
 
 const DEFAULT_APP_ID = "default"
 /** Placeholder until the HTTP server (T07) knows the real port. */
@@ -354,6 +355,7 @@ export class ModelInfra {
   readonly providerHealth: ProviderCircuitBreaker
   private readonly fallbackChain: string[]
   private readonly smartRouter: SmartRouter | undefined
+  private readonly loadBalancer: LoadBalancer | undefined
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
   private readonly budgetConfig: BudgetConfig | undefined
@@ -376,6 +378,7 @@ export class ModelInfra {
     maxRetries: number | undefined
     fallbackChain: string[]
     smartRouter: SmartRouter | undefined
+    loadBalancer: LoadBalancer | undefined
     providerHealth: ProviderCircuitBreaker
     reasoningTimeoutMs: number | undefined
     keyCooldownMs: number
@@ -399,6 +402,7 @@ export class ModelInfra {
     this.providerHealth = deps.providerHealth
     this.fallbackChain = deps.fallbackChain
     this.smartRouter = deps.smartRouter
+    this.loadBalancer = deps.loadBalancer
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
     this.budgetConfig = deps.budgetConfig
@@ -493,6 +497,7 @@ export class ModelInfra {
     }
     const providerHealth = new ProviderCircuitBreaker(config.failover)
     const smartRouter = config.router === undefined ? undefined : new SmartRouter(config.router)
+    const loadBalancer = config.loadBalancer === undefined ? undefined : new LoadBalancer(config.loadBalancer)
     const fallbackChain = config.fallbackChain ?? []
     const reasoningTimeoutMs = positiveMilliseconds(config.reasoningTimeoutMs, "reasoningTimeoutMs")
     const keyCooldownMs = positiveMilliseconds(config.keyCooldownMs ?? 30_000, "keyCooldownMs") ?? 30_000
@@ -593,6 +598,7 @@ export class ModelInfra {
       maxRetries: config.maxRetries,
       fallbackChain,
       smartRouter,
+      loadBalancer,
       providerHealth,
       reasoningTimeoutMs,
       keyCooldownMs,
@@ -661,7 +667,19 @@ export class ModelInfra {
   }
 
   /** @internal Shared request resolution for core calls and HTTP stream model labels. */
-  resolveRequestModel(request: ModelRequest): ResolvedModelRef & { routingTags?: Record<string, string> } {
+  resolveRequestModel(request: ModelRequest, advance = false): ResolvedModelRef & { routingTags?: Record<string, string> } {
+    const alias = request.model?.trim() ?? ""
+    const channels = this.loadBalancer?.candidates(alias, model => {
+      const parsed = splitModelRef(model)!
+      return !!this.providers.get(parsed.providerId)?.enabled && this.providerHealth.available(parsed.providerId)
+    }, advance)
+    if (channels) {
+      const configured = this.loadBalancer!.config[alias]!
+      const selected = configured.find(channel => channel.model === channels[0])!
+      const standby = (selected.priority ?? 0) > Math.min(...configured.map(channel => channel.priority ?? 0))
+      return { ...this.resolveModel(channels[0]), requested: alias, routingTags: { virtual_model: alias,
+        ...(standby ? { is_fallback: "true", failover_reason: "CIRCUIT_OPEN", original_provider: splitModelRef(configured[0]!.model)!.providerId } : {}) } }
+    }
     const route = this.smartRouter?.select(request)
     if (!route) return this.resolveModel(request.model)
     return { ...this.resolveModel(route.target), requested: request.model!.trim(), routingTags: route.tags }
@@ -675,13 +693,14 @@ export class ModelInfra {
     if (requestFallbacks === false) return candidates
     const source = this.providers.get(primary.providerId)
     const seen = new Set([candidates[0]!.modelRef])
-    for (const reference of [...(requestFallbacks ?? []), ...this.fallbackChain]) {
+    const channels = this.loadBalancer?.config[primary.requested]?.slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0)).map(channel => channel.model) ?? []
+    for (const reference of [...channels, ...(requestFallbacks ?? []), ...this.fallbackChain]) {
       if (typeof reference !== "string" || !reference.trim() || seen.has(reference.trim())) continue
       const modelRef = reference.trim()
       seen.add(modelRef)
       try {
         const resolved = this.resolveModel(modelRef)
-        if (!compatibleProtocols(source?.protocol, this.providers.get(resolved.providerId)?.protocol)) continue
+        if (!channels.includes(modelRef) && !compatibleProtocols(source?.protocol, this.providers.get(resolved.providerId)?.protocol)) continue
         candidates.push({ resolved: { ...resolved, requested: primary.requested }, modelRef })
       } catch (error) {
         this.warn(`Skipping unavailable fallback model "${modelRef}".`, error)
@@ -703,15 +722,20 @@ export class ModelInfra {
   async generate(request: ModelRequest): Promise<ModelResponse> {
     this.assertOpen("generate()")
     validateMultimodalUsage(request.media)
-    const primary = this.resolveRequestModel(request)
+    request = { ...request, traceId: request.traceId ?? randomUUID() }
+    const primary = this.resolveRequestModel(request, true)
     if (primary.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...primary.routingTags } }
     const candidates = this.routeCandidates(primary, request.fallbackChain)
     const startedAt = Date.now()
     let lastError: ModelInfraError | undefined
 
     for (const [candidateIndex, candidate] of candidates.entries()) {
-      if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+      let release: (() => void) | undefined
+      let acquired = false
       try {
+        release = await this.loadBalancer?.acquire(candidate.modelRef, request.signal)
+        if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+        acquired = true
         const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
           const requestId = randomUUID()
@@ -782,6 +806,7 @@ export class ModelInfra {
               diagnosticTags: {
                 ...providerCostTags(billed),
                 ...(candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : {}),
+                ...(lastError ? { failover_reason: lastError.code } : candidateIndex > 0 ? { failover_reason: "CIRCUIT_OPEN" } : {}),
                 ...(candidate.resolved.providerId !== primary.providerId ? { failover: "true", original_provider: primary.providerId } : {}),
               },
             })
@@ -818,7 +843,7 @@ export class ModelInfra {
             break
           }
         }
-      } finally { this.providerHealth.release(candidate.resolved.providerId) }
+      } finally { release?.(); if (acquired) this.providerHealth.release(candidate.resolved.providerId) }
     }
     throw lastError ?? new ModelInfraError("No model route was available.", { code: "PROVIDER" })
   }
@@ -871,12 +896,13 @@ export class ModelInfra {
   }
 
   private async *runStream(request: ModelRequest): AsyncGenerator<StreamEvent> {
+    request = { ...request, traceId: request.traceId ?? randomUUID() }
     const startedAt = Date.now()
     let primary: ResolvedModelRef
     let candidates: Array<{ resolved: ResolvedModelRef; modelRef: string }>
     let reasoningTimeoutMs: number | undefined
     try {
-      const routed = this.resolveRequestModel(request)
+      const routed = this.resolveRequestModel(request, true)
       primary = routed
       if (routed.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...routed.routingTags } }
       candidates = this.routeCandidates(primary, request.fallbackChain)
@@ -889,11 +915,16 @@ export class ModelInfra {
 
     let lastFailure: Extract<StreamEvent, { type: "error" }> | undefined
     for (const [candidateIndex, candidate] of candidates.entries()) {
-      if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+      let release: (() => void) | undefined
+      let acquired = false
       try {
+        release = await this.loadBalancer?.acquire(candidate.modelRef, request.signal)
+        if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+        acquired = true
         const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
-          const attemptRequest = { ...request, model: candidate.modelRef }
+          const attemptRequest = { ...request, model: candidate.modelRef, tags: { ...sanitizeTags(request.tags),
+            ...(lastFailure ? { failover_reason: lastFailure.error.code } : candidateIndex > 0 ? { failover_reason: "CIRCUIT_OPEN" } : {}) } }
           let mappedFailure: ModelInfraError | undefined
           const perAttempt = this.runStreamAttempt(
             attemptRequest,
@@ -946,7 +977,7 @@ export class ModelInfra {
           }
           break
         }
-      } finally { this.providerHealth.release(candidate.resolved.providerId) }
+      } finally { release?.(); if (acquired) this.providerHealth.release(candidate.resolved.providerId) }
     }
     yield lastFailure ?? { type: "error", error: { code: "PROVIDER", message: "No healthy model route was available." } }
   }
@@ -1327,7 +1358,13 @@ export class ModelInfra {
   }
 
   private record(input: UsageRecordInput): void {
-    const diagnostic = input.diagnosticTags
+    const savings = input.status === "ok" ? this.pricingService.cacheSavings({
+      model: input.actual, providerId: input.resolved.providerId, at: input.at, usage: input.usage,
+    }) : 0
+    const diagnostic = { ...input.diagnosticTags,
+      ...(savings > 0 ? { _mik_cache_savings_micros: String(savings) } : {}),
+      ...(input.request?.media ? Object.fromEntries(Object.entries(input.request.media).map(([key, value]) => [`_mik_${key}`, String(value)])) : {}),
+    }
     /**
      * EVO-G75: the host's tags are **sanitised and redacted** here, on the one
      * path every call takes. The HTTP report path already redacted its own
@@ -1344,6 +1381,7 @@ export class ModelInfra {
      * same `'{}'` default it always did.
      */
     const hostTags = sanitizeTags(input.request?.tags)
+    if (hostTags) Reflect.deleteProperty(hostTags, "_mik_cache_savings_micros")
     const merged = diagnostic && Object.keys(diagnostic).length > 0 ? { ...hostTags, ...diagnostic } : hostTags
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,

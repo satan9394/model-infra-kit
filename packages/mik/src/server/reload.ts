@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { watchFile, unwatchFile } from "node:fs"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
 import { readRouterConfig } from "../ai/smart-router.js"
+import { readLoadBalancerConfig } from "../router/load-balancer.js"
 import { splitModelRef } from "../registry/registry.js"
 import type { ProviderConfig } from "../types.js"
 import { redact } from "../util/redact.js"
@@ -33,7 +34,7 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
   const value: unknown = JSON.parse(await readFile(options.configPath, "utf8"))
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Reload config must be an object.")
   const config = value as Record<string, unknown>
-  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "initialProviders", "providers", "defaultModel", "watch"])
+  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "initialProviders", "providers", "defaultModel", "watch"])
   if (Object.keys(config).some(key => !allowed.has(key))) throw new Error("Unknown reload config field.")
   for (const key of ["appId", "db", "cacheDir", "defaultModel"]) {
     if (config[key] !== undefined && (typeof config[key] !== "string" || !config[key])) throw new Error(`Invalid ${key} configuration.`)
@@ -93,10 +94,14 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
     providers: providers ?? options.currentHub?.providers.list() ?? options.hubOptions.providers,
     defaultModel: (config.defaultModel as string | undefined) ?? options.currentHub?.providers.defaultModel() ?? options.hubOptions.defaultModel,
     router,
+    loadBalancer: config.loadBalancer === undefined ? undefined : readLoadBalancerConfig(config.loadBalancer),
     budget: config.budget as ModelInfraOptions["budget"],
     isolatedProviders: true, syncCatalog: false, pricingAutoSync: false,
   })
   try {
+    if (config.loadBalancer) for (const channels of Object.values(readLoadBalancerConfig(config.loadBalancer))) for (const channel of channels) {
+      if (!hub.providers.get(splitModelRef(channel.model)!.providerId)?.enabled) throw new Error("Load balancer target requires an enabled provider.")
+    }
     if (router) for (const policy of Object.values(router.aliases)) for (const target of [policy.default_target, ...policy.rules.map(rule => rule.target)]) {
       const parsed = splitModelRef(target.includes(":") ? target : hub.providers.defaultModel() ?? "")
       if (!parsed || !hub.providers.get(parsed.providerId)?.enabled) throw new Error("Router target requires an enabled provider.")

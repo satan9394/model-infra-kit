@@ -5,6 +5,7 @@ USAGE
   mik <command> [options]
 
 COMMANDS
+  daemon      Manage the background HTTP service
   db          Archive usage and maintain the local SQLite database (all apps)
   init        Write mik.config.json (app id, database path, first provider)
   serve       Start the OpenAI-compatible HTTP service (default 127.0.0.1:3211)
