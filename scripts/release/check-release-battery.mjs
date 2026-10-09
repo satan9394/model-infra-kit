@@ -576,7 +576,7 @@ try {
   await gateway.close(); gateway = undefined
   await hub.close(); hub = undefined
   store = await Store.open({ path: db })
-  const billed = store.driver.prepare("SELECT CAST(ROUND(cost_usd * 1000000) AS INTEGER) AS cost_micros FROM usage_events WHERE source <> 'test'").all()
+  const billed = store.driver.prepare("SELECT cost_micros FROM usage_events WHERE source <> 'test'").all()
   assert.equal(billed.length, 6)
   assert.ok(billed.every(row => String(row.cost_micros) === "11"))
   assert.equal(billed.reduce((sum, row) => sum + BigInt(row.cost_micros), 0n), 66n)

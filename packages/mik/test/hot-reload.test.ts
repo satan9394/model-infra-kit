@@ -36,6 +36,26 @@ function request(handle: ServerHandle, path: string, token = "old-admin-key", me
 }
 
 describe("G117 hot reload", () => {
+  it("detects immediate saves before the first poll and stops polling on close", async () => {
+    const f = fixture()
+    writeFileSync(f.configPath, "1")
+    const prepare = vi.fn(async () => Number((await import("node:fs")).readFileSync(f.configPath, "utf8")))
+    const manager = new HotReloadManager(1, prepare, () => {})
+    cleanup.push(() => manager.close())
+    vi.useFakeTimers()
+    try {
+      manager.listen(f.configPath, true, 20)
+      writeFileSync(f.configPath, "22")
+      await vi.advanceTimersByTimeAsync(20)
+      expect(manager.activeContext).toBe(22)
+      expect(prepare).toHaveBeenCalledTimes(1)
+      await manager.close()
+      writeFileSync(f.configPath, "333")
+      await vi.advanceTimersByTimeAsync(100)
+      expect(prepare).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
   it("applies the latest save when watching changes during preparation", async () => {
     const f = fixture()
     writeFileSync(f.configPath, "1")

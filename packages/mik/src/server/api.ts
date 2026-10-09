@@ -478,7 +478,7 @@ export function registerApiRoutes(router: Router): void {
 
     .add("GET", "/api/models", (ctx) => {
       const provider = ctx.url.searchParams.get("provider") ?? undefined
-      sendJson(ctx.res, 200, { models: ctx.hub.models.list(provider), defaultModel: ctx.hub.providers.defaultModel() })
+      sendJson(ctx.res, 200, { models: ctx.hub.models.list(provider), cascading: ctx.hub.cascadingModels(), defaultModel: ctx.hub.providers.defaultModel() })
     })
 
     .add("GET", "/api/models/:ref", (ctx) => {

@@ -39,6 +39,7 @@ import { ToolTraceCollector, requestCostMicros } from "./usage/tool-attribution.
 import { validateMultimodalUsage } from "./pricing/tiers.js"
 import { redact } from "./util/redact.js"
 import { SmartRouter } from "./ai/smart-router.js"
+import { evaluateComplexity, readCascadingConfig, type CascadingConfig, type ComplexityRequest } from "./router/cascading.js"
 import { LoadBalancer } from "./router/load-balancer.js"
 
 const DEFAULT_APP_ID = "default"
@@ -173,7 +174,8 @@ function costFor(
   pricing: PricingService,
   input: { model: string; providerId?: string; at: number; usage: Partial<TokenUsage>; reported: readonly ProviderCostReading[]; batch?: boolean; media?: ModelRequest["media"] },
 ): { cost: CostInfo; reported: ProviderCostReading } {
-  const catalogue = pricing.estimate({ model: input.model, providerId: input.providerId, at: input.at, usage: input.usage, media: input.media, batch: input.batch })
+  const estimated = pricing.estimate({ model: input.model, providerId: input.providerId, at: input.at, usage: input.usage, media: input.media, batch: input.batch })
+  const catalogue = { ...estimated, usd: requestCostMicros(estimated.usd) / 1_000_000, low: requestCostMicros(estimated.low) / 1_000_000, high: requestCostMicros(estimated.high) / 1_000_000 }
   const reported = combineReportedCosts(input.reported)
   if (reported.kind !== "accepted") return { cost: catalogue, reported }
   return {
@@ -355,6 +357,7 @@ export class ModelInfra {
   readonly providerHealth: ProviderCircuitBreaker
   private readonly fallbackChain: string[]
   private readonly smartRouter: SmartRouter | undefined
+  private readonly cascading: CascadingConfig
   private readonly loadBalancer: LoadBalancer | undefined
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
@@ -378,6 +381,7 @@ export class ModelInfra {
     maxRetries: number | undefined
     fallbackChain: string[]
     smartRouter: SmartRouter | undefined
+    cascading: CascadingConfig
     loadBalancer: LoadBalancer | undefined
     providerHealth: ProviderCircuitBreaker
     reasoningTimeoutMs: number | undefined
@@ -402,6 +406,7 @@ export class ModelInfra {
     this.providerHealth = deps.providerHealth
     this.fallbackChain = deps.fallbackChain
     this.smartRouter = deps.smartRouter
+    this.cascading = deps.cascading
     this.loadBalancer = deps.loadBalancer
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
@@ -416,6 +421,16 @@ export class ModelInfra {
         return this.providerRegistry.resolve(providerId)
       },
       resolveModel: (model) => this.resolveModel(model),
+      resolveRequest: (payload, headers) => {
+        const alias = typeof payload.model === "string" ? payload.model.trim() : ""
+        const cascade = this.resolveCascadingModel(alias, { ...payload, headers })
+        if (!cascade) return this.resolveModel(alias || undefined)
+        const policy = this.cascading[alias]!
+        return { ...cascade, ...(cascade.routingTags.cascading_tier === "tier1" ? {
+          fallback: { ...this.resolveModel(policy.tier2ReasoningModel), requested: alias,
+            routingTags: { virtual_model: alias, cascading_tier: "tier2", cascading_escalated: "true" } },
+        } : {}) }
+      },
       onCall: (call) => this.recordForwarded(call),
       baseUrl: () => this.baseUrlValue,
     })
@@ -498,6 +513,10 @@ export class ModelInfra {
     const providerHealth = new ProviderCircuitBreaker(config.failover)
     const smartRouter = config.router === undefined ? undefined : new SmartRouter(config.router)
     const loadBalancer = config.loadBalancer === undefined ? undefined : new LoadBalancer(config.loadBalancer)
+    const cascading = readCascadingConfig(config.cascading ?? {})
+    for (const alias of Object.keys(cascading)) if (config.router?.aliases[alias] || config.loadBalancer?.[alias]) {
+      throw new ModelInfraError("Routing aliases must be unique.", { code: "INVALID_REQUEST" })
+    }
     const fallbackChain = config.fallbackChain ?? []
     const reasoningTimeoutMs = positiveMilliseconds(config.reasoningTimeoutMs, "reasoningTimeoutMs")
     const keyCooldownMs = positiveMilliseconds(config.keyCooldownMs ?? 30_000, "keyCooldownMs") ?? 30_000
@@ -524,6 +543,9 @@ export class ModelInfra {
       else {
         if (config.providers && config.providers.length > 0) providers.seed(config.providers)
         if (config.defaultModel && !providers.defaultModel()) providers.setDefaultModel(config.defaultModel)
+      }
+      for (const policy of Object.values(cascading)) for (const model of [policy.tier1FastModel, policy.tier2ReasoningModel]) {
+        if (!providers.get(splitModelRef(model)!.providerId)?.enabled) throw new ModelInfraError("Cascade target requires an enabled provider.", { code: "INVALID_REQUEST" })
       }
     } catch (error) {
       store.close()
@@ -599,6 +621,7 @@ export class ModelInfra {
       fallbackChain,
       smartRouter,
       loadBalancer,
+      cascading,
       providerHealth,
       reasoningTimeoutMs,
       keyCooldownMs,
@@ -669,6 +692,8 @@ export class ModelInfra {
   /** @internal Shared request resolution for core calls and HTTP stream model labels. */
   resolveRequestModel(request: ModelRequest, advance = false): ResolvedModelRef & { routingTags?: Record<string, string> } {
     const alias = request.model?.trim() ?? ""
+    const cascade = this.resolveCascadingModel(alias, request)
+    if (cascade) return cascade
     const channels = this.loadBalancer?.candidates(alias, model => {
       const parsed = splitModelRef(model)!
       return !!this.providers.get(parsed.providerId)?.enabled && this.providerHealth.available(parsed.providerId)
@@ -685,12 +710,55 @@ export class ModelInfra {
     return { ...this.resolveModel(route.target), requested: request.model!.trim(), routingTags: route.tags }
   }
 
+  /** @internal Native wire requests share the same evaluator and audit contract. */
+  resolveCascadingModel(alias: string, request: ComplexityRequest) {
+    const policy = this.cascading[alias]
+    if (!policy) return undefined
+    const tier = evaluateComplexity(request, policy)
+    const model = tier === "tier1" ? policy.tier1FastModel : policy.tier2ReasoningModel
+    return { ...this.resolveModel(model), requested: alias,
+      routingTags: { virtual_model: alias, cascading_tier: tier, cascading_escalated: "false" } }
+  }
+
+  /** @internal Physical targets without pricing or credential lookup. */
+  cascadingTargets(alias: string): string[] {
+    const policy = this.cascading[alias]
+    return policy ? [policy.tier1FastModel, policy.tier2ReasoningModel] : []
+  }
+
+  /** Safe configuration mappings, with equal-token integer micro-dollar estimates. */
+  cascadingModels() {
+    return Object.entries(this.cascading).map(([alias, policy]) => {
+      const estimate = (ref: string) => {
+        const target = splitModelRef(ref)!
+        const cost = this.pricingService.estimate({ model: target.modelId, providerId: target.providerId, usage: { input: 1000, output: 1000, cacheRead: 0, cacheWrite: 0, reasoning: 0 } })
+        return cost.source === "missing" ? null : requestCostMicros(cost.usd)
+      }
+      const fast = estimate(policy.tier1FastModel)
+      const reasoning = estimate(policy.tier2ReasoningModel)
+      return { alias, tier1FastModel: policy.tier1FastModel, tier2ReasoningModel: policy.tier2ReasoningModel,
+        estimatedSavingsMicros: fast === null || reasoning === null ? null : Math.max(0, reasoning - fast) }
+    })
+  }
+
+  private cascadingTags(primary: ResolvedModelRef, modelRef: string): Record<string, string> {
+    const policy = this.cascading[primary.requested]
+    if (!policy) return {}
+    const tier = modelRef === policy.tier1FastModel ? "tier1" : "tier2"
+    return { cascading_tier: tier, cascading_escalated: String(tier === "tier2" && `${primary.providerId}:${primary.modelId}` === policy.tier1FastModel) }
+  }
+
   private routeCandidates(
     primary: ResolvedModelRef,
     requestFallbacks: string[] | false | undefined,
   ): Array<{ resolved: ResolvedModelRef; modelRef: string }> {
     const candidates = [{ resolved: primary, modelRef: `${primary.providerId}:${primary.modelId}` }]
     if (requestFallbacks === false) return candidates
+    const policy = this.cascading[primary.requested]
+    if (policy) {
+      if (candidates[0]!.modelRef === policy.tier1FastModel) candidates.push({ resolved: { ...this.resolveModel(policy.tier2ReasoningModel), requested: primary.requested }, modelRef: policy.tier2ReasoningModel })
+      return candidates
+    }
     const source = this.providers.get(primary.providerId)
     const seen = new Set([candidates[0]!.modelRef])
     const channels = this.loadBalancer?.config[primary.requested]?.slice().sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0)).map(channel => channel.model) ?? []
@@ -732,12 +800,14 @@ export class ModelInfra {
     for (const [candidateIndex, candidate] of candidates.entries()) {
       let release: (() => void) | undefined
       let acquired = false
+      const healthKey = this.cascading[primary.requested] ? candidate.modelRef : candidate.resolved.providerId
       try {
         release = await this.loadBalancer?.acquire(candidate.modelRef, request.signal)
-        if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+        if (!this.providerHealth.acquire(healthKey)) continue
         acquired = true
         const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
+          request = { ...request, tags: { ...sanitizeTags(request.tags), ...this.cascadingTags(primary, candidate.modelRef) } }
           const requestId = randomUUID()
           let replayUnsafe = false
           const toolTrace = new ToolTraceCollector(startedAt)
@@ -755,7 +825,7 @@ export class ModelInfra {
               tools: request.tools,
               temperature: request.temperature,
               maxOutputTokens: request.maxTokens,
-              headers: request.headers,
+              headers: request.headers && Object.fromEntries(Object.entries(request.headers).filter(([key]) => key.toLowerCase() !== "x-mik-model-tier")),
               abortSignal,
               maxRetries: this.maxRetries,
               stopWhen: stepCountIs(this.maxSteps),
@@ -811,7 +881,7 @@ export class ModelInfra {
                 ...(candidate.resolved.providerId !== primary.providerId ? { failover: "true", original_provider: primary.providerId } : {}),
               },
             })
-            this.providerHealth.success(candidate.resolved.providerId)
+            this.providerHealth.success(healthKey)
             return response
           } catch (error) {
             const mapped = toProviderError(error, {
@@ -839,12 +909,12 @@ export class ModelInfra {
               this.providers.coolCurrentKey(candidate.resolved.providerId, this.keyCooldownMs)
               continue
             }
-            if (!request.signal?.aborted) this.providerHealth.failure(candidate.resolved.providerId, mapped)
+            if (!request.signal?.aborted) this.providerHealth.failure(healthKey, mapped)
             if (replayUnsafe || request.signal?.aborted || !isRetryableRouteFailure(mapped) || candidateIndex + 1 >= candidates.length) throw mapped
             break
           }
         }
-      } finally { release?.(); if (acquired) this.providerHealth.release(candidate.resolved.providerId) }
+      } finally { release?.(); if (acquired) this.providerHealth.release(healthKey) }
     }
     throw lastError ?? new ModelInfraError("No model route was available.", { code: "PROVIDER" })
   }
@@ -918,13 +988,14 @@ export class ModelInfra {
     for (const [candidateIndex, candidate] of candidates.entries()) {
       let release: (() => void) | undefined
       let acquired = false
+      const healthKey = this.cascading[primary.requested] ? candidate.modelRef : candidate.resolved.providerId
       try {
         release = await this.loadBalancer?.acquire(candidate.modelRef, request.signal)
-        if (!this.providerHealth.acquire(candidate.resolved.providerId)) continue
+        if (!this.providerHealth.acquire(healthKey)) continue
         acquired = true
         const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
-          const attemptRequest = { ...request, model: candidate.modelRef, tags: { ...sanitizeTags(request.tags),
+          const attemptRequest = { ...request, model: candidate.modelRef, tags: { ...sanitizeTags(request.tags), ...this.cascadingTags(primary, candidate.modelRef),
             ...(lastFailure ? { failover_reason: lastFailure.error.code } : candidateIndex > 0 ? { failover_reason: "CIRCUIT_OPEN" } : {}) } }
           let mappedFailure: ModelInfraError | undefined
           const perAttempt = this.runStreamAttempt(
@@ -952,12 +1023,12 @@ export class ModelInfra {
               for (const pending of buffered) yield pending
               buffered.length = 0
             }
-            if (event.type === "finish") this.providerHealth.success(candidate.resolved.providerId)
+            if (event.type === "finish") this.providerHealth.success(healthKey)
             if (committed || event.type === "finish" || event.type === "usage") yield event
             else buffered.push(event)
           }
 
-          if (mappedFailure && !request.signal?.aborted) this.providerHealth.failure(candidate.resolved.providerId, mappedFailure)
+          if (mappedFailure && !request.signal?.aborted) this.providerHealth.failure(healthKey, mappedFailure)
           if (!retryableFailure) {
             for (const pending of buffered) yield pending
             return
@@ -978,7 +1049,7 @@ export class ModelInfra {
           }
           break
         }
-      } finally { release?.(); if (acquired) this.providerHealth.release(candidate.resolved.providerId) }
+      } finally { release?.(); if (acquired) this.providerHealth.release(healthKey) }
     }
     yield lastFailure ?? { type: "error", error: { code: "PROVIDER", message: "No healthy model route was available." } }
   }
@@ -1079,7 +1150,7 @@ export class ModelInfra {
         tools: request.tools,
         temperature: request.temperature,
         maxOutputTokens: request.maxTokens,
-        headers: request.headers,
+        headers: request.headers && Object.fromEntries(Object.entries(request.headers).filter(([key]) => key.toLowerCase() !== "x-mik-model-tier")),
         abortSignal: timeoutSignal,
         maxRetries: this.maxRetries,
         stopWhen: stepCountIs(this.maxSteps),
@@ -1345,6 +1416,7 @@ export class ModelInfra {
       requestId: call.requestId,
       at: call.at,
       source: "fetch",
+      request: { messages: [], tags: call.routingTags },
       resolved: { providerId: call.providerId, modelId: call.modelActual, requested: call.modelRequested },
       actual: call.modelActual,
       usage: call.usage,

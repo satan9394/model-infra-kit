@@ -75,7 +75,8 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
   if (isModelInfraError(error)) return error
 
   const status = readStatus(error)
-  const raw = error instanceof Error ? error.message : String(error)
+  const detail = error && typeof error === "object" ? error as Record<string, unknown> : undefined
+  const raw = error instanceof Error ? error.message : typeof detail?.message === "string" ? detail.message : String(error)
   const lower = raw.toLowerCase()
   /**
    * `AbortController.abort()` and `AbortSignal.timeout()` surface as errors whose
@@ -87,6 +88,11 @@ export function toModelInfraError(error: unknown, context: ModelInfraErrorOption
   const aborted = name === "AbortError" || name === "TimeoutError"
   /** Build an error whose message is redacted on the way out. */
   const fail = (message: string, options: ModelInfraErrorOptions) => new ModelInfraError(redact(message), options)
+
+  // SDK stream error frames carry structured codes but no HTTP failure status.
+  if (status === undefined && (detail?.code === "server_error" || detail?.type === "server_error")) {
+    return fail("The provider returned a server error.", { ...context, code: "PROVIDER", retryable: true, cause: error })
+  }
 
   // A client response must never be reclassified by adversarial upstream prose.
   if (status !== undefined && status >= 400 && status < 500 && ![401, 403, 404, 408, 429].includes(status)) {

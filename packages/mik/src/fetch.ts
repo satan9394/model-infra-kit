@@ -1,16 +1,18 @@
 import { pricingRequest } from "./pricing/request-context.js"
 import { randomUUID } from "node:crypto"
 import { MODEL_LIST_PROTOCOLS } from "./ai/protocols.js"
-import { isModelInfraError, ModelInfraError, type ModelInfraErrorCode } from "./errors.js"
+import { isModelInfraError, ModelInfraError, toModelInfraError, type ModelInfraErrorCode } from "./errors.js"
 import { reportedCostFromUsage, type ProviderCostReading } from "./pricing/reported-cost.js"
 import type { ResolvedProvider } from "./registry/registry.js"
 import type { TokenUsage } from "./types.js"
+import { isRetryableRouteFailure } from "./router/circuit-breaker.js"
 import { redact } from "./util/redact.js"
 
 const anthropicWireProtocols: Readonly<Record<string, boolean>> = { anthropic: true }
 
 /** A call that was forwarded to a provider and should be metered. */
 export interface ForwardedCall {
+  routingTags?: Record<string, string>
   batch?: boolean
   requestId: string
   /** When the caller sent the request. */
@@ -38,6 +40,8 @@ export interface ForwardedCall {
 
 /** The model a request should be routed to. */
 export interface FetchTarget {
+  routingTags?: Record<string, string>
+  fallback?: FetchTarget
   providerId: string
   modelId: string
   /** What the caller asked for, or the configured default ref. */
@@ -49,6 +53,7 @@ export interface MikFetchOptions {
   resolveProvider(providerId: string): ResolvedProvider
   /** The hub's model resolution, so a bare model id honours the default provider. */
   resolveModel(model?: string): FetchTarget
+  resolveRequest?(payload: Record<string, unknown>, headers: Record<string, string>): FetchTarget
   /** Meter one forwarded call. Must never throw: the hub wraps it. */
   onCall(call: ForwardedCall): void
   /** The URL this adapter is published under, read on every call. */
@@ -69,6 +74,7 @@ const HOP_HEADERS = [
   "accept-encoding",
   "x-mik-session-id",
   "x-mik-trace-id",
+  "x-mik-model-tier",
 ]
 
 const ZERO_USAGE = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 })
@@ -93,6 +99,8 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
   const forward = async (
     input: Parameters<typeof fetch>[0],
     init?: Parameters<typeof fetch>[1],
+    override?: FetchTarget,
+    cascadeTraceId?: string,
   ): Promise<Response> => {
     let request: Request
     try {
@@ -111,7 +119,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
     const requestedModel = typeof payload?.model === "string" ? payload.model : undefined
     const metadata = payload ? asRecord(payload.metadata) : null
     const sessionId = textValue(payload?.session_id) ?? textValue(payload?.user) ?? textValue(request.headers.get("x-mik-session-id"))
-    const traceId = textValue(payload?.trace_id) ?? textValue(metadata?.trace_id) ?? textValue(request.headers.get("x-mik-trace-id"))
+    let traceId = cascadeTraceId ?? textValue(payload?.trace_id) ?? textValue(metadata?.trace_id) ?? textValue(request.headers.get("x-mik-trace-id"))
     const isGeneration = request.method !== "GET" && request.method !== "HEAD"
 
     // A body that cannot be parsed cannot be routed, and forwarding it verbatim
@@ -122,7 +130,10 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
 
     let target: FetchTarget
     try {
-      target = options.resolveModel(requestedModel)
+      const routingHeaders: Record<string, string> = {}
+      request.headers.forEach((value, key) => { routingHeaders[key] = value })
+      target = override ?? (isGeneration && payload && options.resolveRequest ? options.resolveRequest(payload, routingHeaders) : options.resolveModel(requestedModel))
+      if (target.routingTags) traceId ??= nextId()
     } catch (error) {
       const mapped = isModelInfraError(error) ? error : new ModelInfraError(messageOf(error), { code: "INVALID_REQUEST" })
       return errorResponse(statusForCode(mapped.code), mapped.message, mapped.code)
@@ -167,6 +178,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
     } catch (error) {
       options.onCall({
         ...(batch ? { batch: true } : {}),
+        routingTags: target.routingTags,
         requestId,
         at: startedAt,
         providerId: target.providerId,
@@ -180,6 +192,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         ...(sessionId === undefined ? {} : { sessionId }),
         ...(traceId === undefined ? {} : { traceId }),
       })
+      if (target.fallback && !request.signal.aborted) return forward(input, init, target.fallback, traceId)
       return errorResponse(502, `Could not reach provider "${target.providerId}".`, "CONNECTION")
     }
 
@@ -190,9 +203,11 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       firstTokenMs: number | undefined,
       isStreaming: boolean,
       providerCost?: ProviderCostReading,
+      streamError?: ModelInfraError,
     ) => {
       options.onCall({
         ...(batch ? { batch: true } : {}),
+        routingTags: target.routingTags,
         requestId,
         at: startedAt,
         providerId: target.providerId,
@@ -201,8 +216,8 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         usage,
         latencyMs,
         firstTokenMs,
-        status: response.ok ? "ok" : "error",
-        errorCode: response.ok ? undefined : codeForStatus(response.status),
+        status: response.ok && !streamError ? "ok" : "error",
+        errorCode: streamError?.code ?? (response.ok ? undefined : codeForStatus(response.status)),
         isStreaming,
         ...(sessionId === undefined ? {} : { sessionId }),
         ...(traceId === undefined ? {} : { traceId }),
@@ -214,7 +229,23 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
 
     if (!response.ok) {
       meter(ZERO_USAGE(), target.modelId, undefined, false)
+      if (target.fallback && !request.signal.aborted && (response.status === 429 || response.status >= 500 && response.status <= 599)) {
+        await response.body?.cancel()
+        return forward(input, init, target.fallback, traceId)
+      }
       return response
+    }
+
+    if (target.fallback && isEventStream(response)) {
+      const primed = await primeCascadeStream(response)
+      response = primed.response
+      if (primed.error) {
+        options.onCall({ requestId, at: startedAt, providerId: target.providerId, modelRequested: target.requested,
+          modelActual: target.modelId, usage: ZERO_USAGE(), latencyMs: now() - startedAt, status: "error",
+          errorCode: primed.error.code, isStreaming: true, sessionId, traceId, routingTags: target.routingTags, batch })
+        if (!request.signal.aborted && isRetryableRouteFailure(primed.error)) return forward(input, init, target.fallback, traceId)
+        return errorResponse(statusForCode(primed.error.code), primed.error.message, primed.error.code)
+      }
     }
 
     if (isEventStream(response)) {
@@ -235,7 +266,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
             if (recorded) return
             recorded = true
             const found = scanner.result()
-            meter(found.usage ?? ZERO_USAGE(), found.model ?? target.modelId, found.firstTokenMs, true, found.cost)
+            meter(found.usage ?? ZERO_USAGE(), found.model ?? target.modelId, found.firstTokenMs, true, found.cost, found.error)
           },
         }),
       )
@@ -254,6 +285,64 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
   }
 
   return forward as typeof fetch
+}
+
+/** Buffer native SSE only until output commits; never replay text or tool work. */
+async function primeCascadeStream(response: Response): Promise<{ response: Response; error?: ModelInfraError }> {
+  if (!response.body) return { response }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  const decoder = new TextDecoder()
+  let pending = ""
+  let bytes = 0
+  let done = false
+  let committed = false
+  try {
+    while (!done && !committed && bytes < 65_536) {
+      const next = await reader.read()
+      done = next.done
+      if (next.value) { chunks.push(next.value); bytes += next.value.length }
+      pending += decoder.decode(next.value, { stream: !done })
+      let end = pending.indexOf("\n")
+      while (end >= 0 && !committed) {
+        const line = pending.slice(0, end).trim()
+        pending = pending.slice(end + 1)
+        if (line.startsWith("data:") && line.slice(5).trim() !== "[DONE]") {
+          let frame: Record<string, unknown> | undefined
+          try { frame = JSON.parse(line.slice(5)) } catch { /* partial/non-JSON event */ }
+          if (frame?.error) {
+            await reader.cancel()
+            reader.releaseLock()
+            return { response, error: toModelInfraError(frame.error) }
+          }
+          if (frame) {
+            const choices = frame.choices as Array<{ delta?: { content?: string; tool_calls?: unknown; reasoning_content?: string } }> | undefined
+            committed = !!choices?.some(choice => choice.delta?.content || choice.delta?.tool_calls || choice.delta?.reasoning_content)
+              || ["content_block_start", "content_block_delta", "response.output_text.delta", "response.function_call_arguments.delta"].includes(String(frame.type))
+          }
+        }
+        end = pending.indexOf("\n")
+      }
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+    return { response, error: toModelInfraError(error) }
+  }
+  // ponytail: a bounded prefix prevents unbounded metadata buffering; reaching it commits the stream.
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { for (const chunk of chunks) controller.enqueue(chunk) },
+    async pull(controller) {
+      if (done) { controller.close(); reader.releaseLock(); return }
+      try {
+        const next = await reader.read()
+        if (next.done) { done = true; controller.close(); reader.releaseLock() }
+        else controller.enqueue(next.value)
+      } catch (error) { controller.error(error); reader.releaseLock() }
+    },
+    async cancel(reason) { await reader.cancel(reason); reader.releaseLock() },
+  })
+  return { response: new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers }) }
 }
 
 /** Read a request body without consuming it for the caller. */
@@ -414,6 +503,7 @@ function createSseScanner(
   consume(chunk: Uint8Array): void
   finish(): void
   result(): {
+    error?: ModelInfraError
     usage: TokenUsage | undefined
     model: string | undefined
     firstTokenMs: number | undefined
@@ -426,6 +516,7 @@ function createSseScanner(
   let model: string | undefined
   let firstTokenMs: number | undefined
   let cost: ProviderCostReading | undefined
+  let error: ModelInfraError | undefined
 
   const line = (text: string) => {
     if (firstTokenMs === undefined && text.trim()) firstTokenMs = now() - startedAt
@@ -438,6 +529,7 @@ function createSseScanner(
     } catch {
       return
     }
+    if (parsed?.error) error = toModelInfraError(parsed.error)
     // The billed amount is read independently of the token counts: a gateway may
     // send `usage.cost` on a frame whose token fields this adapter does not use.
     const wirePayload = asRecord(parsed?.response) ?? parsed
@@ -474,7 +566,7 @@ function createSseScanner(
       buffer += decoder.decode()
       drain(true)
     },
-    result: () => ({ usage, model, firstTokenMs, cost }),
+    result: () => ({ usage, model, firstTokenMs, cost, error }),
   }
 }
 

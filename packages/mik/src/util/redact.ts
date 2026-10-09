@@ -50,15 +50,15 @@ function carriesSecretText(value: unknown): boolean {
 }
 
 /** Redact every string value of a JSON-like structure, recursively. */
-export function redactDeep<T>(value: T, depth = 0): T {
-  if (depth > 6) return "[depth-limit]" as unknown as T
+export function redactDeep<T>(value: T, depth = 0, maxDepth = 6): T {
+  if (depth > maxDepth) return "[depth-limit]" as unknown as T
   if (typeof value === "string") return redact(value) as unknown as T
-  if (Array.isArray(value)) return value.map((item) => redactDeep(item, depth + 1)) as unknown as T
+  if (Array.isArray(value)) return value.map((item) => redactDeep(item, depth + 1, maxDepth)) as unknown as T
   if (value && typeof value === "object") {
     const output: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
       output[key] =
-        SECRET_KEY_PATTERN.test(key) && carriesSecretText(item) ? "[REDACTED]" : redactDeep(item, depth + 1)
+        SECRET_KEY_PATTERN.test(key) && carriesSecretText(item) ? "[REDACTED]" : redactDeep(item, depth + 1, maxDepth)
     }
     return output as unknown as T
   }

@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises"
-import { watchFile, unwatchFile } from "node:fs"
+import { statSync } from "node:fs"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
 import { readRouterConfig } from "../ai/smart-router.js"
+import { readCascadingConfig } from "../router/cascading.js"
 import { readLoadBalancerConfig } from "../router/load-balancer.js"
 import { splitModelRef } from "../registry/registry.js"
 import type { ProviderConfig } from "../types.js"
@@ -34,7 +35,7 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
   const value: unknown = JSON.parse(await readFile(options.configPath, "utf8"))
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Reload config must be an object.")
   const config = value as Record<string, unknown>
-  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "initialProviders", "providers", "defaultModel", "watch"])
+  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "cascading", "initialProviders", "providers", "defaultModel", "watch"])
   if (Object.keys(config).some(key => !allowed.has(key))) throw new Error("Unknown reload config field.")
   for (const key of ["appId", "db", "cacheDir", "defaultModel"]) {
     if (config[key] !== undefined && (typeof config[key] !== "string" || !config[key])) throw new Error(`Invalid ${key} configuration.`)
@@ -94,11 +95,13 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
     providers: providers ?? options.currentHub?.providers.list() ?? options.hubOptions.providers,
     defaultModel: (config.defaultModel as string | undefined) ?? options.currentHub?.providers.defaultModel() ?? options.hubOptions.defaultModel,
     router,
+    cascading: config.cascading === undefined ? undefined : readCascadingConfig(config.cascading),
     loadBalancer: config.loadBalancer === undefined ? undefined : readLoadBalancerConfig(config.loadBalancer),
     budget: config.budget as ModelInfraOptions["budget"],
     isolatedProviders: true, syncCatalog: false, pricingAutoSync: false,
   })
   try {
+    if (config.cascading) for (const policy of Object.values(readCascadingConfig(config.cascading))) for (const model of [policy.tier1FastModel, policy.tier2ReasoningModel]) hub.resolveModel(model)
     if (config.loadBalancer) for (const channels of Object.values(readLoadBalancerConfig(config.loadBalancer))) for (const channel of channels) {
       if (!hub.providers.get(splitModelRef(channel.model)!.providerId)?.enabled) throw new Error("Load balancer target requires an enabled provider.")
     }
@@ -187,11 +190,18 @@ export class HotReloadManager<T> {
     this.listening = true
     process.on("SIGHUP", this.onSignal)
     if (watch) {
-      const listener = (current: import("node:fs").Stats, previous: import("node:fs").Stats) => {
-        if (current.mtimeMs !== previous.mtimeMs || current.size !== previous.size) this.scheduleReload()
+      const stamp = () => {
+        try { const current = statSync(configPath); return `${current.mtimeMs}:${current.size}` }
+        catch { return "unavailable" }
       }
-      watchFile(configPath, { interval, persistent: false }, listener)
-      this.stopWatch = () => unwatchFile(configPath, listener)
+      // Capture before returning: watchFile's asynchronous first stat can swallow an immediate save.
+      let previous = stamp()
+      const timer = setInterval(() => {
+        const current = stamp()
+        if (current !== previous) { previous = current; this.scheduleReload() }
+      }, interval)
+      timer.unref()
+      this.stopWatch = () => clearInterval(timer)
     }
   }
 

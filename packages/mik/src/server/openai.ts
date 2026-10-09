@@ -4,7 +4,7 @@ import { jsonSchema, type JSONSchema7, type ModelMessage, type ToolSet } from "a
 import { isModelInfraError } from "../errors.js"
 import { splitModelRef } from "../registry/registry.js"
 import type { ModelRequest, ModelResponse, StreamEvent, TokenUsage, ToolCall } from "../types.js"
-import { redact } from "../util/redact.js"
+import { redact, redactDeep } from "../util/redact.js"
 import { HttpError, type ServerContext } from "./context.js"
 import { readJsonBody, sendError, sendJson, statusForCode } from "./http.js"
 import { SseStream } from "./sse.js"
@@ -349,7 +349,7 @@ function chunk(
     choices: [{ index: 0, delta, finish_reason: finish, logprobs: null }],
   }
   if (usage) frame.usage = usage
-  return `data: ${JSON.stringify(frame)}\n\n`
+  return `data: ${JSON.stringify(redactDeep(frame, 0, 32))}\n\n`
 }
 
 function toOpenAiCompletion(response: ModelResponse, id: string, created: number): Record<string, unknown> {
@@ -390,7 +390,8 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
   const prompt = toPrompt(body.messages)
   const tools = toTools(body.tools)
 
-  const request: ModelRequest = { messages: prompt.messages }
+  const request: ModelRequest = { messages: prompt.messages, reasoning_effort: body.reasoning_effort, reasoning: body.reasoning, thinking: body.thinking,
+    headers: { "x-mik-model-tier": headerValue(ctx.req, "x-mik-model-tier") ?? "" } }
   if (ctx.req.headers["x-mik-batch"] === "true" || body.batch === true || body["X-Mik-Batch"] === true || body["X-Mik-Batch"] === "true") request.batch = true
   if (prompt.system !== undefined) request.system = prompt.system
   if (tools !== undefined) request.tools = tools

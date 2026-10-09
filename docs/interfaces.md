@@ -1141,6 +1141,7 @@ no third-party application data discovery, and no background service.
       "defaultDbPath",
       "defaultSecretPath",
       "estimateContextTokens",
+      "evaluateComplexity",
       "expandPath",
       "getPreset",
       "isModelInfraError",
@@ -1484,3 +1485,82 @@ limitations. Price refresh failure does not block generation.
 
 Runnable focused checks:
 `pnpm exec vitest run packages/mik/test/pricing-time-of-day.test.ts packages/mik/test/hard-budget-cap.test.ts packages/mik/test/batch-gateway.test.ts`.
+
+## EVO-G126 — Local semantic cascading
+
+Configuration files and `ModelInfra.init` accept `cascading: Record<string,
+CascadingPolicy>`. Alias names must be distinct from `router.aliases` and
+`loadBalancer`; both physical `provider:model` targets must be enabled.
+
+```ts
+cascading: {
+  auto: {
+    tier1FastModel: "deepseek:deepseek-chat",
+    tier2ReasoningModel: "openai:o1-preview",
+    rules: {
+      maxPromptTokensForTier1: 4000,
+      maxPromptCharsForTier1: 16000,
+      reasoningKeywords: ["证明", "推导", "step by step", "算法复杂度"],
+      minToolCountForTier2: 4,
+      minConversationTurnsForTier2: 8,
+    },
+  },
+}
+```
+
+`evaluateComplexity(request, policy)` is a synchronous pure function returning
+`tier1` or `tier2`, without I/O, prompt logging, or an external evaluator. Defaults
+also recognize 逐步, 重构, prove, derive and refactor; custom keywords replace
+the default list. Token estimates reuse the CJK-aware heuristic and add four
+framing tokens per message. System text, content parts and tool payload text
+count; media tokens are not guessed. Character/token limits use strict `>`;
+tool counts and user-turn counts use `>=`. The presence of `reasoning_effort`,
+`reasoning` or `thinking`, or case-insensitive `X-Mik-Model-Tier: reasoning`,
+selects tier2 before heuristics. The tier header is consumed locally.
+
+Conservative work limits select tier2 above 16,000 characters, 128 messages or
+content parts, or six structured levels. Rules may tighten the character limit
+but cannot relax this hard bound. OpenAI and native handlers dispatched by
+`server.ts` share the hub policy; embedded generate/stream and metered fetch
+also accept aliases. Native targets must both support the client protocol.
+Physical model references and existing weighted aliases retain their behavior.
+
+Tier1 retries only on the configured tier2 after a retryable failure before
+output, including 429, 5xx, connection failure and structured stream errors.
+Tier2 does not fall back to tier1 or a general fallback chain.
+`fallbackChain: false` disables embedded escalation. Text, reasoning text and
+tool output commit the stream; executed tools also prevent replay. Native SSE
+buffers until output commits, with a conservative 64 KiB prefix boundary that
+also ends replay eligibility. Later stream errors are audited without replay.
+SDK cascading circuit health is isolated by physical model so a failing fast
+model does not block its healthy reasoning sibling on the same provider.
+
+Each attempt records the actual provider/model and shares its trace, with
+`virtual_model`, `cascading_tier` and string-valued
+`cascading_escalated="true"|"false"` tags. Gateway responses and errors pass
+through `redact.ts`; credentials do not enter the usage ledger.
+Schema v6 adds authoritative integer `cost_micros`, `cost_low_micros` and
+`cost_high_micros` columns without removing legacy data. New rows store no
+floating USD amounts. Historical rows migrate through decimal BigInt
+conversion; reads, budget totals and archive conservation use integer columns.
+After migration, accounting reads only the integer columns; legacy direct SQL
+writers must use the micros columns. USD API/CSV fields
+remain display compatibility boundaries, rounded to micros. Billing uses the
+actual answering model's rates, never the virtual alias.
+
+`GET /api/models` adds a `cascading` array containing alias, both physical model
+references and `estimatedSavingsMicros: number | null`. Estimates compare
+1,000 input plus 1,000 output tokens at current rates against tier2; missing
+rates yield null and savings never go negative. These estimates do not predict
+actual future savings. `/models` renders mappings and estimates; `/traces`
+details render tier and escalation badges in both locales.
+
+Focused verification:
+`pnpm exec vitest run packages/mik/test/cascading-router.test.ts --disableConsoleIntercept`.
+Dashboard tests render both language variants, mappings, one-micro estimates
+and missing rates. Local mechanical gate records are retained in `.tmp/g126/`.
+
+The integrated gate also exposed an immediate-save race in configuration polling:
+the initial stamp is now captured synchronously before registration returns, and
+an unref'd timer compares subsequent stamps. A deterministic timer test verifies
+the first save and polling shutdown without wall-clock sleeps.

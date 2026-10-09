@@ -47,7 +47,7 @@ describe("EVO-G96 agent trace attribution", () => {
   it("adds the trace column and trace rollup storage in schema v4", async () => {
     const store = await Store.open({ path: ":memory:" })
     try {
-      expect(store.schemaVersion).toBe(5)
+      expect(store.schemaVersion).toBe(6)
       const eventColumns = store.driver.prepare("PRAGMA table_info(usage_events)").all().map((row) => String(row.name))
       expect(eventColumns).toContain("trace_id")
       expect(store.driver.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_trace_rollups'").get()).toBeTruthy()

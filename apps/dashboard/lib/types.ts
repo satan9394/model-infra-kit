@@ -255,7 +255,15 @@ export interface ProviderPayload {
   provider: ProviderRecord
 }
 
+export interface CascadingModel {
+  alias: string
+  tier1FastModel: string
+  tier2ReasoningModel: string
+  estimatedSavingsMicros: number | null
+}
+
 export interface ModelsPayload {
+  cascading?: CascadingModel[]
   defaultModel?: string | null
   models: ModelInfo[]
 }

@@ -10,6 +10,7 @@
  */
 export { ModelInfra, type ModelCatalog, type ModelInfraOptions, type ResolvedModelRef } from "./hub.js"
 export type { ArchiveOptions, ArchiveResult } from "./usage/archive.js"
+export { evaluateComplexity, type CascadingPolicy, type CascadingConfig, type CascadingTier } from "./router/cascading.js"
 export { estimateContextTokens, type RouterConfig, type RouterPolicy, type RouterRule } from "./ai/smart-router.js"
 export {
   MODEL_CATALOG_SOURCE,

@@ -83,6 +83,10 @@ export interface ProviderConfig {
   apiKeyRef?: string | string[]
   npmPackage?: string
   headers?: Record<string, string>
+  /** Explicit reasoning intent for semantic cascading. */
+  reasoning_effort?: unknown
+  reasoning?: unknown
+  thinking?: unknown
   enabled?: boolean
   presetId?: string
   meta?: Record<string, unknown>
@@ -188,6 +192,10 @@ export interface ModelRequest {
   temperature?: number
   maxTokens?: number
   headers?: Record<string, string>
+  /** Explicit reasoning intent for semantic cascading. */
+  reasoning_effort?: unknown
+  reasoning?: unknown
+  thinking?: unknown
   /** Arbitrary per-call tags, stored with the usage event. */
   tags?: Record<string, string>
   /** Groups this model call under one Agent task trace. */
@@ -471,6 +479,8 @@ export interface BudgetConfig {
 }
 
 export interface ModelInfraConfig {
+  /** Semantic virtual models; cheap requests use tier1 with bounded tier2 escalation. */
+  cascading?: import("./router/cascading.js").CascadingConfig
   /** Virtual models with weighted primary channels and priority standbys. */
   loadBalancer?: import("./router/load-balancer.js").LoadBalancerConfig
   /** Exact virtual model aliases evaluated before provider dispatch. */

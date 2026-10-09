@@ -513,4 +513,11 @@ export const zh = {
   "price.timeRule": "协调世界时 {0}:00 至 {1}:00 · 输入倍率 {2} · 输出倍率 {3}",
   "price.discountActive": "当前生效：输入倍率 {0}，输出倍率 {1}",
   "price.discountInactive": "当前时段无折价",
+  "cascade.tier1": "极速通道 / 一级",
+  "cascade.tier2": "深度推理 / 二级",
+  "cascade.escalated": "已自动平滑升级",
+  "cascade.models": "级联虚拟模型",
+  "cascade.estimate": "按当前费率，以一千输入及一千输出词元对比深度推理模型预估节省；实际用量按命中模型记账。",
+  "cascade.savings": "预估节省：{0} 微美元",
+  "cascade.unpriced": "缺少模型费率，暂无法预估",
 } as const

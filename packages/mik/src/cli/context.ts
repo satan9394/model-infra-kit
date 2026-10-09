@@ -1,5 +1,6 @@
 import { readStorageConfig, type StorageConfig } from "../store/adapter.js"
 import { readRouterConfig } from "../ai/smart-router.js"
+import { readCascadingConfig } from "../router/cascading.js"
 import { readLoadBalancerConfig } from "../router/load-balancer.js"
 import { isModelInfraError } from "../errors.js"
 import { existsSync, readFileSync } from "node:fs"
@@ -36,6 +37,7 @@ export interface CliConfigFile {
   defaultModel?: string
   watch?: boolean
   router?: import("../ai/smart-router.js").RouterConfig
+  cascading?: import("../router/cascading.js").CascadingConfig
   loadBalancer?: import("../router/load-balancer.js").LoadBalancerConfig
   appId?: string
   db?: string
@@ -216,6 +218,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     config.budget = readBudgetConfig(record.budget)
     if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
     if (record.router !== undefined) config.router = readRouterConfig(record.router)
+    if (record.cascading !== undefined) config.cascading = readCascadingConfig(record.cascading)
     if (record.loadBalancer !== undefined) config.loadBalancer = readLoadBalancerConfig(record.loadBalancer)
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     if (Array.isArray(record.providers)) config.providers = record.providers as ProviderConfig[]
@@ -317,6 +320,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     budget: config.budget,
     router: config.router,
     loadBalancer: config.loadBalancer,
+    cascading: config.cascading,
     env,
     providers: parsed.command?.name === "serve" ? config.providers : undefined,
     defaultModel: parsed.command?.name === "serve" ? config.defaultModel : undefined,

@@ -29,6 +29,7 @@ export default async function ModelsPage() {
       <ModelsClient
         models={catalog.ok ? catalog.data.models : shell.models}
         defaultModel={catalog.ok ? catalog.data.defaultModel : undefined}
+        cascading={catalog.ok ? catalog.data.cascading : undefined}
         providers={shell.providers}
         catalogModels={modelCatalog.ok ? modelCatalog.data.models : []}
         catalogBindings={modelCatalog.ok ? modelCatalog.data.bindings : []}

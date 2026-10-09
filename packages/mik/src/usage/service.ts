@@ -1,3 +1,5 @@
+import { toMicroUsd } from "../store/money.js"
+export { toMicroUsd } from "../store/money.js"
 import { archiveUsage, type ArchiveOptions, type ArchiveResult } from "./archive.js"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { Store } from "../store/database.js"
@@ -30,11 +32,6 @@ export interface BudgetDeps extends BudgetConfig {
   baseMicros?: number
   /** Clock, injected by tests. Defaults to `Date.now`. */
   now?: () => number
-}
-
-/** Round a USD amount to integer micro-USD, the same way the SQL aggregate does. */
-export function toMicroUsd(usd: number): number {
-  return Math.round(usd * 1_000_000)
 }
 
 /** The UTC start of the window containing `ts` (day or month boundary). */

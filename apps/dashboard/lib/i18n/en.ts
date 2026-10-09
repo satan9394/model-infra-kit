@@ -513,4 +513,11 @@ export const en = {
   "price.timeRule": "UTC {0}:00 to {1}:00 · Input multiplier {2} · Output multiplier {3}",
   "price.discountActive": "Active now: input multiplier {0}, output multiplier {1}",
   "price.discountInactive": "No time-of-day discount active",
+  "cascade.tier1": "Fast lane / Tier 1",
+  "cascade.tier2": "Deep reasoning / Tier 2",
+  "cascade.escalated": "Automatically escalated",
+  "cascade.models": "Cascading virtual models",
+  "cascade.estimate": "Estimated savings for 1,000 input and 1,000 output tokens, compared with the reasoning model at current rates. Actual usage is billed per model.",
+  "cascade.savings": "Estimated savings: {0} µUSD",
+  "cascade.unpriced": "Estimate unavailable: missing model rates",
 } as const

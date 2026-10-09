@@ -552,7 +552,7 @@ describe("EVO-G75 A4 — an old database upgrades without losing data", () => {
 
     expect(columns).toContain("tags_json")
     expect(columns).toContain("trace_id")
-    expect(applied).toEqual([1, 2, 3, 4, 5])
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6])
     expect(
       store.driver
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_trace_rollups'")
@@ -610,7 +610,7 @@ describe("EVO-G75 A4 — an old database upgrades without losing data", () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all()
         .map((row) => Number(row.version)),
-    ).toEqual([1, 2, 3, 4, 5])
+    ).toEqual([1, 2, 3, 4, 5, 6])
     expect(
       store.driver
         .prepare("PRAGMA table_info(usage_events)")

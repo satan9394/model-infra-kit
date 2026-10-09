@@ -1,7 +1,8 @@
+import { requestCostMicros } from "../usage/tool-attribution.js"
+
 /** USD → integer micro-USD. All aggregation happens in this unit. */
 export function toMicroUsd(usd: number): number {
-  if (!Number.isFinite(usd)) return 0
-  return Math.round(usd * 1_000_000)
+  return requestCostMicros(usd)
 }
 
 /** Integer micro-USD → USD. */

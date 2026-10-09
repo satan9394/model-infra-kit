@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import { apiCall } from "@/lib/client-api"
 import { formatInt } from "@/lib/format"
-import type { CatalogModelMetadata, ModelInfo, ProviderModelBinding, ProviderRecord } from "@/lib/types"
+import type { CascadingModel, CatalogModelMetadata, ModelInfo, ProviderModelBinding, ProviderRecord } from "@/lib/types"
 import { Badge, Card, EmptyState, TableWrap, Td, Th } from "@/components/ui"
 import { ModelCard } from "@/components/model-card"
 import { ModelPingModal } from "@/components/model-ping-modal"
@@ -30,7 +30,9 @@ export function ModelsClient({
   catalogModels,
   catalogBindings,
   defaultModel,
+  cascading = [],
 }: {
+  cascading?: CascadingModel[]
   models: ModelInfo[]
   providers: ProviderRecord[]
   catalogModels: CatalogModelMetadata[]
@@ -99,6 +101,15 @@ export function ModelsClient({
 
   return (
     <div className="space-y-4">
+      {cascading.length > 0 && <Card title={t("cascade.models")}>
+        <p className="mb-3 text-xs text-subtle">{t("cascade.estimate")}</p>
+        {cascading.map(item => <div key={item.alias} className="mb-2 rounded-lg border border-border p-3 text-xs" data-testid="cascading-model">
+          <p className="font-mono">{item.alias}</p>
+          <p>{t("cascade.tier1")} → <span className="font-mono">{item.tier1FastModel}</span></p>
+          <p>{t("cascade.tier2")} → <span className="font-mono">{item.tier2ReasoningModel}</span></p>
+          <p>{item.estimatedSavingsMicros === null ? t("cascade.unpriced") : t("cascade.savings", formatInt(item.estimatedSavingsMicros))}</p>
+        </div>)}
+      </Card>}
       <div className="rounded-2xl border border-border bg-surface p-4">
         <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label={t("s259")}>
           {CAPABILITY_FILTERS.map(({ key, label }) => <button key={key} type="button" aria-pressed={tags.includes(key)} onClick={() => setTags((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} className={`rounded-full border px-3 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-primary ${tags.includes(key) ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"}`}>{t(label)}</button>)}

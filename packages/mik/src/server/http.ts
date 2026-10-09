@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import { HttpError } from "./context.js"
 import { ModelInfraError } from "../errors.js"
 import type { UsageQuery } from "../types.js"
-import { redact } from "../util/redact.js"
+import { redact, redactDeep } from "../util/redact.js"
 import { pricingRequest } from "../pricing/request-context.js"
 
 /** Bodies are whole chat payloads; anything larger is a mistake or an attack. */
@@ -18,7 +18,7 @@ export interface CorsOptions {
   credentials?: boolean
 }
 
-const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "x-mik-app-id", "accept", "x-mik-batch", "x-mik-bypass-budget"]
+const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "x-mik-app-id", "accept", "x-mik-batch", "x-mik-bypass-budget", "x-mik-model-tier"]
 
 /**
  * Normalise the `cors` option; `undefined`/`false` means "no CORS headers"
@@ -66,7 +66,7 @@ export function pathSegments(url: URL): string[] {
 }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
-  const payload = JSON.stringify(body ?? null)
+  const payload = JSON.stringify(redactDeep(body ?? null, 0, 32))
   if (res.writableEnded || res.destroyed) return
   // A streamed response already committed its status: all that is left is to end it.
   if (res.headersSent) {

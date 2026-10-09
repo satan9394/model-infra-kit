@@ -2,6 +2,7 @@
 
 import { useI18n } from "@/lib/i18n/provider"
 
+import { Badge } from "@/components/ui"
 import { useRef, useState } from "react"
 import { traceTimeline } from "@/lib/trace-timeline"
 import { formatInt, formatMs, formatUsdSpan } from "@/lib/format"
@@ -43,6 +44,10 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
             </span>
           </summary>
           <p className="mt-2 break-all text-xs text-subtle">{event.providerId} · {t(event.status === "ok" ? "s68" : "s69")} · {t("s117")} {formatMs(event.firstTokenMs)} {t("s234")} {formatMs(event.latencyMs)} · {t("ping.prompt")} {formatInt(event.usage.input)} · {t("ping.reasoning")} {formatInt(event.usage.reasoning)} · {t("ping.completion")} {formatInt(event.usage.output)} · {formatUsdSpan(event.cost.low, event.cost.high)} · {event.traceId}</p>
+          {(event.tags?.cascading_tier === "tier1" || event.tags?.cascading_tier === "tier2") && <div className="mt-2 flex flex-wrap gap-2" data-testid="trace-cascading">
+            <Badge tone={event.tags.cascading_tier === "tier1" ? "ok" : "info"}>{t(event.tags.cascading_tier === "tier1" ? "cascade.tier1" : "cascade.tier2")}</Badge>
+            {event.tags.cascading_escalated === "true" && <Badge tone="warn">{t("cascade.escalated")}</Badge>}
+          </div>}
           {tools.length > 0 && <div className="mt-3 space-y-2" data-testid="trace-tool-calls">
             <p className="text-xs text-subtle">{t("trace.tools.policy")}</p>
             {tools.map(({ call, sharePercent, left: toolLeft, width: toolWidth }, index) => <div key={`${call.id}-${index}`} className="grid grid-cols-[140px_1fr] items-center gap-3 text-xs" data-testid="trace-tool-call">

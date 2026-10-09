@@ -126,9 +126,9 @@ function parseTags(raw: unknown): Record<string, string> {
 function rowToEvent(row: Record<string, unknown>): UsageEvent {
   const source = (asString(row.pricing_source) || "missing") as CostInfo["source"]
   const cost: CostInfo = {
-    usd: asNumber(row.cost_usd),
-    low: asNumber(row.cost_low_usd),
-    high: asNumber(row.cost_high_usd),
+    usd: asNumber(row.cost_micros) / 1_000_000,
+    low: asNumber(row.cost_low_micros) / 1_000_000,
+    high: asNumber(row.cost_high_micros) / 1_000_000,
     /**
      * EVO-G78 — the same rule as the write path, applied to rows that were
      * stored before it: a row with **no recorded basis and no price** is
@@ -246,8 +246,8 @@ function traceRollupSql(groupBy: UsageTraceGroupBy): string {
     COALESCE(session_id, ''), COALESCE(trace_id, ''), provider_id, model_actual, status,
     COUNT(*), SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END),
     SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(reasoning_tokens),
-    SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)),
-    SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)), MIN(ts), MAX(ts),
+    SUM(COALESCE(cost_low_micros, 0)),
+    SUM(COALESCE(cost_high_micros, 0)), MIN(ts), MAX(ts),
     SUM(COALESCE(latency_ms, 0)), SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END),
     SUM(COALESCE(first_token_ms, 0)), SUM(CASE WHEN first_token_ms IS NULL THEN 0 ELSE 1 END)
   FROM usage_events
@@ -338,9 +338,9 @@ export class UsageRepository {
     let last = 0
     for (;;) {
       const rows = this.driver.prepare(`SELECT rowid AS archive_rowid, *,
-        CAST(ROUND(cost_usd * 1000000) AS INTEGER) AS cost_micros,
-        CAST(ROUND(cost_low_usd * 1000000) AS INTEGER) AS low_micros,
-        CAST(ROUND(cost_high_usd * 1000000) AS INTEGER) AS high_micros
+        COALESCE(cost_micros, 0) AS cost_micros,
+        COALESCE(cost_low_micros, 0) AS low_micros,
+        COALESCE(cost_high_micros, 0) AS high_micros
         FROM usage_events WHERE ts < ? AND rowid > ? ORDER BY rowid LIMIT 256`).all(cutoff, last)
       if (rows.length === 0) return
       for (const row of rows) {
@@ -357,7 +357,7 @@ export class UsageRepository {
       detail ? "SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END)" : "SUM(success_count)",
       ...["input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens"].map((field) => `SUM(${field})`),
       ...["", "low_", "high_"].map((part) => detail
-        ? `SUM(CAST(ROUND(cost_${part}usd * 1000000) AS INTEGER))`
+        ? `SUM(COALESCE(cost_${part}micros, 0))`
         : `SUM(cost_${part}microusd)`),
       detail ? "SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER))" : "SUM(cache_savings_micros)"]
     const row = this.driver.prepare(`SELECT ${fields.map((field, i) => `COALESCE(${field}, 0) AS v${i}`).join(", ")}
@@ -376,7 +376,7 @@ export class UsageRepository {
           `INSERT OR IGNORE INTO usage_events (
             request_id, app_id, ts, source, provider_id, model_requested, model_actual, pricing_model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-            cost_usd, cost_low_usd, cost_high_usd, pricing_source, pricing_basis,
+            cost_micros, cost_low_micros, cost_high_micros, pricing_source, pricing_basis,
             latency_ms, first_token_ms, status, error_code, is_streaming, session_id, trace_id, tags_json
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
@@ -394,9 +394,9 @@ export class UsageRepository {
           event.usage.cacheRead,
           event.usage.cacheWrite,
           event.usage.reasoning,
-          event.cost.usd,
-          event.cost.low,
-          event.cost.high,
+          requestCostMicros(event.cost.usd),
+          requestCostMicros(event.cost.low),
+          requestCostMicros(event.cost.high),
           event.cost.source,
           event.cost.basis,
           toSqlValue(event.latencyMs),
@@ -459,9 +459,9 @@ export class UsageRepository {
           SUM(cache_read_tokens) AS cache_read_tokens,
           SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens,
-          SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
-          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
-          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
+          SUM(COALESCE(cost_micros, 0)) AS cost_micro,
+          SUM(COALESCE(cost_low_micros, 0)) AS low_micro,
+          SUM(COALESCE(cost_high_micros, 0)) AS high_micro,
           SUM(COALESCE(latency_ms, 0)) AS latency_sum,
           SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END) AS latency_count,
           SUM(COALESCE(first_token_ms, 0)) AS first_sum,
@@ -552,7 +552,7 @@ export class UsageRepository {
   costMicros(appId: string, from: number, to: number): number {
     const row = this.driver
       .prepare(
-        `SELECT COALESCE(SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)), 0) AS cost_micro
+        `SELECT COALESCE(SUM(COALESCE(cost_micros, 0)), 0) AS cost_micro
          FROM usage_events WHERE app_id = ? AND ts >= ? AND ts < ?`,
       )
       .get(appId, from, to)
@@ -571,7 +571,7 @@ export class UsageRepository {
     const detail = this.driver
       .prepare(
         `SELECT
-          COALESCE(SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)), 0) AS spent_micro,
+          COALESCE(SUM(COALESCE(cost_micros, 0)), 0) AS spent_micro,
           COALESCE(SUM(CASE WHEN COALESCE(pricing_source, 'missing') = 'missing' THEN 1 ELSE 0 END), 0) AS unpriced_requests
          FROM usage_events WHERE app_id = ? AND ts >= ? AND ts < ?`,
       )
@@ -704,9 +704,9 @@ export class UsageRepository {
     for (const row of this.driver
       .prepare(
         `SELECT ${key.events} AS ${keyAlias}, COUNT(*) AS requests,
-          SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
-          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
-          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
+          SUM(COALESCE(cost_micros, 0)) AS cost_micro,
+          SUM(COALESCE(cost_low_micros, 0)) AS low_micro,
+          SUM(COALESCE(cost_high_micros, 0)) AS high_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
@@ -827,8 +827,7 @@ export class UsageRepository {
    * raw one is per-call noise. They stay in `usage_events.tags_json` and in
    * `usage export`, which never drops a column.
    *
-   * Money is summed as integer micro-USD — `CAST(ROUND(cost_usd * 1000000) AS
-   * INTEGER)` on details and the stored `cost_microusd` on rollups — never as a
+   * Money is summed directly from authoritative integer micro-USD columns on details and the stored `cost_microusd` on rollups — never as a
    * float (rule 2).
    */
   byTag(query: UsageQuery = {}): UsageBucket[] {
@@ -880,7 +879,7 @@ export class UsageRepository {
     for (const row of this.driver
       .prepare(
         `SELECT json_each.key AS tag_key, json_each.value AS tag_value, COUNT(*) AS requests,
-          SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
+          SUM(COALESCE(cost_micros, 0)) AS cost_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
@@ -985,8 +984,8 @@ export class UsageRepository {
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens,
-          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
-          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
+          SUM(COALESCE(cost_low_micros, 0)) AS low_micro,
+          SUM(COALESCE(cost_high_micros, 0)) AS high_micro,
           MIN(ts) AS started_at, MAX(ts) AS ended_at,
           SUM(COALESCE(latency_ms, 0)) AS latency_sum,
           SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END) AS latency_count,
@@ -1127,9 +1126,9 @@ export class UsageRepository {
     for (const row of this.driver
       .prepare(
         `SELECT ts, COUNT(*) AS requests,
-          SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)) AS cost_micro,
-          SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)) AS low_micro,
-          SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)) AS high_micro,
+          SUM(COALESCE(cost_micros, 0)) AS cost_micro,
+          SUM(COALESCE(cost_low_micros, 0)) AS low_micro,
+          SUM(COALESCE(cost_high_micros, 0)) AS high_micro,
           SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
           SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_write_tokens) AS cache_write_tokens,
           SUM(reasoning_tokens) AS reasoning_tokens
@@ -1226,9 +1225,9 @@ export class UsageRepository {
             COUNT(*),
             SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END),
             SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(reasoning_tokens),
-            SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER)),
-            SUM(CAST(ROUND(cost_low_usd * 1000000) AS INTEGER)),
-            SUM(CAST(ROUND(cost_high_usd * 1000000) AS INTEGER)),
+            SUM(COALESCE(cost_micros, 0)),
+            SUM(COALESCE(cost_low_micros, 0)),
+            SUM(COALESCE(cost_high_micros, 0)),
             SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER)),
             SUM(COALESCE(latency_ms, 0)),
             SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END),
@@ -1278,7 +1277,7 @@ export class UsageRepository {
             strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime') AS d,
             app_id, json_each.key, json_each.value,
             COUNT(*),
-            SUM(CAST(ROUND(cost_usd * 1000000) AS INTEGER))
+            SUM(COALESCE(cost_micros, 0))
           FROM (SELECT *, json_extract(tags_json, '$') AS __tags FROM usage_events WHERE ts < ? AND json_valid(tags_json)) t,
             json_each(t.__tags)
           WHERE t.__tags LIKE '{%'

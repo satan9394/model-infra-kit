@@ -1,3 +1,4 @@
+import { requestCostMicros } from "../usage/tool-attribution.js"
 import { adaptSqlDriver, isStorageAdapter } from "./adapter.js"
 import type { SqlDriver } from "./driver.js"
 
@@ -228,6 +229,26 @@ export const MIGRATIONS: Migration[] = [
     statements: [driver => {
       if (!driver.prepare("PRAGMA table_info(usage_daily_rollups)").all().some(row => row.name === "cache_savings_micros")) {
         driver.exec("ALTER TABLE usage_daily_rollups ADD COLUMN cache_savings_micros INTEGER NOT NULL DEFAULT 0")
+      }
+    }],
+  },
+  {
+    version: 6,
+    statements: [driver => {
+      const columns = new Set(driver.prepare("PRAGMA table_info(usage_events)").all().map(row => row.name))
+      for (const name of ["cost_micros", "cost_low_micros", "cost_high_micros"]) {
+        if (!columns.has(name)) driver.exec(`ALTER TABLE usage_events ADD COLUMN ${name} INTEGER`)
+      }
+      // Decimal-to-BigInt conversion at the legacy boundary; no binary USD multiplication.
+      let last = 0
+      for (;;) {
+        const rows = driver.prepare("SELECT rowid AS id, cost_usd, cost_low_usd, cost_high_usd FROM usage_events WHERE cost_micros IS NULL AND rowid > ? ORDER BY rowid LIMIT 256").all(last)
+        if (!rows.length) break
+        for (const row of rows) {
+          driver.prepare("UPDATE usage_events SET cost_micros = ?, cost_low_micros = ?, cost_high_micros = ? WHERE rowid = ?")
+            .run(requestCostMicros(Number(row.cost_usd)), requestCostMicros(Number(row.cost_low_usd)), requestCostMicros(Number(row.cost_high_usd)), row.id)
+          last = Number(row.id)
+        }
       }
     }],
   },
