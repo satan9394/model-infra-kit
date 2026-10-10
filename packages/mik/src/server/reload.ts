@@ -3,7 +3,7 @@ import { statSync } from "node:fs"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
 import { readRouterConfig } from "../ai/smart-router.js"
 import { readCascadingConfig } from "../router/cascading.js"
-import { readLoadBalancerConfig } from "../router/load-balancer.js"
+import { readLoadBalancerConfig, readRoutingMode } from "../router/load-balancer.js"
 import { splitModelRef } from "../registry/registry.js"
 import type { ProviderConfig } from "../types.js"
 import { redact } from "../util/redact.js"
@@ -35,7 +35,7 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
   const value: unknown = JSON.parse(await readFile(options.configPath, "utf8"))
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Reload config must be an object.")
   const config = value as Record<string, unknown>
-  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "cascading", "initialProviders", "providers", "defaultModel", "watch"])
+  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "routing", "cascading", "initialProviders", "providers", "defaultModel", "watch"])
   if (Object.keys(config).some(key => !allowed.has(key))) throw new Error("Unknown reload config field.")
   for (const key of ["appId", "db", "cacheDir", "defaultModel"]) {
     if (config[key] !== undefined && (typeof config[key] !== "string" || !config[key])) throw new Error(`Invalid ${key} configuration.`)
@@ -97,6 +97,7 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
     router,
     cascading: config.cascading === undefined ? undefined : readCascadingConfig(config.cascading),
     loadBalancer: config.loadBalancer === undefined ? undefined : readLoadBalancerConfig(config.loadBalancer),
+    routing: readRoutingMode(config.routing),
     budget: config.budget as ModelInfraOptions["budget"],
     isolatedProviders: true, syncCatalog: false, pricingAutoSync: false,
   })

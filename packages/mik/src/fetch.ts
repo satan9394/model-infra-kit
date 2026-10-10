@@ -22,6 +22,10 @@ export interface ForwardedCall {
   modelRequested: string
   /** The model id the provider actually answered with. */
   modelActual: string
+  /** Physical channel selected before a provider rewrites its response model. */
+  modelRouted?: string
+  /** Per-attempt completion time; legacy latencyMs remains time to headers. */
+  qosRttMs?: number
   usage: TokenUsage
   latencyMs: number
   firstTokenMs?: number
@@ -166,6 +170,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       delete outgoing.trace_id
     }
     const transport = options.fetch ?? globalThis.fetch
+    const qosStarted = performance.now()
 
     let response: Response
     try {
@@ -184,6 +189,8 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         providerId: target.providerId,
         modelRequested: target.requested,
         modelActual: target.modelId,
+        modelRouted: target.modelId,
+        qosRttMs: performance.now() - qosStarted,
         usage: ZERO_USAGE(),
         latencyMs: now() - startedAt,
         status: "error",
@@ -213,8 +220,10 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
         providerId: target.providerId,
         modelRequested: target.requested,
         modelActual,
+        modelRouted: target.modelId,
         usage,
         latencyMs,
+        qosRttMs: performance.now() - qosStarted,
         firstTokenMs,
         status: response.ok && !streamError ? "ok" : "error",
         errorCode: streamError?.code ?? (response.ok ? undefined : codeForStatus(response.status)),
@@ -241,7 +250,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       response = primed.response
       if (primed.error) {
         options.onCall({ requestId, at: startedAt, providerId: target.providerId, modelRequested: target.requested,
-          modelActual: target.modelId, usage: ZERO_USAGE(), latencyMs: now() - startedAt, status: "error",
+          modelActual: target.modelId, modelRouted: target.modelId, usage: ZERO_USAGE(), latencyMs: now() - startedAt, status: "error",
           errorCode: primed.error.code, isStreaming: true, sessionId, traceId, routingTags: target.routingTags, batch })
         if (!request.signal.aborted && isRetryableRouteFailure(primed.error)) return forward(input, init, target.fallback, traceId)
         return errorResponse(statusForCode(primed.error.code), primed.error.message, primed.error.code)

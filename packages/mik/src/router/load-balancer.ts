@@ -1,4 +1,12 @@
 import { ModelInfraError } from "../errors.js"
+import { QoSTracker } from "./qos-tracker.js"
+
+export type RoutingMode = "adaptive_qos" | "weighted" | "priority"
+export function readRoutingMode(value: unknown): RoutingMode {
+  if (value === undefined) return "weighted"
+  if (value !== "weighted" && value !== "priority" && value !== "adaptive_qos") invalid()
+  return value
+}
 
 export interface Channel {
   model: string
@@ -38,16 +46,22 @@ interface Slot { active: number; limit: number; queue: Array<() => void> }
 
 /** Smooth weighted round robin, with priority tiers and abortable FIFO leases. */
 export class LoadBalancer {
+  readonly qos = new QoSTracker()
   readonly config: LoadBalancerConfig
   private readonly weights = new Map<string, Map<string, number>>()
   private readonly slots = new Map<string, Slot>()
-  constructor(config: LoadBalancerConfig) {
+  readonly routing: RoutingMode
+  constructor(config: LoadBalancerConfig, routing: RoutingMode = "weighted") {
+    readRoutingMode(routing)
+    this.routing = routing
     this.config = readLoadBalancerConfig(config)
     for (const channels of Object.values(this.config)) for (const channel of channels) {
       const limit = channel.maxConcurrency ?? Infinity
       const existing = this.slots.get(channel.model)
       if (existing && existing.limit !== limit) invalid()
       this.slots.set(channel.model, existing ?? { active: 0, limit, queue: [] })
+      const colon = channel.model.indexOf(":")
+      this.qos.register(channel.model.slice(0, colon), channel.model.slice(colon + 1), channel.weight ?? (routing === "adaptive_qos" ? 100 : 1))
     }
   }
   candidates(alias: string, available: (model: string) => boolean, advance = true): string[] | undefined {
@@ -57,13 +71,17 @@ export class LoadBalancer {
     if (!healthy.length) throw new ModelInfraError("No healthy channel is available.", { code: "PROVIDER", retryable: true })
     const tier = healthy.filter(channel => (channel.priority ?? 0) === (healthy[0]!.priority ?? 0))
     let selected = tier[0]!
-    if (advance) {
+    if (advance && this.routing !== "priority") {
       const weights = this.weights.get(alias) ?? new Map<string, number>()
       this.weights.set(alias, weights)
       let total = 0
       for (const channel of tier) {
-        total += channel.weight ?? 1
-        weights.set(channel.model, (weights.get(channel.model) ?? 0) + (channel.weight ?? 1))
+        const colon = channel.model.indexOf(":")
+        const weight = this.routing === "adaptive_qos"
+          ? this.qos.weight(channel.model.slice(0, colon), channel.model.slice(colon + 1), channel.weight ?? 100)
+          : channel.weight ?? 1
+        total += weight
+        weights.set(channel.model, (weights.get(channel.model) ?? 0) + weight)
         if (weights.get(channel.model)! > weights.get(selected.model)!) selected = channel
       }
       weights.set(selected.model, weights.get(selected.model)! - total)

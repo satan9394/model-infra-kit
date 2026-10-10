@@ -492,6 +492,8 @@ export interface BudgetConfig {
 }
 
 export interface ModelInfraConfig {
+  /** Scheduling within a virtual model's eligible priority tier. Default weighted. */
+  routing?: import("./router/load-balancer.js").RoutingMode
   /** Semantic virtual models; cheap requests use tier1 with bounded tier2 escalation. */
   cascading?: import("./router/cascading.js").CascadingConfig
   /** Virtual models with weighted primary channels and priority standbys. */

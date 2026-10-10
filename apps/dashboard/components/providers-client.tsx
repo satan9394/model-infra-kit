@@ -17,6 +17,8 @@ import type {
 import { formatDateTime } from "@/lib/format"
 import type { ModelInfo, ProviderRecord, ProviderStatus } from "@/lib/types"
 import { Badge, EmptyState } from "@/components/ui"
+import { QoSStatus } from "@/components/qos-status"
+import { useQoS } from "@/lib/qos"
 
 interface RowState {
   testing?: boolean
@@ -47,6 +49,7 @@ function ActionIcon({ action, spinning = false }: { action: "test" | "sync" | "m
 }
 
 export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) {
+  const qos = useQoS()
   const { t } = useI18n()
 
   const router = useRouter()
@@ -280,6 +283,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                             <h3 className="truncate text-sm font-semibold tracking-tight text-foreground" title={provider.name || provider.id}>
                               {provider.name || provider.id}
                             </h3>
+                            <QoSStatus channels={qos.channels.filter(s => s.providerId === provider.id)} unavailable={qos.unavailable} />
                             <Badge tone="info">{provider.protocol ?? "openai-compatible"}</Badge>
                             <code className="truncate font-mono text-[11px] text-subtle" title={provider.id}>{provider.id}</code>
                           </div>

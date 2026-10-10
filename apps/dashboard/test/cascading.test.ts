@@ -26,6 +26,7 @@ function component(file: string, lang: "en" | "zh") {
       EmptyState: () => null, TableWrap: ({ children }: any) => React.createElement("table", null, children),
     }
     if (name === "next/navigation") return { useRouter: () => ({}) }
+    if (name === "@/lib/qos") return { useQoS: () => ({ channels: [], unavailable: false }) }
     if (name === "@/lib/model-capabilities") return { CAPABILITY_FILTERS: [], matchesCapabilities: () => true }
     if (name.startsWith("@/")) return {}
     return require(name)

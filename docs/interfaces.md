@@ -1584,3 +1584,52 @@ the first save and polling shutdown without wall-clock sleeps.
 `costMicros` and `stepCostMicros` are read directly from Schema v6 `cost_micros`; reported step-cost/savings fields cannot override accounting. Cache savings come from the existing immutable pricing snapshot tag. Tool shares partition the owning request cost, with residual micros staying on its model node. The synthetic root has zero exclusive cost: summing every descendant's `stepCostMicros` equals `root.totalCostMicros` exactly. Subtree totals are inclusive and must not be summed again. Tool token buckets are attribution of request tokens, not additional usage. Root usage sums each billed event once. Orphans and cycles fall back safely; sibling order is step index, timestamp, then id. Duplicate span ids remain visible; parent links target the first retained match. No payloads or credentials enter tree nodes.
 
 The builder is synchronous and pure, with iterative graph traversal (deep trees do not consume the JS recursion stack). Integer validation fails closed on fractional/unsafe values or aggregate overflow. The representative performance gate measures a warmed 200-span trace below 2ms; timings depend on trace size and host scheduling. Reproduce correctness and timing with `pnpm exec vitest run packages/mik/test/trace-tree.test.ts`; gateway coverage: `pnpm exec vitest run packages/mik/test/trace-tree-api.test.ts`.
+# EVO-G129 — adaptive channel QoS (local main)
+
+`ModelInfraConfig.routing?: "weighted" | "priority" | "adaptive_qos"` is read by
+embedded initialization, CLI config and hot reload. Default `weighted` keeps
+existing smooth weighted round robin; `priority` takes the first eligible channel
+in the lowest numeric priority tier. `adaptive_qos` uses the same tiers, capacity
+leases and circuit/replay safeguards, deriving each alias channel's weight from
+its physical provider/model score. Omitted adaptive weights default to 100 so
+integer rounding can express degradation; explicit weights remain unchanged as
+the configured base, with a minimum effective weight of 1 for recovery traffic.
+
+```ts
+await ModelInfra.init({
+  routing: "adaptive_qos",
+  loadBalancer: { auto: [
+    { model: "primary:chat", weight: 100 },
+    { model: "backup:chat", weight: 100 },
+  ] },
+})
+```
+
+`mik.providerQoS(): EndpointQoSStats[]` returns detached process-local snapshots.
+The public type is exported from the root (type only; runtime export set stays
+unchanged). `GET /api/providers/qos` returns `{ channels: EndpointQoSStats[] }`
+under the existing admin scope and `sendJson`/`redactDeep` response boundary.
+There is no credential, prompt, response text, error text, audit I/O or persistence
+in the tracker. A reload creates fresh generation-local observations.
+
+Statistics: 32-sample sliding ring, RTT and observed first-output EWMA alpha 0.2;
+`ewmaTtftMs` is null until observed. `jitterVarianceMs2` is population RTT variance,
+and `jitterMs` is its standard deviation for the card's ms-denominated penalty.
+Score uses the task-card formula (baseline RTT 100ms, score floor 5); RTT is
+per attempt, excludes FIFO waiting/prior fallback attempts and uses a monotonic
+clock. Consumer cancellation/abandonment does not blame channel health. SDK
+generation/streaming and forwarding report the selected physical model, even
+when the returned model label differs. ForwardedCall adds optional `modelRouted`
+and `qosRttMs`; legacy forwarded `latencyMs` retains its time-to-headers meaning.
+
+Dashboard polls through its server-side credential proxy once per view every
+5 seconds, without overlapping polls, and aborts on unmount. Provider lists and
+model cards expose health, RTT, first-output time, jitter, success rate, score and
+weight. Empty/unobserved/older-than-30-second samples and endpoint failures are
+explicit. Existing dictionary keys/placeholders and DOM test anchors remain.
+
+The tracker performs constant-time synchronous updates with no external I/O.
+Reproduce measured timing with
+`node --import ./scripts/e2e/loader.mjs scripts/qos-benchmark.mjs`; the benchmark
+asserts warmed sampling+weighting average <1µs and observed individual updates
+<10µs. Measurements do not constitute a hard real-time scheduling guarantee.

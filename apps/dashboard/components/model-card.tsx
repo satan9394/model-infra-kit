@@ -6,6 +6,8 @@ import { formatRate } from "@/lib/format"
 import { CAPABILITY_FILTERS, matchesCapabilities, LATENCY_TONES, latencyLevel } from "@/lib/model-capabilities"
 import type { ModelInfo } from "@/lib/types"
 import { budgetMoney } from "@/lib/budget"
+import { QoSStatus } from "@/components/qos-status"
+import type { EndpointQoSStats } from "@/lib/qos"
 
 function compactContext(tokens?: number) {
   if (tokens === undefined) return "—"
@@ -20,7 +22,8 @@ function perThousand(rate?: number) {
 const PROVIDER_TONES = ["border-primary/25 bg-primary-soft text-primary", "border-info/25 bg-info/10 text-info", "border-positive/25 bg-positive/10 text-positive", "border-warning/25 bg-warning/10 text-warning"] as const
 const PATHS = { ping: "m13 2-9 12h7l-1 8 10-12h-7l1-8Z", copy: "M9 9h12v12H9z M3 15V3h12", default: "m12 3 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1 3-6Z" }
 
-export function ModelCard({ model, providerName, firstTokenMs, isDefault, busy, onPing, onCopy, onDefault }: {
+export function ModelCard({ model, providerName, firstTokenMs, isDefault, busy, onPing, onCopy, onDefault, qos = [], qosUnavailable = false }: {
+  qos?: EndpointQoSStats[]; qosUnavailable?: boolean
   model: ModelInfo; providerName: string; firstTokenMs?: number; isDefault: boolean; busy: boolean
   onPing: () => void; onCopy: () => void; onDefault: () => void
 }) {
@@ -38,6 +41,7 @@ export function ModelCard({ model, providerName, firstTokenMs, isDefault, busy, 
     </div>
     <h3 className="mt-4 break-all font-mono text-sm font-semibold">{model.modelId}</h3>
     <p className="mt-1 text-xs text-subtle">{model.displayName}</p>
+    <div className="mt-2"><QoSStatus channels={qos} unavailable={qosUnavailable} /></div>
     <div className="my-4 flex flex-wrap gap-1.5">{CAPABILITY_FILTERS.filter(({ key }) => matchesCapabilities(model, [key], firstTokenMs)).map(({ key, label }) => <span key={key} className="rounded-full bg-surface-muted px-2 py-1 text-[10px] text-muted-foreground">{t(label)}</span>)}</div>
     <dl className="grid grid-cols-2 gap-3 border-t border-border pt-3 text-xs">
       <div><dt className="text-subtle"> {t("s105")} </dt><dd className="mt-1 font-mono">{compactContext(model.contextWindow)}</dd></div>

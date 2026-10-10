@@ -40,7 +40,8 @@ import { validateMultimodalUsage } from "./pricing/tiers.js"
 import { redact } from "./util/redact.js"
 import { SmartRouter } from "./ai/smart-router.js"
 import { evaluateComplexity, readCascadingConfig, type CascadingConfig, type ComplexityRequest } from "./router/cascading.js"
-import { LoadBalancer } from "./router/load-balancer.js"
+import { LoadBalancer, readRoutingMode } from "./router/load-balancer.js"
+import type { EndpointQoSStats } from "./router/qos-tracker.js"
 
 const DEFAULT_APP_ID = "default"
 /** Placeholder until the HTTP server (T07) knows the real port. */
@@ -424,7 +425,7 @@ export class ModelInfra {
       resolveRequest: (payload, headers) => {
         const alias = typeof payload.model === "string" ? payload.model.trim() : ""
         const cascade = this.resolveCascadingModel(alias, { ...payload, headers })
-        if (!cascade) return this.resolveModel(alias || undefined)
+        if (!cascade) return this.resolveRequestModel({ model: alias || undefined, messages: [] }, true)
         const policy = this.cascading[alias]!
         return { ...cascade, ...(cascade.routingTags.cascading_tier === "tier1" ? {
           fallback: { ...this.resolveModel(policy.tier2ReasoningModel), requested: alias,
@@ -479,6 +480,12 @@ export class ModelInfra {
     return this.canonicalCatalog
   }
 
+  /** Instance-local observations, never credential or payload data. */
+  providerQoS(): EndpointQoSStats[] {
+    this.assertOpen("providerQoS()")
+    return this.loadBalancer?.qos.snapshot() ?? []
+  }
+
   /** Read the advisory daily/monthly budget status without affecting routing. */
   budgetStatus(now = Date.now()): BudgetStatus {
     this.assertOpen("budgetStatus()")
@@ -512,7 +519,8 @@ export class ModelInfra {
     }
     const providerHealth = new ProviderCircuitBreaker(config.failover)
     const smartRouter = config.router === undefined ? undefined : new SmartRouter(config.router)
-    const loadBalancer = config.loadBalancer === undefined ? undefined : new LoadBalancer(config.loadBalancer)
+    const routing = readRoutingMode(config.routing)
+    const loadBalancer = config.loadBalancer === undefined ? undefined : new LoadBalancer(config.loadBalancer, routing)
     const cascading = readCascadingConfig(config.cascading ?? {})
     for (const alias of Object.keys(cascading)) if (config.router?.aliases[alias] || config.loadBalancer?.[alias]) {
       throw new ModelInfraError("Routing aliases must be unique.", { code: "INVALID_REQUEST" })
@@ -696,7 +704,7 @@ export class ModelInfra {
     if (cascade) return cascade
     const channels = this.loadBalancer?.candidates(alias, model => {
       const parsed = splitModelRef(model)!
-      return !!this.providers.get(parsed.providerId)?.enabled && this.providerHealth.available(parsed.providerId)
+      return !!this.providers.get(parsed.providerId)?.enabled && this.providerHealth.available(this.loadBalancer?.routing === "adaptive_qos" ? model : parsed.providerId)
     }, advance)
     if (channels) {
       const configured = this.loadBalancer!.config[alias]!
@@ -800,7 +808,7 @@ export class ModelInfra {
     for (const [candidateIndex, candidate] of candidates.entries()) {
       let release: (() => void) | undefined
       let acquired = false
-      const healthKey = this.cascading[primary.requested] ? candidate.modelRef : candidate.resolved.providerId
+      const healthKey = this.cascading[primary.requested] || this.loadBalancer?.routing === "adaptive_qos" ? candidate.modelRef : candidate.resolved.providerId
       try {
         release = await this.loadBalancer?.acquire(candidate.modelRef, request.signal)
         if (!this.providerHealth.acquire(healthKey)) continue
@@ -809,6 +817,7 @@ export class ModelInfra {
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
           request = { ...request, tags: { ...sanitizeTags(request.tags), ...this.cascadingTags(primary, candidate.modelRef) } }
           const requestId = randomUUID()
+          const attemptStarted = performance.now()
           let replayUnsafe = false
           const toolTrace = new ToolTraceCollector(startedAt)
           try {
@@ -882,8 +891,10 @@ export class ModelInfra {
               },
             })
             this.providerHealth.success(healthKey)
+            this.observeQoS(candidate.resolved, performance.now() - attemptStarted, true, firstTokenMs)
             return response
           } catch (error) {
+            if (!request.signal?.aborted) this.observeQoS(candidate.resolved, performance.now() - attemptStarted, false)
             const mapped = toProviderError(error, {
               providerId: candidate.resolved.providerId,
               model: candidate.resolved.modelId,
@@ -988,7 +999,7 @@ export class ModelInfra {
     for (const [candidateIndex, candidate] of candidates.entries()) {
       let release: (() => void) | undefined
       let acquired = false
-      const healthKey = this.cascading[primary.requested] ? candidate.modelRef : candidate.resolved.providerId
+      const healthKey = this.cascading[primary.requested] || this.loadBalancer?.routing === "adaptive_qos" ? candidate.modelRef : candidate.resolved.providerId
       try {
         release = await this.loadBalancer?.acquire(candidate.modelRef, request.signal)
         if (!this.providerHealth.acquire(healthKey)) continue
@@ -1065,10 +1076,14 @@ export class ModelInfra {
     originalProvider?: string,
   ): AsyncGenerator<StreamEvent> {
 
+    const attemptStarted = performance.now()
+    let qosTtftMs: number | undefined
+
     let model: Awaited<ReturnType<AiBridge["languageModel"]>>
     try {
       model = await this.bridge.languageModel(resolved.providerId, resolved.modelId)
     } catch (error) {
+      if (!request.signal?.aborted) this.observeQoS(resolved, performance.now() - attemptStarted, false)
       const mapped = toProviderError(error, { providerId: resolved.providerId, model: resolved.modelId })
       this.record({
         requestId,
@@ -1119,6 +1134,9 @@ export class ModelInfra {
     const recordOnce = (input: UsageRecordInput): void => {
       if (recorded) return
       recorded = true
+      if (!request.signal?.aborted && input.errorCode !== "ABORTED" && input.errorCode !== "ABANDONED") {
+        this.observeQoS(resolved, performance.now() - attemptStarted, input.status === "ok", qosTtftMs)
+      }
       this.record({ ...input, tool_calls: toolTrace.finish(requestCostMicros(input.cost.usd), input.usage) })
     }
 
@@ -1132,6 +1150,7 @@ export class ModelInfra {
       }
     }
     const markFirst = () => {
+      qosTtftMs ??= performance.now() - attemptStarted
       if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt
       stopReasoningTimer()
     }
@@ -1398,7 +1417,16 @@ export class ModelInfra {
   }
 
   /** Meter one call that came in through the `fetch` adapter. */
+  private observeQoS(resolved: Pick<ResolvedModelRef, "providerId" | "modelId">, rttMs: number, success: boolean, ttftMs?: number): void {
+    if (this.loadBalancer?.routing !== "adaptive_qos" || !this.loadBalancer.qos.has(resolved.providerId, resolved.modelId)) return
+    this.loadBalancer.qos.record(resolved.providerId, resolved.modelId, rttMs, success,
+      ttftMs === undefined ? undefined : Math.min(rttMs, ttftMs))
+  }
+
   private recordForwarded(call: ForwardedCall): void {
+    if (call.errorCode !== "ABANDONED" && call.errorCode !== "ABORTED") {
+      this.observeQoS({ providerId: call.providerId, modelId: call.modelRouted ?? call.modelActual }, call.qosRttMs ?? call.latencyMs, call.status === "ok", call.firstTokenMs)
+    }
     // A failed call is never priced from a reported amount, for the same reason
     // it is never priced from a rate card: it was not billed end to end.
     const billed: ProviderCostReading = call.status === "ok" ? (call.providerCost ?? ABSENT_COST) : ABSENT_COST

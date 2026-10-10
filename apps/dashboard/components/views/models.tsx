@@ -10,6 +10,7 @@ import { formatInt } from "@/lib/format"
 import type { CascadingModel, CatalogModelMetadata, ModelInfo, ProviderModelBinding, ProviderRecord } from "@/lib/types"
 import { Badge, Card, EmptyState, TableWrap, Td, Th } from "@/components/ui"
 import { ModelCard } from "@/components/model-card"
+import { useQoS } from "@/lib/qos"
 import { ModelPingModal } from "@/components/model-ping-modal"
 import { CAPABILITY_FILTERS, matchesCapabilities, type CapabilityFilter, type ModelPingResult } from "@/lib/model-capabilities"
 
@@ -39,6 +40,7 @@ export function ModelsClient({
   catalogBindings: ProviderModelBinding[]
   defaultModel?: string | null
 }) {
+  const qos = useQoS()
   const { t } = useI18n()
 
   const router = useRouter()
@@ -253,7 +255,7 @@ export function ModelsClient({
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-            {visible.map((model) => <ModelCard key={model.ref} model={model} providerName={providers.find((item) => item.id === model.providerId)?.name ?? model.providerId} firstTokenMs={firstTokens[model.ref]} isDefault={chosenDefault === model.ref} busy={busy === model.ref} onPing={() => setPingModel(model.ref)} onCopy={() => void copyRef(model.ref)} onDefault={() => void makeDefault(model.ref)} />)}
+            {visible.map((model) => <ModelCard key={model.ref} model={model} qos={qos.channels.filter(s => s.providerId === model.providerId && s.modelId === model.modelId)} qosUnavailable={qos.unavailable} providerName={providers.find((item) => item.id === model.providerId)?.name ?? model.providerId} firstTokenMs={firstTokens[model.ref]} isDefault={chosenDefault === model.ref} busy={busy === model.ref} onPing={() => setPingModel(model.ref)} onCopy={() => void copyRef(model.ref)} onDefault={() => void makeDefault(model.ref)} />)}
           </div>
         )}
       </Card>

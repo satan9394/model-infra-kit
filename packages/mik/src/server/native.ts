@@ -27,7 +27,7 @@ async function forwardNative(ctx: ServerContext, protocol: string, endpoint: str
   if (typeof payload.model !== "string" || !payload.model.trim()) throw new HttpError(400, "model is required.", "INVALID_REQUEST")
   const alias = payload.model.trim()
   const protocols = compatible[protocol]!
-  let target: ReturnType<typeof ctx.hub.resolveModel> | undefined
+  let target: ReturnType<typeof ctx.hub.resolveRequestModel> | undefined
   const cascade = ctx.hub.resolveCascadingModel(payload.model.trim(), { ...payload, headers: Object.fromEntries(Object.entries(ctx.req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) })
   if (cascade) {
     for (const model of ctx.hub.cascadingTargets(alias)) {
@@ -35,7 +35,7 @@ async function forwardNative(ctx: ServerContext, protocol: string, endpoint: str
       if (!protocols.includes(ctx.hub.providers.get(resolved.providerId)!.protocol ?? "openai-compatible")) throw new HttpError(400, "Cascade targets must support the client protocol.", "INVALID_REQUEST")
     }
   }
-  try { target = cascade ?? ctx.hub.resolveModel(payload.model) } catch (error) { if (payload.model.includes(":")) throw error }
+  try { target = cascade ?? ctx.hub.resolveRequestModel({ model: payload.model, messages: [] }) } catch (error) { if (payload.model.includes(":")) throw error }
   if ((!target || !protocols.includes(ctx.hub.providers.get(target.providerId)!.protocol ?? "openai-compatible")) && !payload.model.includes(":")) {
     const candidates = ctx.hub.providers.list().filter(provider => provider.enabled && protocols.includes(provider.protocol ?? "openai-compatible"))
     if (candidates.length === 1) target = ctx.hub.resolveModel(`${candidates[0]!.id}:${payload.model}`)
@@ -52,7 +52,7 @@ async function forwardNative(ctx: ServerContext, protocol: string, endpoint: str
     const headers = new Headers()
     for (const [key, value] of Object.entries(ctx.req.headers)) if (value !== undefined && !["x-mik-auto-protocol", "x-mik-batch", "x-mik-bypass-budget"].includes(key)) headers.set(key, Array.isArray(value) ? value.join(", ") : value)
     const response = await ctx.hub.fetch(`${ctx.origin}/v1/${endpoint}${ctx.url.search}`, {
-      method: "POST", headers, body: JSON.stringify({ ...payload, model: cascade ? payload.model : `${target.providerId}:${target.modelId}` }), signal: controller.signal,
+      method: "POST", headers, body: JSON.stringify({ ...payload, model: cascade || target.routingTags?.virtual_model ? payload.model : `${target.providerId}:${target.modelId}` }), signal: controller.signal,
     })
     const outgoing: Record<string, string> = {}
     response.headers.forEach((value, key) => { if (!["content-length", "content-encoding", "transfer-encoding", "connection", "set-cookie"].includes(key)) outgoing[key] = redact(value) })

@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## 未发布 — EVO-G129（2026-10-10，本地 main）
+
+- 自适应链路分流：32 次滑动窗口、往返/首词元延迟指数平滑、抖动方差及成功率评分；`routing: "adaptive_qos"` 在既有优先级层内动态调权，保留低权重恢复流量及熔断/并发/输出后不重放保护。Adaptive QoS weights react to latency, jitter and failures while preserving existing routing safeguards.
+- 受管理员权限保护的 `/api/providers/qos` 与供应商/模型链路状态胶囊，显示真实采样、波动及生效权重；空值、陈旧采样和接口不可用明确展示。Admin-only process-local QoS snapshots feed bilingual provider/model badges via the dashboard proxy.
+- 微美元账本、构建 `clean: false`、既有字典键/占位符与 DOM 锚点保持完整；版本仍为 1.6.0，仅本地提交，不推送或发布。Contracts and timing reproduction: `docs/interfaces.md` EVO-G129.
+
 ## 1.6.0 — 本地发版候选 / Local release candidate (2026-10-10)
 
 - EVO-G125：UTC 时段峰谷折价与 Batch 50% 优惠叠加后只做一次整数微美元舍入；HTTP 硬预算在已记录花费达到上限时返回 429 `BUDGET_EXCEEDED`，不预留在途费用。UTC window discounts stack with Batch half-rate billing; HTTP hard caps stop new dispatches at recorded limits without reserving in-flight spend.

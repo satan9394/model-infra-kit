@@ -84,6 +84,8 @@ export {
   type UsageServiceDeps,
 } from "./usage/index.js"
 export { KeyPool, normalizeRefs, type KeyPoolSelection } from "./router/key-pool.js"
+export type { EndpointQoSStats } from "./router/qos-tracker.js"
+export type { RoutingMode } from "./router/load-balancer.js"
 
 export {
   MODEL_LIST_PROTOCOLS,

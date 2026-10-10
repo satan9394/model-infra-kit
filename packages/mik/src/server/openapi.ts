@@ -782,6 +782,20 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           },
         },
       },
+      "/api/providers/qos": {
+        get: {
+          tags: ["providers"],
+          summary: "Instance-local channel QoS observations (admin scope).",
+          responses: { "200": ok("RTT, observed TTFT, window jitter variance, success rate, score and effective weight.", {
+            type: "object", properties: { channels: { type: "array", items: { type: "object", properties: {
+              providerId: { type: "string" }, modelId: { type: "string" }, sampleCount: { type: "integer" },
+              ewmaRttMs: { type: "number" }, ewmaTtftMs: { type: ["number", "null"] }, jitterMs: { type: "number" },
+              jitterVarianceMs2: { type: "number" }, successRate: { type: "number" }, consecutiveFailures: { type: "integer" },
+              qosScore: { type: "integer" }, effectiveWeight: { type: "integer" }, lastUpdated: { type: "number" },
+            } } } },
+          }), "401": error("Missing gateway credentials."), "403": error("insufficient_scope") },
+        },
+      },
       "/api/models/{ref}": {
         get: {
           tags: ["models"],
