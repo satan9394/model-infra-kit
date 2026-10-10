@@ -33,6 +33,17 @@
 
 ---
 
+## v1.6.0 local candidate
+
+The local `main` candidate adds UTC time-window and Batch pricing, HTTP hard
+budget caps, semantic model cascading, and retained Agent execution trees.
+Schema v6 integer micro-dollar columns are authoritative; USD fields remain
+display boundaries. Runtime exports are exactly root 42 / auto 2 / cli 29 /
+server 11, verified from a separately installed tarball against
+[`docs/interfaces.md`](docs/interfaces.md). The dashboard remains repository-only.
+Push, remote CI and npm publication await human approval. Candidate evidence:
+[`v1.6.0 report`](docs/releases/v1.6.0-candidate.md).
+
 ## 环境要求
 
 - **Node ≥ 22.13**（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`，仍会打一行实验特性告警；本机 24.14）

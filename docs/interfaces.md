@@ -1105,6 +1105,13 @@ changes are preserved. There is no network monkey-patch beyond native fetch,
 no third-party application data discovery, and no background service.
 
 <!-- release-battery-runtime-exports:v1 -->
+
+v1.6.0 candidate runtime contract: root **42**, auto **2**, CLI **29**, server
+**11**. The release battery compares exact sorted names from a separately
+installed candidate tgz, checks all nine export targets and the package file
+whitelist, then exercises G125–G127 through the installed public entrypoints.
+Type-only exports are not counted. Push/publication remain human-gated.
+
 ## EVO-G107 — 发布包运行时导出契约
 
 发版电池对实际 `npm pack` 产物执行动态导入，并将运行时（非 type-only）导出与下列机器可读清单逐项比较。数组必须保持排序；新增或删除公共运行时符号时，先更新本契约并同步对应入口说明。

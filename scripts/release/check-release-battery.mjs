@@ -14,6 +14,7 @@ const PACKAGE_ROOT = join(REPO_ROOT, "packages", "mik")
 const PACKAGE_JSON_PATH = join(PACKAGE_ROOT, "package.json")
 const CONTRACT_MARKER = "<!-- release-battery-runtime-exports:v1 -->"
 const EXPECTED_ENTRYPOINTS = [".", "./auto", "./cli", "./server"]
+const EXPECTED_RUNTIME_COUNTS = { ".": 42, "./auto": 2, "./cli": 29, "./server": 11 }
 
 function commandName(command) {
   return process.platform === "win32" && (command === "pnpm" || command === "npm") ? `${command}.cmd` : command
@@ -129,6 +130,7 @@ function contractFromDocs() {
     assert.ok(Array.isArray(symbols), `${entrypoint} runtime export contract must be an array`)
     assert.deepEqual(symbols, [...new Set(symbols)].sort(), `${entrypoint} runtime export contract must be sorted and unique`)
     assert.ok(symbols.every((symbol) => typeof symbol === "string" && symbol.length > 0), `${entrypoint} runtime export contract contains an invalid symbol`)
+    assert.equal(symbols.length, EXPECTED_RUNTIME_COUNTS[entrypoint], `${entrypoint} v1.6.0 runtime export count mismatch`)
   }
   return contract.entrypoints
 }
@@ -211,6 +213,7 @@ function isWhitelisted(relativePath, patterns) {
 
 function checkPackageFiles(packagePath, packageJson) {
   assert.ok(Array.isArray(packageJson.files), "packed package.json files must be an array")
+  assert.deepEqual(packageJson.files, ["dist", "LICENSE"], "package files whitelist must remain exact")
   assert.ok(packageJson.files.includes("dist"), "package.json files must include dist")
   assert.ok(packageJson.files.includes("LICENSE"), "package.json files must include LICENSE")
   const actualFiles = walkFiles(packagePath).map((path) => normalizeRelative(relative(packagePath, path))).sort()
@@ -225,6 +228,13 @@ function checkPackageFiles(packagePath, packageJson) {
     const targetPath = join(packagePath, target.slice(2))
     assert.ok(existsSync(targetPath) && statSync(targetPath).isFile(), `${path} target missing from packed package: ${target}`)
   }
+  assert.deepEqual(packageJson.exports, {
+    ".": { types: "./dist/index.d.mts", default: "./dist/index.mjs" },
+    "./server": { types: "./dist/server.d.mts", default: "./dist/server.mjs" },
+    "./cli": { types: "./dist/cli.d.mts", default: "./dist/cli.mjs" },
+    "./package.json": "./package.json",
+    "./auto": { types: "./dist/auto.d.mts", default: "./dist/auto.mjs" },
+  }, "package export targets must remain exact")
   process.stdout.write(`[exports] ${targets.length} package export targets present\n`)
   return actualFiles
 }
@@ -595,6 +605,133 @@ try {
 `
 }
 
+function v160SmokeSource() {
+  return String.raw`
+import assert from "node:assert/strict"
+import { createServer } from "node:http"
+import { join } from "node:path"
+import { ModelInfra, Store, evaluateComplexity, buildTraceTree, redact, redactDeep } from "model-infra-kit"
+import { createServer as createGateway } from "model-infra-kit/server"
+
+const calls = []
+let failFast = false
+const upstream = createServer(async (req, res) => {
+  let raw = ""
+  for await (const chunk of req) raw += chunk
+  const body = JSON.parse(raw)
+  calls.push({ model: body.model, headers: req.headers, body })
+  const status = failFast && body.model === "fast" ? 503 : 200
+  res.writeHead(status, { "content-type": "application/json" })
+  res.end(JSON.stringify(redactDeep(status === 200 ? {
+    id: "v160", object: "chat.completion", created: 1, model: body.model,
+    choices: [{ index: 0, message: { role: "assistant", content: body.model }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1000, completion_tokens: 1000, total_tokens: 2000 },
+  } : { error: { message: "api_key=sk-battery-cascade-secret unavailable" } })))
+})
+await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve))
+const db = join(process.cwd(), "v160.db")
+const policy = { tier1FastModel: "p:fast", tier2ReasoningModel: "p:deep" }
+const rule = { startHourUtc: 22, endHourUtc: 6, inputMultiplier: 0.5, outputMultiplier: 0.25 }
+let store
+let hub
+let gateway
+try {
+  // ponytail: all-day ledger fixture is independent of wall-clock hour; wrapping boundaries are checked separately.
+  store = await Store.open({ path: db })
+  const tier = { modelId: "discount", providerId: "p", source: "manual", version: 1, updatedAt: "2026-10-10T00:00:00Z",
+    rates: { inputMicrosPerMillion: 1_000_000, outputMicrosPerMillion: 2_000_000,
+      timeOfDayDiscounts: [{ ...rule, startHourUtc: 0, endHourUtc: 24 }] } }
+  store.pricingCache.set(tier)
+  store.pricingCache.set({ ...tier, modelId: "window", rates: { ...tier.rates, timeOfDayDiscounts: [rule] } })
+  store.close(); store = undefined
+  hub = await ModelInfra.init({ appId: "v160", db, cacheDir: join(process.cwd(), "v160-cache"),
+    syncCatalog: false, pricingAutoSync: false, pricingFetch: async () => { throw new Error("offline") },
+    maxRetries: 0, onWarn: message => assert.ok(!redact(message).includes(process.env.MIK_RELEASE_BATTERY_KEY)),
+    providers: [{ id: "p", protocol: "openai-compatible", baseUrl: "http://127.0.0.1:" + upstream.address().port + "/v1", apiKeyRef: "env:MIK_RELEASE_BATTERY_KEY" }],
+    cascading: { cascade: policy } })
+  for (const [at, active] of [["2026-10-10T21:59:59Z", false], ["2026-10-10T22:00:00Z", true], ["2026-10-11T05:59:59Z", true], ["2026-10-11T06:00:00Z", false]]) {
+    const window = hub.pricing.discountRules(Date.parse(at)).find(row => row.modelId === "window")
+    assert.deepEqual(window.active, active ? rule : null)
+  }
+  const prompt = content => ({ model: "cascade", messages: [{ role: "user", content }] })
+  const simple = prompt("translate hello")
+  const before = JSON.stringify(simple)
+  assert.equal(evaluateComplexity(simple, policy), "tier1")
+  assert.equal(JSON.stringify(simple), before)
+  assert.equal(evaluateComplexity(prompt("prove this step by step"), policy), "tier2")
+  assert.equal(evaluateComplexity({ ...simple, reasoning_effort: "high" }, policy), "tier2")
+  hub.pricing.setOverride({ modelId: "fast", inputPerM: 1, outputPerM: 2 })
+  hub.pricing.setOverride({ modelId: "deep", inputPerM: 10, outputPerM: 20 })
+  const message = [{ role: "user", content: "hello" }]
+  await hub.generate({ model: "p:discount", messages: message, traceId: "tree", spanId: "reason", spanType: "reasoning", stepIndex: 0 })
+  await hub.generate({ model: "p:discount", messages: message, batch: true, traceId: "tree", spanId: "output", parentSpanId: "reason", stepIndex: 1 })
+  store = await Store.open({ path: db })
+  assert.equal(store.driver.prepare("SELECT MAX(version) AS version FROM schema_migrations").get().version, 6)
+  const ledger = () => store.driver.prepare("SELECT cost_micros, cost_low_micros, cost_high_micros, typeof(cost_micros) AS storage FROM usage_events ORDER BY rowid").all()
+  assert.deepEqual(ledger().map(row => row.cost_micros), [1000, 500])
+  assert.ok(ledger().every(row => row.storage === "integer" && row.cost_low_micros === row.cost_micros && row.cost_high_micros === row.cost_micros))
+  const retained = hub.usage.query({ traceId: "tree" }).events
+  const tree = buildTraceTree(retained)
+  assert.equal(tree.stepCostMicros, 0)
+  assert.equal(tree.totalCostMicros, 1500)
+  assert.equal(tree.children[0].spanId, "reason")
+  assert.equal(tree.children[0].children[0].spanId, "output")
+  const queue = [tree]
+  let exclusive = 0n
+  for (let i = 0; i < queue.length; i++) { exclusive += BigInt(queue[i].stepCostMicros); queue.push(...queue[i].children) }
+  assert.equal(exclusive, 1500n)
+  const withTools = retained.map(event => event.spanId === "reason" ? { ...event, tool_calls: [
+    { id: "lookup", tool_name: "lookup", input_hash: "a".repeat(64), start_offset_ms: 1, duration_ms: 2, input_tokens: 1, output_tokens: 1, cost_micros: 200 },
+  ] } : event)
+  const toolTree = buildTraceTree(withTools)
+  assert.equal(toolTree.children[0].stepCostMicros, 800)
+  assert.equal(toolTree.totalCostMicros, 1500)
+  assert.throws(() => buildTraceTree([{ ...retained[0], costMicros: 0.5 }]), /integer/)
+  const token = process.env.MIK_RELEASE_BATTERY_KEY + "-cap"
+  gateway = await createGateway({ hub, port: 0, budget: { hardCap: true, dailyMicros: 1500 }, tokens: [{ token, scopes: ["write:chat", "read:usage"] }] })
+  const headers = { authorization: "Bearer " + token, "content-type": "application/json" }
+  const count = calls.length
+  for (const endpoint of ["chat/completions", "responses", "messages"]) {
+    const response = await fetch(gateway.url + "/v1/" + endpoint, { method: "POST", headers, body: JSON.stringify({ model: "p:discount", messages: message }), signal: AbortSignal.timeout(5000) })
+    assert.equal(response.status, 429)
+    assert.equal(redactDeep(await response.json()).error.code, "BUDGET_EXCEEDED")
+  }
+  assert.equal(calls.length, count, "hard cap must prevent upstream dispatch")
+  const treeResponse = await fetch(gateway.url + "/api/usage/traces/tree/tree", { headers, signal: AbortSignal.timeout(5000) })
+  assert.equal(treeResponse.status, 200)
+  assert.deepEqual(redactDeep(await treeResponse.json()), JSON.parse(JSON.stringify(redactDeep(tree))))
+  await gateway.close(); gateway = undefined
+  assert.equal((await hub.generate(simple)).model.actual, "fast")
+  assert.equal((await hub.generate(prompt("prove this"))).model.actual, "deep")
+  failFast = true
+  const start = calls.length
+  assert.equal((await hub.generate({ ...simple, traceId: "escalate" })).model.actual, "deep")
+  assert.deepEqual(calls.slice(start).map(call => call.model), ["fast", "deep"])
+  const attempts = hub.usage.query({ traceId: "escalate" }).events
+  assert.equal(attempts.length, 2)
+  assert.equal(attempts.find(row => row.status === "error").costMicros, 0)
+  assert.equal(attempts.find(row => row.status === "ok").tags.cascading_escalated, "true")
+  assert.deepEqual(ledger().map(row => row.cost_micros), [1000, 500, 3000, 30000, 0, 30000])
+  assert.equal(ledger().reduce((sum, row) => sum + BigInt(row.cost_micros), 0n), 64500n)
+  for (const call of calls) {
+    assert.equal(call.headers["x-mik-batch"], undefined)
+    assert.equal(call.headers["x-mik-span-id"], undefined)
+    assert.equal(call.body.batch, undefined)
+  }
+  const stored = JSON.stringify(store.driver.prepare("SELECT * FROM usage_events").all()) + JSON.stringify(store.driver.prepare("SELECT * FROM providers").all())
+  assert.ok(!stored.includes(process.env.MIK_RELEASE_BATTERY_KEY))
+  assert.ok(!stored.includes("sk-battery-cascade-secret"))
+  console.log(redact(JSON.stringify({ utcBoundaries: true, discountedMicros: 1000, batchMicros: 500, hardCap429NoDispatch: true,
+    pureEvaluator: true, actualModelEscalation: true, schemaVersion: 6, ledgerMicros: "64500", treeTopology: true, exclusiveTreeMicros: "1500", toolResidualMicros: 800, credentialIsolation: true })))
+} finally {
+  if (gateway) await gateway.close()
+  if (hub) await hub.close()
+  if (store) store.close()
+  await new Promise(resolve => { upstream.close(resolve); upstream.closeAllConnections() })
+}
+`
+}
+
 function resilienceSmokeSource() {
   return String.raw`
 import assert from "node:assert/strict"
@@ -703,8 +840,9 @@ async function main() {
   const expected = contractFromDocs()
   const sourcePackageJson = readJson(PACKAGE_JSON_PATH)
   assert.equal(sourcePackageJson.name, "model-infra-kit")
-  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.5.0", "root release version mismatch")
-  assert.equal(sourcePackageJson.version, "1.5.0", "package release version mismatch")
+  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.6.0", "root release version mismatch")
+  assert.equal(sourcePackageJson.version, "1.6.0", "package release version mismatch")
+  assert.match(readFileSync(join(PACKAGE_ROOT, "tsdown.config.ts"), "utf8"), /clean:\s*false/, "build must retain generated files")
   assertAbsoluteCwd(REPO_ROOT, "repository")
   assertAbsoluteCwd(PACKAGE_ROOT, "package")
 
@@ -776,6 +914,9 @@ async function main() {
   writeAbsolute(evolutionPath, evolutionSmokeSource())
   await run("node", [evolutionPath], { cwd: consumerDir, label: "installed FTS, reload and default SDK smoke", env: smokeEnv, redactSecrets: [batteryKey] })
   await run("node", [resiliencePath], { cwd: consumerDir, label: "installed v1.5.0 evolution", env: smokeEnv, redactSecrets: [batteryKey] })
+  const v160Path = join(consumerDir, "v160-smoke.mjs")
+  writeAbsolute(v160Path, v160SmokeSource())
+  await run("node", [v160Path], { cwd: consumerDir, label: "installed v1.6.0 pricing, budget, cascade and tree", env: smokeEnv, redactSecrets: [batteryKey] })
   process.stdout.write(`[result] release battery passed; retained clean room=${cleanRoom}\n`)
 }
 

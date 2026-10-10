@@ -1,5 +1,12 @@
 # CHANGELOG — model-infra-kit
 
+## 1.6.0 — 本地发版候选 / Local release candidate (2026-10-10)
+
+- EVO-G125：UTC 时段峰谷折价与 Batch 50% 优惠叠加后只做一次整数微美元舍入；HTTP 硬预算在已记录花费达到上限时返回 429 `BUDGET_EXCEEDED`，不预留在途费用。UTC window discounts stack with Batch half-rate billing; HTTP hard caps stop new dispatches at recorded limits without reserving in-flight spend.
+- EVO-G126：同步本地复杂度评估选择极速/推理模型，输出前的可恢复失败有界升级；每次尝试按实际模型计费。Schema v6 权威 `cost_micros` / `cost_low_micros` / `cost_high_micros` 整数列替代浮点账本，USD 仅作展示。Local semantic cascading escalates recoverable failures before output and bills the actual model; Schema v6 integer micro-dollar columns are authoritative.
+- EVO-G127：保留明细构建 Agent Span 树与单步成本抽屉，工具份额与模型余数严格守恒；归档后不重建步骤。Retained Agent spans form execution trees with exclusive step costs and exact tool/model conservation; archived detail cannot reconstruct topology.
+- EVO-G128：真实安装候选 tgz 后验证折价、Batch、硬预算、级联与树拓扑，精确核对 root 42 / auto 2 / cli 29 / server 11。Installed-package smoke checks cover the new features and exact runtime exports. Local main candidate only; push and npm publication await human approval. Evidence: `docs/releases/v1.6.0-candidate.md`.
+
 ## 1.5.0 — 本地发版候选（2026-10-07，待人类发布）
 
 - EVO-G121：虚拟模型支持平滑加权轮询、优先级备用和可取消 FIFO 并发排队；连续三次网络超时、429 或 5xx 后熔断，默认 30 秒冷却并限制单个半开探测。复用既有输出与工具副作用重放保护；失败尝试和成功分流共享 Trace，记录 is_fallback 与 failover_reason。
