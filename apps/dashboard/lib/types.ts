@@ -328,3 +328,26 @@ export interface HubEventFrame {
   at: number
   data: unknown
 }
+
+export interface TraceTreeNode {
+  spanId: string
+  parentSpanId?: string
+  spanType: "root" | "reasoning" | "tool_call" | "generation"
+  stepIndex: number
+  toolName?: string
+  requestId?: string
+  stepDurationMs?: number
+  firstTokenMs?: number
+  cascadingTier?: "tier1" | "tier2"
+  cascadingEscalated?: boolean
+  status: "ok" | "error"
+  startedAt: number
+  endedAt: number
+  durationMs: number
+  startOffsetMs: number
+  stepCostMicros: number
+  stepCacheSavingsMicros: number
+  totalCostMicros: number
+  usage: TokenUsage
+  children: TraceTreeNode[]
+}

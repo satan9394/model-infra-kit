@@ -1,3 +1,4 @@
+import { readSpanHeaders } from "./span.js"
 import { randomUUID } from "node:crypto"
 import type { IncomingMessage } from "node:http"
 import { jsonSchema, type JSONSchema7, type ModelMessage, type ToolSet } from "ai"
@@ -390,7 +391,7 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
   const prompt = toPrompt(body.messages)
   const tools = toTools(body.tools)
 
-  const request: ModelRequest = { messages: prompt.messages, reasoning_effort: body.reasoning_effort, reasoning: body.reasoning, thinking: body.thinking,
+  const request: ModelRequest = { ...readSpanHeaders(ctx.req, body), messages: prompt.messages, reasoning_effort: body.reasoning_effort, reasoning: body.reasoning, thinking: body.thinking,
     headers: { "x-mik-model-tier": headerValue(ctx.req, "x-mik-model-tier") ?? "" } }
   if (ctx.req.headers["x-mik-batch"] === "true" || body.batch === true || body["X-Mik-Batch"] === true || body["X-Mik-Batch"] === "true") request.batch = true
   if (prompt.system !== undefined) request.system = prompt.system

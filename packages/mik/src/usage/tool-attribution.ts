@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import type { TokenUsage, ToolCallAttribution } from "../types.js"
-import { redact } from "../util/redact.js"
+import { redact, redactDeep } from "../util/redact.js"
 
 const safeCount = (value: unknown): number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0
 
@@ -62,7 +62,7 @@ export class ToolTraceCollector {
   start(event: { toolCall: { toolCallId: string; toolName: string; input: unknown } }): void {
     if (this.calls.length >= 256) return
     let serialized: string
-    try { serialized = JSON.stringify(event.toolCall.input) ?? "null" } catch { serialized = "unserializable" }
+    try { serialized = JSON.stringify(redactDeep(event.toolCall.input, 0, 32)) ?? "null" } catch { serialized = "unserializable" }
     this.calls.push({ tool_name: event.toolCall.toolName, id: event.toolCall.toolCallId,
       input_hash: createHash("sha256").update(serialized).digest("hex"),
       start_offset_ms: Math.max(0, Date.now() - this.startedAt), duration_ms: 0,

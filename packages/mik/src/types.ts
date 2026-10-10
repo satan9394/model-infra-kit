@@ -179,7 +179,18 @@ export interface ToolCall {
   input: unknown
 }
 
-export interface ModelRequest {
+export interface SpanEventMetadata {
+  spanId?: string
+  parentSpanId?: string
+  spanType?: "root" | "reasoning" | "tool_call" | "generation"
+  stepIndex?: number
+  toolName?: string
+  /** Filled from Schema v6 cost_micros, never trusted from HTTP metadata. */
+  stepCostMicros?: number
+  stepCacheSavingsMicros?: number
+}
+
+export interface ModelRequest extends SpanEventMetadata {
   /** Apply the local 50% batch base-rate discount. */
   batch?: boolean
   /** Measured media quantities priced only by explicitly configured media rates. */
@@ -231,7 +242,7 @@ export type StreamEvent =
   | { type: "finish"; response: ModelResponse }
   | { type: "error"; error: { code: string; message: string } }
 
-export interface UsageEventInput {
+export interface UsageEventInput extends SpanEventMetadata {
   tool_calls?: ToolCallAttribution[]
   requestId: string
   appId: string
@@ -254,6 +265,8 @@ export interface UsageEventInput {
 }
 
 export interface UsageEvent extends UsageEventInput {
+  /** Schema v6 authoritative integer amount. */
+  costMicros?: number
   pricingBasis?: string
   pricingSource?: string
 }

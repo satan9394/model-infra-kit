@@ -18,7 +18,7 @@ export interface CorsOptions {
   credentials?: boolean
 }
 
-const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "x-mik-app-id", "accept", "x-mik-batch", "x-mik-bypass-budget", "x-mik-model-tier"]
+const DEFAULT_CORS_HEADERS = ["authorization", "content-type", "x-modelhub-provider", "x-mik-app-id", "accept", "x-mik-batch", "x-mik-bypass-budget", "x-mik-model-tier", "x-mik-trace-id", "x-mik-span-id", "x-mik-parent-span-id", "x-mik-step-index", "x-mik-span-type", "x-mik-tool-name"]
 
 /**
  * Normalise the `cors` option; `undefined`/`false` means "no CORS headers"

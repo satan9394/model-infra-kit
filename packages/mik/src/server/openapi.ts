@@ -415,9 +415,25 @@ function schemas(): Record<string, Schema> {
         archivedRequests: { type: "integer", description: "Requests retained as daily aggregates without individual detail rows." },
       },
     },
+    TraceTreeNode: {
+      type: "object", required: ["spanId", "spanType", "stepCostMicros", "totalCostMicros", "children"],
+      properties: {
+        spanId: { type: "string" }, parentSpanId: { type: "string" },
+        spanType: { type: "string", enum: ["root", "reasoning", "tool_call", "generation"] },
+        stepIndex: { type: "integer", minimum: 0 }, toolName: { type: "string" }, requestId: { type: "string" },
+        status: { type: "string", enum: ["ok", "error"] },
+        startedAt: { type: "number" }, endedAt: { type: "number" }, durationMs: { type: "number" }, startOffsetMs: { type: "number" },
+        stepDurationMs: { type: "number" }, firstTokenMs: { type: "number" }, cascadingTier: { type: "string", enum: ["tier1", "tier2"] }, cascadingEscalated: { type: "boolean" },
+        stepCostMicros: { type: "integer", minimum: 0 }, stepCacheSavingsMicros: { type: "integer", minimum: 0 }, totalCostMicros: { type: "integer", minimum: 0 },
+        usage: ref("TokenUsage"), children: { type: "array", items: ref("TraceTreeNode") },
+      },
+    },
     UsageEvent: {
       type: "object",
       properties: {
+        spanId: { type: "string", maxLength: 128 }, parentSpanId: { type: "string", maxLength: 128 },
+        spanType: { type: "string", enum: ["root", "reasoning", "tool_call", "generation"] }, stepIndex: { type: "integer", minimum: 0 }, toolName: { type: "string", maxLength: 128 },
+        stepCostMicros: { type: "integer", minimum: 0, readOnly: true }, stepCacheSavingsMicros: { type: "integer", minimum: 0, readOnly: true }, costMicros: { type: "integer", minimum: 0, readOnly: true },
         requestId: { type: "string" },
         appId: { type: "string" },
         ts: { type: "integer" },
@@ -918,6 +934,13 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
               },
             }),
           },
+        },
+      },
+      "/api/usage/traces/{traceId}/tree": {
+        get: {
+          tags: ["usage"], summary: "Retained execution topology with exclusive integer-microdollar step costs.",
+          parameters: [{ name: "traceId", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": ok("Synthetic root and nested spans. Empty retained traces have zero cost.", ref("TraceTreeNode")) },
         },
       },
       "/api/usage/traces": {

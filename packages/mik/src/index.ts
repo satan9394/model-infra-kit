@@ -98,10 +98,12 @@ export {
   type SdkProtocol,
 } from "./ai/index.js"
 
+export { buildTraceTree, type TraceTreeNode } from "./usage/trace-tree.js"
 export { maskSecret, redact, redactDeep } from "./util/redact.js"
 export { defaultCacheDir, defaultDbPath, expandPath } from "./util/paths.js"
 
 export type {
+  SpanEventMetadata,
   CostInfo,
   ModelCapabilities,
   ModelInfo,

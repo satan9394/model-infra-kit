@@ -1571,6 +1571,7 @@ describe("GET /openapi.json", () => {
     "/api/usage/trends",
     "/api/usage/by-provider",
     "/api/usage/by-model",
+    "/api/usage/traces/{traceId}/tree",
     "/api/usage/traces",
     "/api/usage/search",
     "/api/usage/logs",

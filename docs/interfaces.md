@@ -1133,6 +1133,7 @@ no third-party application data discovery, and no background service.
       "SqliteStorageAdapter",
       "Store",
       "UsageService",
+      "buildTraceTree",
       "checkBudgetStatus",
       "createAiBridge",
       "createFileCache",
@@ -1564,3 +1565,15 @@ The integrated gate also exposed an immediate-save race in configuration polling
 the initial stamp is now captured synchronously before registration returns, and
 an unref'd timer compares subsequent stamps. A deterministic timer test verifies
 the first save and polling shutdown without wall-clock sleeps.
+
+## EVO-G127 — retained execution trees and integer step attribution
+
+`SpanEventMetadata` adds optional `spanId`, `parentSpanId`, `spanType` (`root`, `reasoning`, `tool_call`, `generation`), `stepIndex`, `toolName`, `stepCostMicros`, and `stepCacheSavingsMicros`. Optional fields preserve existing embedded callers. Missing ids use the recorded request id; missing type/index use generation/0. Topology is whitelisted and redacted into the reserved `tags_json._mik_span` object; no schema migration beyond v6 is needed. Tool inputs are redacted before hashing; arguments/results are never stored.
+
+`POST /v1/chat/completions` and `POST /api/usage/events` accept `X-Mik-Span-Id`, `X-Mik-Parent-Span-Id`, and `X-Mik-Step-Index`. Optional `X-Mik-Span-Type` and `X-Mik-Tool-Name` classify nodes. Reports may use camelCase body fields; headers take precedence. Index must be a non-negative safe integer; ids/names must be nonempty and at most 128 characters. A bad report item is rejected within the existing batch envelope. Headers are gateway controls and are not forwarded to providers.
+
+`GET /api/usage/traces/:traceId/tree` returns an app-scoped `TraceTreeNode` synthetic root across **all retained pages**, independent of dashboard date/provider filters. Empty retained traces return a zero-cost root. Archived rows have no reconstructable step topology. Each node includes status, time offsets from one trace origin, subtree duration, request-only `stepDurationMs`, optional first-token latency and cascade state, token buckets, integer exclusive step cost, integer cache savings, subtree total, and nested children. All existing waterfall anchors remain available. Inspector keyboard controls support Escape/close with focus restored to the trigger; disclosures use native accessible details/summary elements.
+
+`costMicros` and `stepCostMicros` are read directly from Schema v6 `cost_micros`; reported step-cost/savings fields cannot override accounting. Cache savings come from the existing immutable pricing snapshot tag. Tool shares partition the owning request cost, with residual micros staying on its model node. The synthetic root has zero exclusive cost: summing every descendant's `stepCostMicros` equals `root.totalCostMicros` exactly. Subtree totals are inclusive and must not be summed again. Tool token buckets are attribution of request tokens, not additional usage. Root usage sums each billed event once. Orphans and cycles fall back safely; sibling order is step index, timestamp, then id. Duplicate span ids remain visible; parent links target the first retained match. No payloads or credentials enter tree nodes.
+
+The builder is synchronous and pure, with iterative graph traversal (deep trees do not consume the JS recursion stack). Integer validation fails closed on fractional/unsafe values or aggregate overflow. The representative performance gate measures a warmed 200-span trace below 2ms; timings depend on trace size and host scheduling. Reproduce correctness and timing with `pnpm exec vitest run packages/mik/test/trace-tree.test.ts`; gateway coverage: `pnpm exec vitest run packages/mik/test/trace-tree-api.test.ts`.

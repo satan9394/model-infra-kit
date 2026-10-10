@@ -1,3 +1,4 @@
+import { sanitizeSpan } from "./span.js"
 import { toMicroUsd } from "../store/money.js"
 export { toMicroUsd } from "../store/money.js"
 import { archiveUsage, type ArchiveOptions, type ArchiveResult } from "./archive.js"
@@ -294,7 +295,7 @@ export class UsageService {
 
   /** @internal Shared write/event-bus normalization, including request-local app attribution. */
   normalizeEvent(event: Omit<UsageEvent, "appId"> & { appId?: string }): UsageEvent {
-    return { ...event, tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)), appId: this.requestApp.getStore() ?? event.appId ?? this.appId }
+    return { ...event, ...sanitizeSpan(event, event.requestId), costMicros: requestCostMicros(event.cost.usd), stepCostMicros: requestCostMicros(event.cost.usd), stepCacheSavingsMicros: Number(event.tags?._mik_cache_savings_micros ?? 0), tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)), appId: this.requestApp.getStore() ?? event.appId ?? this.appId }
   }
 
   /** @internal Runtime telemetry; independent of persisted onEvent/SSE and metering enablement. */

@@ -1,3 +1,4 @@
+import { TraceTreeView } from "@/components/trace-tree"
 import { TraceSearch } from "@/components/trace-search"
 import { CacheStatus } from "@/components/cache-metrics"
 import { getI18n } from "@/lib/i18n/server"
@@ -10,7 +11,7 @@ import { LiveRefresh } from "@/components/live-refresh"
 import { UpstreamNotice } from "@/components/upstream-notice"
 import { formatDateTime, formatInt, formatMs, formatUsdSpan } from "@/lib/format"
 import { readFilters, resolveRange, usageQuery, withRange, type SearchParams } from "@/lib/range"
-import { loadLogs, loadShell, loadTraces } from "@/lib/server-data"
+import { loadLogs, loadShell, loadTraces, loadTraceTree } from "@/lib/server-data"
 import type { UsageTraceGroup } from "@/lib/types"
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -47,7 +48,7 @@ export default async function TracesView({ params }: { params: SearchParams }) {
   const selectedId = first(groupBy === "trace" ? params.traceId : params.sessionId)
   const query = usageQuery(range, filters)
   const shell = await loadShell()
-  const [traces, logs] = await Promise.all([
+  const [traces, logs, tree] = await Promise.all([
     loadTraces(query, groupBy),
     selectedId
       ? (() => {
@@ -57,11 +58,13 @@ export default async function TracesView({ params }: { params: SearchParams }) {
           return loadLogs(detailQuery.toString())
         })()
       : Promise.resolve(null),
+    selectedId && groupBy === "trace" ? loadTraceTree(selectedId) : Promise.resolve(null),
   ])
 
   const errors = [...shell.errors]
   if (!traces.ok) errors.push(traces.error)
   if (logs && !logs.ok) errors.push(logs.error)
+  if (tree && !tree.ok) errors.push(tree.error)
   const groups = traces.ok ? traces.data.groups : []
   const active = selectedGroup(groups, groupBy, selectedId)
   const events = logs?.ok ? [...logs.data.events].reverse() : []
@@ -150,7 +153,7 @@ export default async function TracesView({ params }: { params: SearchParams }) {
         >
           {!active ? (
             <div className="p-4"><EmptyState title={t("s346")} description={t("s347")} /></div>
-          ) : events.length === 0 ? (
+          ) : events.length === 0 && (!tree?.ok || tree.data.children.length === 0) ? (
             <div className="p-4"><EmptyState title={t("s348")} description={t("s349", formatInt(active.archivedRequests))} /></div>
           ) : (
             <div className="overflow-x-auto p-4">
@@ -158,6 +161,7 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                 <span> {t("s350")} {formatMs(traceTimeline(events)[0]?.spanMs)} {t("s351")} {events.length} / {formatInt(active.requests)} {t("s341")} </span>
                 {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} {t("s352")} </span> : null}
               </div>
+              {tree?.ok && <TraceTreeView key={selectedId} tree={tree.data} />}
               <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
               <ul aria-label={t("cache.status")} className="my-3 space-y-1">
                 {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} />)}

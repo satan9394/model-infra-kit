@@ -18,6 +18,7 @@ import type {
   ProvidersPayload,
   SummaryPayload,
   TracesPayload,
+  TraceTreeNode,
   TrendsPayload,
 } from "./types"
 
@@ -120,4 +121,8 @@ export async function loadModelsWithPricing(limit = 150, concurrency = 8): Promi
     ok: true,
     data: { ...result.data, models: models.map((model) => enriched.get(model.ref) ?? model) },
   }
+}
+
+export function loadTraceTree(traceId: string): Promise<MikResult<TraceTreeNode>> {
+  return mikTry<TraceTreeNode>(`/api/usage/traces/${encodeURIComponent(traceId)}/tree`)
 }

@@ -1,3 +1,5 @@
+import { buildTraceTree } from "../usage/trace-tree.js"
+import { readSpanHeaders } from "./span.js"
 import { PROTOCOL_PACKAGES } from "../registry/presets.js"
 import { lookup } from "node:dns/promises"
 import { performance } from "node:perf_hooks"
@@ -314,7 +316,7 @@ function readReportedMedia(value: unknown): MultimodalUsage | undefined {
  * validation failure is optional: a host that only knows `requestId`,
  * `providerId` and `usage` gets a priced row back.
  */
-function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEvent {
+function buildReportedEvent(input: unknown, hub: ServerContext["hub"], req: ServerContext["req"]): UsageEvent {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new EventRejection("each event must be a JSON object.")
   }
@@ -355,6 +357,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"]): UsageEve
     appId,
     ts,
     source: "report",
+    ...readSpanHeaders(req, body),
     tool_calls: sanitizeToolCalls(body.tool_calls, requestCostMicros(cost.usd)),
     providerId,
     modelRequested: modelRequested || modelActual,
@@ -584,6 +587,15 @@ export function registerApiRoutes(router: Router): void {
       sendJson(ctx.res, 200, { buckets: ctx.hub.usage.byModel(parseUsageQuery(ctx.url)) })
     })
 
+    .add("GET", "/api/usage/traces/:traceId/tree", (ctx) => {
+      const events: UsageEvent[] = []
+      let page
+      do {
+        page = ctx.hub.usage.query({ traceId: ctx.params.traceId!, limit: 1000, offset: events.length })
+        events.push(...page.events)
+      } while (events.length < page.total)
+      sendJson(ctx.res, 200, buildTraceTree(events))
+    })
     .add("GET", "/api/usage/traces", (ctx) => {
       const raw = ctx.url.searchParams.get("groupBy")
       if (raw !== null && raw !== "trace" && raw !== "session") {
@@ -654,7 +666,7 @@ export function registerApiRoutes(router: Router): void {
       for (const [index, item] of raw.entries()) {
         let event: UsageEvent
         try {
-          event = buildReportedEvent(item, ctx.hub)
+          event = buildReportedEvent(item, ctx.hub, ctx.req)
         } catch (error) {
           // One bad item never costs the rest of the batch its row.
           rejected.push({ index, reason: error instanceof EventRejection ? error.message : "the event could not be read." })

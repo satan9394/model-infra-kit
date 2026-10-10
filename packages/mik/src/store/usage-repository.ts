@@ -1,3 +1,4 @@
+import { sanitizeSpan } from "../usage/span.js"
 import { initializeFts, indexUsage } from "./fts.js"
 import { ModelInfraError } from "../errors.js"
 import { redactDeep } from "../util/redact.js"
@@ -166,6 +167,10 @@ function rowToEvent(row: Record<string, unknown>): UsageEvent {
       reasoning: asNumber(row.reasoning_tokens),
     },
     cost,
+    costMicros: asNumber(row.cost_micros),
+    ...storedSpan(row.tags_json, asString(row.request_id)),
+    stepCostMicros: asNumber(row.cost_micros),
+    stepCacheSavingsMicros: safeSavings(Number(parseTags(row.tags_json)._mik_cache_savings_micros ?? 0)),
     latencyMs: row.latency_ms === null ? undefined : asNumber(row.latency_ms),
     firstTokenMs: row.first_token_ms === null ? undefined : asNumber(row.first_token_ms),
     status: asString(row.status, "ok") as UsageEvent["status"],
@@ -174,8 +179,13 @@ function rowToEvent(row: Record<string, unknown>): UsageEvent {
     traceId: row.trace_id ? asString(row.trace_id) : undefined,
     sessionId: row.session_id ? asString(row.session_id) : undefined,
     tags: parseTags(row.tags_json),
-    tool_calls: storedToolCalls(row.tags_json, requestCostMicros(cost.usd)),
+    tool_calls: storedToolCalls(row.tags_json, asNumber(row.cost_micros)),
   }
+}
+
+function storedSpan(raw: unknown, requestId: string) {
+  try { return sanitizeSpan(typeof raw === "string" ? JSON.parse(raw)._mik_span ?? {} : {}, requestId) }
+  catch { return sanitizeSpan({}, requestId) }
 }
 
 function storedToolCalls(raw: unknown, totalMicros: number): UsageEvent["tool_calls"] {
@@ -406,7 +416,7 @@ export class UsageRepository {
           event.isStreaming ? 1 : 0,
           toSqlValue(event.sessionId),
           toSqlValue(event.traceId),
-          JSON.stringify({ ...event.tags, tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)) }),
+          JSON.stringify({ ...event.tags, _mik_span: sanitizeSpan(event, event.requestId), tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)) }),
         )
       const inserted = Number(result.changes) > 0
       if (inserted && this.ftsAvailable) {

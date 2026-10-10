@@ -1462,6 +1462,11 @@ export class ModelInfra {
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,
       tool_calls: input.tool_calls,
+      spanId: input.request?.spanId,
+      parentSpanId: input.request?.parentSpanId,
+      spanType: input.request?.spanType,
+      stepIndex: input.request?.stepIndex,
+      toolName: input.request?.toolName,
       ts: input.at,
       source: input.source,
       providerId: input.resolved.providerId,
