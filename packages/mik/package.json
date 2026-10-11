@@ -92,6 +92,6 @@
   },
   "devDependencies": {
     "@ai-sdk/openai-compatible": "^3.0.45",
-    "@ai-sdk/test-server": "^2.0.1"
+    "@ai-sdk/test-server": "^2.0.4"
   }
 }

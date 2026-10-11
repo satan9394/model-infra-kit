@@ -120,8 +120,8 @@ importers:
         specifier: ^3.0.45
         version: 3.0.45(zod@4.5.4)
       '@ai-sdk/test-server':
-        specifier: ^2.0.1
-        version: 2.0.1(@types/node@24.13.3)(typescript@5.9.3)
+        specifier: ^2.0.4
+        version: 2.0.4(@types/node@24.13.3)(typescript@5.9.3)
 
 packages:
 
@@ -187,8 +187,8 @@ packages:
     resolution: {integrity: sha512-A/Cyjma9RLTLsF9xv/2OSaw9eyFhOIBqzoeOVZhp+xKZD8wv5opN+qyIa83NE4Jug2SjQ/Kaf08w1JX6CESR/w==}
     engines: {node: '>=22'}
 
-  '@ai-sdk/test-server@2.0.1':
-    resolution: {integrity: sha512-rdGYVcDjEB3m7yxwaiMYgmdAhImSzYifffpkW5Ry3d7oSqmrRfiD86wFJ8uGUEf9L5jCBFl10GWhiKYlqop/6Q==}
+  '@ai-sdk/test-server@2.0.4':
+    resolution: {integrity: sha512-0oRXGN3vs6KMCMqp73hoVNYdfa8bLrPsc7FHE0KN9An6Kl3+XHymHdwEzAIuMYkxQsiACoahIMP+LSxl1KE9Tg==}
     engines: {node: '>=22'}
 
   '@ai-sdk/xai@4.0.54':
@@ -2113,7 +2113,7 @@ snapshots:
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/test-server@2.0.1(@types/node@24.13.3)(typescript@5.9.3)':
+  '@ai-sdk/test-server@2.0.4(@types/node@24.13.3)(typescript@5.9.3)':
     dependencies:
       msw: 2.15.0(@types/node@24.13.3)(typescript@5.9.3)
     transitivePeerDependencies:
