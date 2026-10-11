@@ -130,7 +130,7 @@ function contractFromDocs() {
     assert.ok(Array.isArray(symbols), `${entrypoint} runtime export contract must be an array`)
     assert.deepEqual(symbols, [...new Set(symbols)].sort(), `${entrypoint} runtime export contract must be sorted and unique`)
     assert.ok(symbols.every((symbol) => typeof symbol === "string" && symbol.length > 0), `${entrypoint} runtime export contract contains an invalid symbol`)
-    assert.equal(symbols.length, EXPECTED_RUNTIME_COUNTS[entrypoint], `${entrypoint} v1.6.0 runtime export count mismatch`)
+    assert.equal(symbols.length, EXPECTED_RUNTIME_COUNTS[entrypoint], `${entrypoint} v1.7.0 runtime export count mismatch`)
   }
   return contract.entrypoints
 }
@@ -433,7 +433,7 @@ try {
     assert.equal(header.checksum[field], archivedRows.reduce((sum, row) => sum + BigInt(row[field]), 0n).toString())
   }
   assert.ok(!archiveText.includes(providerKey), "archive leaked provider key")
-  assert.deepEqual(hub.usage.summary(), before)
+  assert.deepEqual(hub.usage.summary(), { ...before, localCacheRequests: 0 })
   const vacuum = hub.usage.vacuum()
   assert.ok(Number.isSafeInteger(vacuum.beforeBytes) && Number.isSafeInteger(vacuum.afterBytes))
   assert.equal(vacuum.reclaimedBytes, vacuum.beforeBytes - vacuum.afterBytes)
@@ -666,7 +666,7 @@ try {
   await hub.generate({ model: "p:discount", messages: message, traceId: "tree", spanId: "reason", spanType: "reasoning", stepIndex: 0 })
   await hub.generate({ model: "p:discount", messages: message, batch: true, traceId: "tree", spanId: "output", parentSpanId: "reason", stepIndex: 1 })
   store = await Store.open({ path: db })
-  assert.equal(store.driver.prepare("SELECT MAX(version) AS version FROM schema_migrations").get().version, 6)
+  assert.equal(store.driver.prepare("SELECT MAX(version) AS version FROM schema_migrations").get().version, 7)
   const ledger = () => store.driver.prepare("SELECT cost_micros, cost_low_micros, cost_high_micros, typeof(cost_micros) AS storage FROM usage_events ORDER BY rowid").all()
   assert.deepEqual(ledger().map(row => row.cost_micros), [1000, 500])
   assert.ok(ledger().every(row => row.storage === "integer" && row.cost_low_micros === row.cost_micros && row.cost_high_micros === row.cost_micros))
@@ -722,9 +722,160 @@ try {
   assert.ok(!stored.includes(process.env.MIK_RELEASE_BATTERY_KEY))
   assert.ok(!stored.includes("sk-battery-cascade-secret"))
   console.log(redact(JSON.stringify({ utcBoundaries: true, discountedMicros: 1000, batchMicros: 500, hardCap429NoDispatch: true,
-    pureEvaluator: true, actualModelEscalation: true, schemaVersion: 6, ledgerMicros: "64500", treeTopology: true, exclusiveTreeMicros: "1500", toolResidualMicros: 800, credentialIsolation: true })))
+    pureEvaluator: true, actualModelEscalation: true, schemaVersion: 7, ledgerMicros: "64500", treeTopology: true, exclusiveTreeMicros: "1500", toolResidualMicros: 800, credentialIsolation: true })))
 } finally {
   if (gateway) await gateway.close()
+  if (hub) await hub.close()
+  if (store) store.close()
+  await new Promise(resolve => { upstream.close(resolve); upstream.closeAllConnections() })
+}
+`
+}
+
+
+function v170SmokeSource() {
+  return String.raw`
+import assert from "node:assert/strict"
+import { createServer } from "node:http"
+import { readFileSync, writeFileSync } from "node:fs"
+import { join, dirname } from "node:path"
+import { createHash } from "node:crypto"
+import { gunzipSync } from "node:zlib"
+import { ModelInfra, Store, redact, redactDeep } from "model-infra-kit"
+
+const calls = []
+let slow = false
+const upstream = createServer(async (req, res) => {
+  const provider = req.url.split("/")[1]
+  for await (const part of req) {}
+  calls.push(provider)
+  await new Promise(resolve => setTimeout(resolve, provider === "a" && slow ? 400 : 10))
+  res.writeHead(200, { "content-type": "application/json" })
+  res.end(JSON.stringify(redactDeep({ id: "v170", object: "chat.completion", created: 1, model: "model",
+    choices: [{ index: 0, message: { role: "assistant", content: "safe answer" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })))
+})
+await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve))
+const root = "http://127.0.0.1:" + upstream.address().port
+const options = { syncCatalog: false, pricingAutoSync: false, maxRetries: 0,
+  pricingFetch: async () => { throw new Error("offline") }, onWarn: message => assert.ok(!redact(message).includes(process.env.MIK_RELEASE_BATTERY_KEY)),
+  providers: ["a", "b"].map(id => ({ id, protocol: "openai-compatible", baseUrl: root + "/" + id,
+    apiKeyRef: "env:MIK_RELEASE_BATTERY_KEY" })) }
+let hub
+let store
+try {
+  hub = await ModelInfra.init({ ...options, db: ":memory:", cacheDir: join(process.cwd(), "qos-cache"),
+    routing: "adaptive_qos", loadBalancer: { auto: [{ model: "a:model" }, { model: "b:model" }] } })
+  const batch = async count => {
+    calls.length = 0
+    for (let i = 0; i < count; i++) await hub.generate({ model: "auto", messages: [{ role: "user", content: "qos" }], cache: false })
+    return calls.filter(id => id === "a").length
+  }
+  // ponytail: warm real HTTP/SDK timing before comparing measured routing shares.
+  await batch(100)
+  const baselineShare = await batch(40)
+  assert.ok(baselineShare > 0 && baselineShare < 40)
+  const baseline = hub.providerQoS().find(row => row.providerId === "a")
+  slow = true
+  await batch(40)
+  const congested = hub.providerQoS().find(row => row.providerId === "a")
+  assert.ok(congested.ewmaRttMs > 300 && congested.ewmaRttMs > baseline.ewmaRttMs)
+  const healthy = hub.providerQoS().find(row => row.providerId === "b")
+  assert.ok(congested.effectiveWeight < healthy.effectiveWeight)
+  const slowShare = await batch(40)
+  assert.ok(slowShare > 0 && slowShare < baselineShare, "adaptive routing must retain recovery traffic and favor the healthy channel")
+  slow = false
+  await batch(160)
+  const recovered = hub.providerQoS().find(row => row.providerId === "a")
+  assert.ok(recovered.ewmaRttMs < congested.ewmaRttMs && recovered.effectiveWeight > congested.effectiveWeight)
+  await hub.close(); hub = undefined
+
+  const db = join(process.cwd(), "v170.db")
+  hub = await ModelInfra.init({ ...options, db, appId: "v170", cache: {}, cacheDir: join(process.cwd(), "v170-cache") })
+  hub.pricing.setOverride({ modelId: "model", inputPerM: 2, outputPerM: 3 })
+  const request = content => ({ model: "a:model", temperature: 0, messages: [{ role: "user", content }] })
+  calls.length = 0
+  const first = await hub.generate(request("hello world"))
+  const replay = await hub.generate(request("  hello\n  world "))
+  assert.equal(replay.cacheHit, true)
+  assert.equal(replay.text, first.text)
+  assert.equal(replay.latencyMs, 0)
+  assert.equal(replay.firstTokenMs, 0)
+  assert.equal(calls.length, 1)
+  await hub.generate(request('{"b":2,"a":1}'))
+  assert.equal((await hub.generate(request('{ "a":1, "b":2 }'))).cacheHit, true)
+  assert.equal(calls.length, 2)
+  for (let i = 0; i < 29; i++) assert.equal((await hub.generate(request("hello world"))).cacheHit, true)
+  assert.equal(calls.length, 2)
+  store = await Store.open({ path: db })
+  assert.equal(store.driver.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v, 7)
+  const ledger = store.driver.prepare("SELECT cost_micros, cache_savings_micros, typeof(cost_micros) AS c, typeof(cache_savings_micros) AS s FROM usage_events ORDER BY rowid").all()
+  assert.equal(ledger.length, 33)
+  assert.ok(ledger.every(row => row.c === "integer" && row.s === "integer"))
+  assert.equal(ledger.reduce((sum, row) => sum + BigInt(row.cost_micros), 0n), 70n)
+  assert.equal(ledger.reduce((sum, row) => sum + BigInt(row.cache_savings_micros), 0n), 1085n)
+  assert.equal(ledger.filter(row => row.cost_micros === 0 && row.cache_savings_micros === 35).length, 31)
+  const cacheRows = store.driver.prepare("SELECT * FROM response_cache").all()
+  assert.equal(cacheRows.length, 2)
+  assert.ok(!JSON.stringify(cacheRows).includes("hello world"))
+  assert.ok(!JSON.stringify(store.driver.prepare("SELECT * FROM providers").all()).includes(process.env.MIK_RELEASE_BATTERY_KEY))
+  assert.ok(!JSON.stringify(store.driver.prepare("SELECT * FROM usage_events").all()).includes(process.env.MIK_RELEASE_BATTERY_KEY))
+  store.driver.prepare("UPDATE usage_events SET ts = ?").run(Date.parse("2026-01-01T00:00:00Z"))
+  const before = hub.usage.summary()
+  const manifestPath = await hub.usage.exportArchive({ beforeDate: "2026-02-01", outDir: join(process.cwd(), "v170-archive"), chunkSize: 10 })
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+  assert.equal(manifest.totalRecords, 33)
+  assert.equal(manifest.totalCostMicros, "70")
+  assert.equal(manifest.totalSavingsMicros, "1085")
+  assert.equal(manifest.shards.length, 4)
+  const hash = bytes => createHash("sha256").update(bytes).digest("hex")
+  assert.equal(manifest.manifestChecksum, hash(JSON.stringify([manifest.version, manifest.exportedAt, manifest.beforeDate,
+    manifest.cutoffMs, manifest.scope, manifest.totalRecords, manifest.totalCostMicros, manifest.totalSavingsMicros,
+    manifest.dataChecksum, manifest.shards.map(s => [s.file, s.records, s.sha256, s.costMicros, s.savingsMicros])])))
+  let data = "", cost = 0n, savings = 0n
+  for (const shard of manifest.shards) {
+    const bytes = readFileSync(join(dirname(manifestPath), shard.file))
+    assert.equal(hash(bytes), shard.sha256)
+    const text = gunzipSync(bytes).toString("utf8")
+    assert.ok(text.endsWith("\n"))
+    const rows = text.trimEnd().split("\n").map(line => JSON.parse(line))
+    assert.equal(rows.length, shard.records)
+    const c = rows.reduce((sum, row) => sum + BigInt(row.cost_micros), 0n)
+    const s = rows.reduce((sum, row) => sum + BigInt(row.cache_savings_micros), 0n)
+    assert.equal(c.toString(), shard.costMicros); assert.equal(s.toString(), shard.savingsMicros)
+    assert.ok(!text.includes(process.env.MIK_RELEASE_BATTERY_KEY))
+    data += text; cost += c; savings += s
+  }
+  assert.equal(hash(data), manifest.dataChecksum)
+  assert.equal(cost, 70n); assert.equal(savings, 1085n)
+  const count = () => store.driver.prepare("SELECT COUNT(*) AS n FROM usage_events").get().n
+  assert.equal(count(), 33, "export must retain details")
+  assert.deepEqual(await hub.usage.verifyArchive(manifestPath), manifest)
+  const shardPath = join(dirname(manifestPath), manifest.shards[0].file)
+  const original = readFileSync(shardPath)
+  const corrupt = Buffer.from(original); corrupt[0] ^= 1
+  writeFileSync(shardPath, corrupt)
+  await assert.rejects(hub.usage.pruneArchived(manifestPath))
+  assert.equal(count(), 33)
+  writeFileSync(shardPath, original)
+  store.driver.exec("UPDATE usage_events SET cache_savings_micros = cache_savings_micros + 1 WHERE rowid = 1")
+  await assert.rejects(hub.usage.pruneArchived(manifestPath), /ledger mismatch/)
+  assert.equal(count(), 33)
+  assert.equal(store.driver.prepare("SELECT COUNT(*) AS n FROM usage_daily_rollups").get().n, 0)
+  store.driver.exec("UPDATE usage_events SET cache_savings_micros = cache_savings_micros - 1 WHERE rowid = 1")
+  assert.equal(await hub.usage.pruneArchived(manifestPath), 33)
+  assert.equal(count(), 0)
+  const after = hub.usage.summary()
+  assert.equal(store.driver.prepare("SELECT SUM(cost_microusd) AS cost, SUM(cache_savings_micros) AS savings FROM usage_daily_rollups").get().cost, 70)
+  assert.equal(store.driver.prepare("SELECT SUM(cache_savings_micros) AS savings FROM usage_daily_rollups").get().savings, 1085)
+  assert.equal(after.cacheSavingsMicros, before.cacheSavingsMicros)
+  assert.equal(after.requests, before.requests)
+  await assert.rejects(hub.usage.pruneArchived(manifestPath), /ledger mismatch/)
+  console.log(redact(JSON.stringify({ adaptiveLatencyFeedback: true, baselineShare, slowShare, recovery: true,
+    normalizedReplay: true, zeroMsMarker: true, schemaVersion: 7, costMicros: "70", savingsMicros: "1085",
+    gzipShards: 4, manifestHashes: true, corruptionRefused: true, oneMicrosMismatchRefused: true,
+    atomicPruneConservation: true, credentialIsolation: true })))
+} finally {
   if (hub) await hub.close()
   if (store) store.close()
   await new Promise(resolve => { upstream.close(resolve); upstream.closeAllConnections() })
@@ -840,8 +991,8 @@ async function main() {
   const expected = contractFromDocs()
   const sourcePackageJson = readJson(PACKAGE_JSON_PATH)
   assert.equal(sourcePackageJson.name, "model-infra-kit")
-  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.6.0", "root release version mismatch")
-  assert.equal(sourcePackageJson.version, "1.6.0", "package release version mismatch")
+  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.7.0", "root release version mismatch")
+  assert.equal(sourcePackageJson.version, "1.7.0", "package release version mismatch")
   assert.match(readFileSync(join(PACKAGE_ROOT, "tsdown.config.ts"), "utf8"), /clean:\s*false/, "build must retain generated files")
   assertAbsoluteCwd(REPO_ROOT, "repository")
   assertAbsoluteCwd(PACKAGE_ROOT, "package")
@@ -917,6 +1068,9 @@ async function main() {
   const v160Path = join(consumerDir, "v160-smoke.mjs")
   writeAbsolute(v160Path, v160SmokeSource())
   await run("node", [v160Path], { cwd: consumerDir, label: "installed v1.6.0 pricing, budget, cascade and tree", env: smokeEnv, redactSecrets: [batteryKey] })
+  const v170Path = join(consumerDir, "v170-smoke.mjs")
+  writeAbsolute(v170Path, v170SmokeSource())
+  await run("node", [v170Path], { cwd: consumerDir, label: "installed v1.7.0 QoS, normalized cache and verified gzip archive", env: smokeEnv, redactSecrets: [batteryKey] })
   process.stdout.write(`[result] release battery passed; retained clean room=${cleanRoom}\n`)
 }
 

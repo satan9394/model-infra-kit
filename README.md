@@ -33,16 +33,18 @@
 
 ---
 
-## v1.6.0 local candidate
+## v1.7.0 local candidate
 
-The local `main` candidate adds UTC time-window and Batch pricing, HTTP hard
-budget caps, semantic model cascading, and retained Agent execution trees.
-Schema v6 integer micro-dollar columns are authoritative; USD fields remain
-display boundaries. Runtime exports are exactly root 42 / auto 2 / cli 29 /
-server 11, verified from a separately installed tarball against
-[`docs/interfaces.md`](docs/interfaces.md). The dashboard remains repository-only.
-Push, remote CI and npm publication await human approval. Candidate evidence:
-[`v1.6.0 report`](docs/releases/v1.6.0-candidate.md).
+The local main candidate adds adaptive QoS weighted routing, deterministic
+normalized response caching with integer micro-dollar savings, and streaming
+gzip archives with offline verification and atomic safe pruning. Schema v7
+retains authoritative integer cost columns and adds cache_savings_micros.
+Cache replay 0ms is a metadata marker, not a wall-clock guarantee. Runtime
+exports remain exactly root 42 / auto 2 / cli 29 / server 11, verified from a
+separately installed tarball against [docs/interfaces.md](docs/interfaces.md).
+Database migration is additive; preserve backups before archive maintenance.
+The dashboard remains repository-only. Push, remote CI and npm publication
+await human approval. Evidence: [v1.7.0 report](docs/releases/v1.7.0-candidate.md).
 
 ## 环境要求
 

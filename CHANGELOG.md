@@ -1,4 +1,11 @@
 # CHANGELOG — model-infra-kit
+## 1.7.0 — 本地发版候选 / Local release candidate (2026-10-11)
+
+- EVO-G129: adaptive QoS tracks per-attempt RTT/first output, jitter and health in a bounded window; smooth weighted routing preserves priority, capacity and recovery traffic.
+- EVO-G130: deterministic SHA-256 request normalization enables TTL/LRU persisted replay, zero actual cost and integer micro-dollar savings. Schema v7 adds authoritative cache_savings_micros while retaining the v6 cost columns; replay 0ms is a metadata marker.
+- EVO-G131: backpressured gzip shards carry record, byte and ledger checksums; offline verification precedes atomic prune with full record and integer cost/savings conservation. Export retains details.
+- EVO-G132: separately installed candidate tgz validates these behaviors, exact exports root 42 / auto 2 / cli 29 / server 11 and the package whitelist. Existing databases migrate additively on open; preserve backups before maintenance. Local main only; push/publish await human approval. Evidence: docs/releases/v1.7.0-candidate.md.
+
 ## 未发布 — EVO-G131（2026-10-11，本地 main）
 
 - 分块 gzip 流式归档：SHA-256 校验、完整记录脱敏、Schema v7 整数消耗/节省清单；导出保留热库明细。Streaming gzip shards add redacted offline records and exact cost/savings manifests without pruning on export.

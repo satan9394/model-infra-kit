@@ -1,6 +1,6 @@
 # model-infra-kit (`mik`)
 
-可嵌入的模型层：多供应商调用、模型目录、token 用量、计价与成本统计。一个包，三个入口。
+可嵌入的模型层：多供应商调用、模型目录、token 用量、计价与成本统计。一个包，四个运行时入口。
 
 ```bash
 npm i model-infra-kit
@@ -29,6 +29,7 @@ npm i @ai-sdk/xai                 # xai
 |---|---|---|
 | `model-infra-kit` | `ModelInfra`、`Store`、`CredentialStore`、`ProviderRegistry`、`PricingService`、`UsageService`、`createAiBridge`、错误类型与全部类型 | 主路径 |
 | `model-infra-kit/server` | `createServer`、`DEFAULT_HOST`、`DEFAULT_PORT` | 自建 HTTP 服务（`mik serve` 用的就是它） |
+| `model-infra-kit/auto` | `install`、`restore` | 显式进程内 SDK 自动接入 |
 | `model-infra-kit/cli` | `main(argv)`、`parseCliArgs`、格式化工具 | 把 CLI 嵌进自己的进程 |
 
 > 需要 Node ≥ 22.13（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`）。缺失的 provider 包会在 `mik provider add` 之后与 `mik serve` 启动横幅上被提前指出；库面 `loadProviderFactory()` 仍给出「装哪个包」的可读错误。
@@ -36,6 +37,10 @@ npm i @ai-sdk/xai                 # xai
 > **本包不含看板。** `files` 只有 `dist` 与 `LICENSE`（库 + CLI + HTTP 服务）；Next.js 看板在仓库的 `apps/dashboard`，`mik dashboard` 只在 monorepo 内可用，装包环境会报错并给出指引。详见[项目 README 的「看板」一节](https://github.com/satan9394/model-infra-kit/blob/main/README.md#看板)。
 
 ---
+
+## v1.7.0 candidate
+
+Adaptive QoS weighted routing, normalized deterministic response caching and verified streaming gzip archives are additive. Schema v7 retains authoritative integer cost columns and adds cache_savings_micros. Runtime exports are exactly root 42 / auto 2 / cli 29 / server 11; the table above lists examples, not the complete export set. Database migration is additive; preserve backups before archive maintenance. Cache replay 0ms is a metadata marker. This local candidate awaits human push/publication approval.
 
 ## 1. `ModelInfra.init()`
 
