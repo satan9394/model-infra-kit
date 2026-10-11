@@ -456,7 +456,7 @@ export type ProviderCostReading =
   | { kind: "rejected"; raw: string; reason: string }
 ```
 
-- `createMikFetch()` 让现有 OpenAI 兼容客户端带计量：`new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })`。请求体的 `model` 决定路由，凭据由 provider 协议附加；**调用方自带的密钥不转发**；响应按字节原样返回（只读 clone）。
+- `createMikFetch()` 让现有 OpenAI 兼容客户端带计量：`new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })`。请求体的 `model` 决定路由，凭据由 provider 协议附加；**调用方自带的密钥不转发**。成功非错误正文保留原始字节；错误 JSON/文本/SSE 帧及响应头经脱敏，包含当前已解析凭据的精确遮蔽。
 - `readOpenAiUsage()` 兼容 `prompt_tokens`/`input_tokens`、`cached_tokens`/`prompt_cache_hit_tokens`/`cache_read_tokens`、`cache_creation_tokens`/`cache_write_tokens`、`reasoning_tokens`；**一个字段都读不到时返回 `null`**（而不是全 0 的 `TokenUsage`），调用方据此区分「上游没报 usage」与「确实为 0」。
 - EVO-G73：`ForwardedCall.providerCost`（也就是 `readOpenAiUsage().cost` 的来源）是端点回传计费额的读数。`kind: "absent"` 表示端点**没报**——此时 hub 仍走既有目录估算，`tags` **不写任何键**，行为与 G73 之前逐字一致；`accepted` 才按端点账单记账。类型与保留键的定义在下文「EVO-G73」节，两处不重复定义。
 
@@ -1680,6 +1680,14 @@ boundary: archived requests are excluded from the local ratio. `cacheSavingsMicr
 discounts and full local replay savings.
 
 The normalizer and LRU are internal modules, not new package root exports.
+Cache eligibility bypasses cyclic, accessor-bearing message graphs, non-finite
+numbers, sparse/undefined array entries and oversized inputs (32 nesting levels,
+4096 visited values, 65536 aggregate string/key characters). The same bounds
+apply to completed responses and parsed prompt JSON. The AI SDK's declarative
+`jsonSchema()` schema getter remains supported; executable tools still bypass.
+JSON string literals inside parsed JSON remain literal, even when their contents
+look like another JSON object. Unsupported data bypasses replay rather than
+blocking generation.
 Benchmark: `node --import ./scripts/e2e/loader.mjs scripts/cache-benchmark.mjs`.
 The 50us threshold applies to warmed average on that small fixture, not an
 arbitrary-size prompt or OS scheduling upper bound.
@@ -1697,4 +1705,27 @@ Prune first fully verifies files, then uses an IMMEDIATE synchronous transaction
 CLI: `mik db archive export --before YYYY-MM-DD --out NEW_DIR [--chunk-size N]`, `mik db archive verify --manifest PATH`, `mik db archive prune --manifest PATH [--vacuum]`. Verify never initializes a database or pricing context; export/prune are database-wide regardless of --app-id. New dictionary entries are additive with matching zh/en keys and placeholders. No raw keys, prompts or tool response bodies are added to the schema.
 
 Memory reproduction: `node --expose-gc --experimental-transform-types --import ./scripts/e2e/loader.mjs scripts/archive-memory.mjs`. The isolated 100000-record/40-shard gate measures absolute JS heap and archive heap/external growth against 50 MiB. Runtime/SQLite baseline RSS is reported separately and is not a universal <50 MiB process RSS claim.
+
+### v1.7.0 audit hardening
+
+Public archive export/verify failures now sanitize filesystem and parsing errors
+through `redact.ts`, matching prune and CLI errors. Native wire requests validate
+every configured cascade/load-balancer target before dispatch; a mixed wire
+protocol alias returns 400 without forwarding. Mixed protocols remain supported
+on the SDK translation path. Internal `ModelInfra.nativeTargets()` exposes only
+configured references for this validation; runtime root/subpath exports are
+unchanged.
+
+Raw `mik.fetch` now sanitizes non-OK provider bodies, HTTP-200 JSON/SSE error
+payloads and response headers through `redact.ts`, also masking the exact
+resolved credential even without a known prefix. Status and safe retry headers
+survive; rewritten errors/streams drop stale length, encoding and digest headers.
+Error bodies are limited to 64 KiB and read failures/oversize return a safe generic
+body. SSE assembles complete UTF-8 events before masking (4 MiB code-unit event
+limit), including multiline data fields and escaped credentials. Event metadata
+and normal frame structure survive; source stream rejections cross the same
+provider-aware redaction boundary.
+Successful non-error JSON bodies retain their existing bytes. HTTP-200 JSON
+errors are metered as failures rather than successful billable calls.
+
 `cutoffMs` is the recorded absolute boundary; offline verification validates the calendar label in UTC and uses this checksummed boundary without recomputing the exporter timezone. A Honolulu export verified from Tokyo is covered by regression.

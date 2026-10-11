@@ -29,11 +29,9 @@ async function forwardNative(ctx: ServerContext, protocol: string, endpoint: str
   const protocols = compatible[protocol]!
   let target: ReturnType<typeof ctx.hub.resolveRequestModel> | undefined
   const cascade = ctx.hub.resolveCascadingModel(payload.model.trim(), { ...payload, headers: Object.fromEntries(Object.entries(ctx.req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")) })
-  if (cascade) {
-    for (const model of ctx.hub.cascadingTargets(alias)) {
-      const resolved = ctx.hub.resolveModel(model)
-      if (!protocols.includes(ctx.hub.providers.get(resolved.providerId)!.protocol ?? "openai-compatible")) throw new HttpError(400, "Cascade targets must support the client protocol.", "INVALID_REQUEST")
-    }
+  for (const model of ctx.hub.nativeTargets(alias)) {
+    const resolved = ctx.hub.resolveModel(model)
+    if (!protocols.includes(ctx.hub.providers.get(resolved.providerId)!.protocol ?? "openai-compatible")) throw new HttpError(400, "Native routing targets must support the client protocol.", "INVALID_REQUEST")
   }
   try { target = cascade ?? ctx.hub.resolveRequestModel({ model: payload.model, messages: [] }) } catch (error) { if (payload.model.includes(":")) throw error }
   if ((!target || !protocols.includes(ctx.hub.providers.get(target.providerId)!.protocol ?? "openai-compatible")) && !payload.model.includes(":")) {

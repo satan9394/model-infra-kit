@@ -1,4 +1,10 @@
 # CHANGELOG — model-infra-kit
+## 未发布 — v1.7.0 audit hardening (2026-10-11)
+
+- Fail closed on cyclic, oversized and non-finite cache inputs; preserve JSON-looking string literals inside JSON prompts.
+- Redact archive export/verify errors and raw adapter error bodies/frames/headers, including credentials without known prefixes.
+- Reject native aliases with incompatible wire-protocol channels before forwarding; retain mixed-protocol SDK routing.
+
 ## 1.7.0 — 本地发版候选 / Local release candidate (2026-10-11)
 
 - EVO-G129: adaptive QoS tracks per-attempt RTT/first output, jitter and health in a bounded window; smooth weighted routing preserves priority, capacity and recovery traffic.

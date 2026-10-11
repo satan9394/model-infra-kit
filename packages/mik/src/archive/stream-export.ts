@@ -8,11 +8,17 @@ import { createGzip } from "node:zlib"
 import type { UsageRepository } from "../store/usage-repository.js"
 import { archiveCutoff } from "../usage/archive.js"
 import { archiveLine, manifestChecksum, micros, type ArchiveManifest } from "./manifest.js"
+import { redact } from "../util/redact.js"
 
 export interface StreamArchiveOptions { beforeDate: string; outDir: string; chunkSize?: number }
 
 /** Export only. A concurrent ledger change is detected by the later prune digest. */
 export async function exportArchive(repository: UsageRepository, options: StreamArchiveOptions): Promise<string> {
+  try { return await writeArchive(repository, options) }
+  catch (error) { throw new Error(redact(`Archive export failed: ${error instanceof Error ? error.message : String(error)}`)) }
+}
+
+async function writeArchive(repository: UsageRepository, options: StreamArchiveOptions): Promise<string> {
   const cutoffMs = archiveCutoff(options.beforeDate)
   const chunkSize = options.chunkSize ?? 50_000
   if (!Number.isSafeInteger(chunkSize) || chunkSize < 1) throw new RangeError("Invalid archive chunk size")

@@ -741,6 +741,11 @@ export class ModelInfra {
     return policy ? [policy.tier1FastModel, policy.tier2ReasoningModel] : []
   }
 
+  /** @internal Validate every possible native wire target before channel rotation. */
+  nativeTargets(alias: string): string[] {
+    return [...this.cascadingTargets(alias), ...(this.loadBalancer?.config[alias]?.map(channel => channel.model) ?? [])]
+  }
+
   /** Safe configuration mappings, with equal-token integer micro-dollar estimates. */
   cascadingModels() {
     return Object.entries(this.cascading).map(([alias, policy]) => {

@@ -51,6 +51,11 @@ async function readManifest(path: string): Promise<ArchiveManifest> {
 
 /** Offline IO only: bounded decompression; no database, network or mutations. */
 export async function verifyArchive(manifestPath: string): Promise<ArchiveManifest> {
+  try { return await readArchive(manifestPath) }
+  catch (error) { throw new Error(redact(`Archive verify failed: ${error instanceof Error ? error.message : String(error)}`)) }
+}
+
+async function readArchive(manifestPath: string): Promise<ArchiveManifest> {
   const m = await readManifest(manifestPath)
   let totalRecords = 0, totalCost = 0n, totalSavings = 0n
   const dataHash = createHash("sha256")

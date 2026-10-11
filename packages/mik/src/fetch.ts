@@ -6,7 +6,7 @@ import { reportedCostFromUsage, type ProviderCostReading } from "./pricing/repor
 import type { ResolvedProvider } from "./registry/registry.js"
 import type { TokenUsage } from "./types.js"
 import { isRetryableRouteFailure } from "./router/circuit-breaker.js"
-import { redact } from "./util/redact.js"
+import { redact, redactDeep } from "./util/redact.js"
 
 const anthropicWireProtocols: Readonly<Record<string, boolean>> = { anthropic: true }
 
@@ -93,8 +93,8 @@ const ZERO_USAGE = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cache
  *
  * The request body's `model` picks the provider, the credential is attached by
  * the provider's protocol, and whatever `usage` the provider reports is handed
- * back for pricing and storage. The response is returned to the caller byte for
- * byte; the adapter only ever reads a clone.
+ * back for pricing and storage. Successful payload bytes are preserved; provider
+ * error bodies/frames and headers are sanitized before reaching the caller.
  */
 export function createMikFetch(options: MikFetchOptions): typeof fetch {
   const now = options.now ?? Date.now
@@ -203,6 +203,7 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       return errorResponse(502, `Could not reach provider "${target.providerId}".`, "CONNECTION")
     }
 
+    response = await sanitizeProviderResponse(response, provider.apiKey)
     const latencyMs = now() - startedAt
     const meter = (
       usage: TokenUsage,
@@ -289,11 +290,108 @@ export function createMikFetch(options: MikFetchOptions): typeof fetch {
       parsed = null
     }
     const found = anthropicWireProtocols[provider.protocol] ? readAnthropicUsage(parsed) : readOpenAiUsage(parsed)
-    meter(found?.usage ?? ZERO_USAGE(), found?.model ?? target.modelId, undefined, false, found?.cost)
+    meter(found?.usage ?? ZERO_USAGE(), found?.model ?? target.modelId, undefined, false, found?.cost,
+      parsed?.error ? toModelInfraError(parsed.error) : undefined)
+    if (parsed?.error) return sanitizeProviderResponse(response, provider.apiKey, true)
     return response
   }
 
   return forward as typeof fetch
+}
+
+/** Provider errors can echo even credentials without a recognizable prefix. */
+async function sanitizeProviderResponse(response: Response, apiKey: string | null, errorPayload = false): Promise<Response> {
+  const mask = (text: string): string => {
+    if (apiKey) text = text.replaceAll(apiKey, "[REDACTED]").replaceAll(JSON.stringify(apiKey).slice(1, -1), "[REDACTED]")
+    return redact(text)
+  }
+  const safeJson = (text: string): string => {
+    try { return mask(JSON.stringify(redactDeep(JSON.parse(text), 0, 32))) }
+    catch { return mask(text) }
+  }
+  const fields: Record<string, string> = {}
+  response.headers.forEach((value, key) => { fields[key] = mask(value) })
+  const headers = new Headers(redactDeep(fields))
+  const rewritten = !response.ok || errorPayload || isEventStream(response)
+  if (rewritten) for (const key of ["content-length", "content-encoding", "transfer-encoding", "etag", "content-md5", "digest"]) headers.delete(key)
+  const init = { status: response.status, statusText: mask(response.statusText), headers }
+  if (isEventStream(response) && response.body) {
+    const decoder = new TextDecoder(), encoder = new TextEncoder()
+    let pending = ""
+    let lines: string[] = [], eventCharacters = 0
+    const event = (): string => {
+      const data = lines.filter(text => text.startsWith("data:"))
+        .map(text => text.replace(/\r?\n$/, "").slice(5).replace(/^ /, "")).join("\n")
+      let safe = "", rewrite = false
+      try {
+        const value = JSON.parse(data)
+        safe = safeJson(data)
+        rewrite = !!value?.error || value?.type === "error" || safe !== JSON.stringify(value)
+      } catch { /* non-JSON event: literal credential masking still applies */ }
+      let replaced = false
+      const text = lines.map(line => {
+        if (!rewrite || !line.startsWith("data:")) return mask(line)
+        if (replaced) return ""
+        replaced = true
+        return `data: ${safe}${line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""}`
+      }).join("")
+      lines = []; eventCharacters = 0
+      return text
+    }
+    const reader = response.body.getReader()
+    // Stream rejections are an outbound error surface too; never expose their raw cause.
+    const guarded = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const next = await reader.read()
+          if (next.done) { reader.releaseLock(); controller.close() }
+          else controller.enqueue(next.value)
+        } catch (error) {
+          reader.releaseLock()
+          controller.error(new Error(mask(error instanceof Error ? error.message : String(error))))
+        }
+      },
+      async cancel(reason) { try { await reader.cancel(reason).catch(() => {}) } finally { reader.releaseLock() } },
+    })
+    // ponytail: assemble bounded SSE events, since multiple data fields form one JSON payload.
+    const body = guarded.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        pending += decoder.decode(chunk, { stream: true })
+        let start = 0, end: number
+        while ((end = pending.indexOf("\n", start)) >= 0) {
+          const line = pending.slice(start, end + 1)
+          eventCharacters += line.length
+          if (eventCharacters > 4 * 1024 * 1024) throw new Error("Provider SSE event exceeds 4 MiB limit")
+          lines.push(line)
+          if (line === "\n" || line === "\r\n") controller.enqueue(encoder.encode(event()))
+          start = end + 1
+        }
+        pending = pending.slice(start)
+        if (eventCharacters + pending.length > 4 * 1024 * 1024) throw new Error("Provider SSE event exceeds 4 MiB limit")
+      },
+      flush(controller) {
+        pending += decoder.decode()
+        if (pending) lines.push(pending)
+        if (lines.length) controller.enqueue(encoder.encode(event()))
+      },
+    }))
+    return new Response(body, init)
+  }
+  if ((!errorPayload && response.ok) || !response.body) return new Response(response.body, init)
+  const reader = response.body.getReader(), decoder = new TextDecoder()
+  let text = "", bytes = 0
+  try {
+    for (;;) {
+      const next = await reader.read()
+      if (next.done) break
+      bytes += next.value.length
+      if (bytes > 65_536) throw new Error("Provider error body exceeds 64 KiB limit")
+      text += decoder.decode(next.value, { stream: true })
+    }
+    text += decoder.decode()
+  } catch { text = "Provider error body unavailable or exceeds 64 KiB limit" }
+  finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
+  return new Response(safeJson(text), init)
 }
 
 /** Buffer native SSE only until output commits; never replay text or tool work. */

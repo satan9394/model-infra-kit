@@ -15,10 +15,44 @@ export interface CacheKeyOptions {
   thinking?: unknown
 }
 
+// ponytail: oversized/unsupported inputs bypass caching; generation remains available.
+function boundedJson(value: unknown, schemas = false): boolean {
+  let nodes = 0, characters = 0
+  function visit(item: unknown, depth: number): boolean {
+    if (++nodes > 4096 || depth > 32) return false
+    if (typeof item === "string") { characters += item.length; return characters <= 65_536 }
+    if (typeof item === "number") return Number.isFinite(item)
+    if (item === undefined || item === null || typeof item === "boolean") return true
+    if (!item || typeof item !== "object") return false
+    if (Array.isArray(item)) {
+      if (item.length > 4096) return false
+      for (let i = 0; i < item.length; i++) {
+        const descriptor = Object.getOwnPropertyDescriptor(item, i)
+        if (!descriptor || !("value" in descriptor) || descriptor.value === undefined || !visit(descriptor.value, depth + 1)) return false
+      }
+      return true
+    }
+    if (Object.getPrototypeOf(item) !== Object.prototype) return false
+    const keys = Object.keys(item)
+    if (keys.length > 4096) return false
+    for (const key of keys) {
+      characters += key.length
+      const descriptor = Object.getOwnPropertyDescriptor(item, key)!
+      // AI SDK jsonSchema() exposes its declarative schema through this getter.
+      const sdkSchema = schemas && key === "jsonSchema"
+        && Object.getOwnPropertyDescriptor(item, Symbol.for("vercel.ai.schema"))?.value === true
+      if (characters > 65_536 || (!("value" in descriptor) && !sdkSchema)
+        || !visit("value" in descriptor ? descriptor.value : descriptor.get?.call(item), depth + 1)) return false
+    }
+    return true
+  }
+  return visit(value, 0)
+}
+
 function canonical(value: unknown, normalizeText: boolean): unknown {
   if (typeof value === "string") {
     const trimmed = value.trim()
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    if (normalizeText && (trimmed.startsWith("{") || trimmed.startsWith("["))) {
       let parsed: unknown
       try { parsed = JSON.parse(trimmed) } catch { /* plain text */ }
       if (parsed !== undefined) {
@@ -40,24 +74,19 @@ function canonical(value: unknown, normalizeText: boolean): unknown {
 
 /** No credentials enter the signature. Unsupported/side-effecting requests bypass. */
 export function normalizePromptForCache(messages: unknown, options: CacheKeyOptions = {}): string | null {
-  if (options.cache === false || (options.temperature !== 0 && options.cache !== true)) return null
-  for (const [key, value] of Object.entries(options.headers ?? {})) {
-    if (key.toLowerCase() === "x-mik-no-cache" && value.trim().toLowerCase() === "true") return null
-    if (!["x-mik-no-cache", "x-mik-model-tier"].includes(key.toLowerCase())) return null
-  }
-  const supportedMessages = (value: unknown): boolean => {
-    if (Array.isArray(value)) return value.every(supportedMessages)
-    if (value && typeof value === "object") return Object.getPrototypeOf(value) === Object.prototype
-      && Object.values(value).every(supportedMessages)
-    return value === null || ["string", "number", "boolean", "undefined"].includes(typeof value)
-  }
-  if (!supportedMessages(messages)) return null
-  const tools = options.tools
-  if (tools && typeof tools === "object" && Object.values(tools).some(tool => tool && typeof tool === "object" && typeof (tool as Record<string, unknown>).execute === "function")) return null
-  const input = { messages, model: options.model, system: options.system, tools,
-    temperature: options.temperature, maxTokens: options.maxTokens, batch: options.batch,
-    reasoning_effort: options.reasoning_effort, reasoning: options.reasoning, thinking: options.thinking }
   try {
+    if (!boundedJson(messages)) return null
+    if (options.cache === false || (options.temperature !== 0 && options.cache !== true)) return null
+    for (const [key, value] of Object.entries(options.headers ?? {})) {
+      if (key.toLowerCase() === "x-mik-no-cache" && value.trim().toLowerCase() === "true") return null
+      if (!["x-mik-no-cache", "x-mik-model-tier"].includes(key.toLowerCase())) return null
+    }
+    const tools = options.tools
+    if (tools && typeof tools === "object" && Object.values(tools).some(tool => tool && typeof tool === "object" && typeof (tool as Record<string, unknown>).execute === "function")) return null
+    const input = { messages, model: options.model, system: options.system, tools,
+      temperature: options.temperature, maxTokens: options.maxTokens, batch: options.batch,
+      reasoning_effort: options.reasoning_effort, reasoning: options.reasoning, thinking: options.thinking }
+    if (!boundedJson(input, true)) return null
     let normalizedTools = canonical(tools, true)
     if (Array.isArray(normalizedTools)) normalizedTools = normalizedTools.sort((a, b) => {
       const left = JSON.stringify(a), right = JSON.stringify(b)
@@ -71,6 +100,9 @@ export function normalizePromptForCache(messages: unknown, options: CacheKeyOpti
 }
 
 export function safeCacheValue(value: unknown): boolean {
-  const text = JSON.stringify(value)
-  return text === JSON.stringify(redactDeep(value, 0, 64)) && redact(text) === text
+  try {
+    if (!boundedJson(value)) return false
+    const text = JSON.stringify(value)
+    return typeof text === "string" && text === JSON.stringify(redactDeep(value, 0, 64)) && redact(text) === text
+  } catch { return false }
 }
