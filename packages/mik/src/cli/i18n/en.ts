@@ -3,6 +3,22 @@
  * files in lockstep (the parity test in `test/i18n.test.ts` is the gate).
  */
 export const en: Record<string, string> = {
+  "cmd.db.archive.export.summary": "Export compressed shards without pruning",
+  "cmd.db.archive.verify.summary": "Verify archive checksums and integer ledgers offline",
+  "cmd.db.archive.prune.summary": "Verify and atomically fold archived details",
+  "help.flag.chunkSize": "Records per compressed shard (default 50000)",
+  "help.flag.manifest": "Archive manifest path",
+  "help.flag.archiveVacuum": "Reclaim SQLite pages after committed pruning",
+  "help.details.db.archive.2": "Compressed archives: mik db archive export --before YYYY-MM-DD --out NEW_DIR [--chunk-size 50000]",
+  "help.details.db.archive.3": "Offline verification: mik db archive verify --manifest PATH",
+  "help.details.db.archive.4": "Verified pruning: mik db archive prune --manifest PATH [--vacuum]",
+  "archive.error.action": "Archive action must be export, verify or prune.",
+  "archive.error.options": "Provide a real YYYY-MM-DD date, new output directory and positive integer chunk size, or a manifest path.",
+  "archive.scope": "Archive maintenance affects all apps; pruning preserves daily, trace and tag totals.",
+  "archive.exported": "Compressed archive manifest: %s; database details retained.",
+  "archive.verified": "Archive verified: %s records, %s cost micros, %s savings micros.",
+  "archive.pruned": "Safely folded %s archived records; historical totals retained.",
+  "archive.failed": "Archive operation failed: %s",
   "cmd.db.summary": "Archive usage and maintain the local SQLite database (all apps)",
   "cmd.db.archive.summary": "Durably export JSONL and fold historical details",
   "cmd.db.vacuum.summary": "Checkpoint WAL and reclaim unused SQLite file pages",

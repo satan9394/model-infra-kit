@@ -373,6 +373,22 @@ const QUERY_FLAGS: readonly FlagSpec[] = [
   FLAG_TAG,
 ]
 
+const ARCHIVE_ACTIONS: readonly ActionSpec[] = [
+  { name: "archive.export", summary: "Export compressed shards without pruning", usage: "mik db archive export --before <YYYY-MM-DD> --out <new-directory> [--chunk-size <n>]",
+    flags: [
+      { name: "before", type: "string", description: "Exclusive local calendar date: YYYY-MM-DD", descriptionKey: "help.flag.before" },
+      FLAG_OUT,
+      { name: "chunk-size", type: "string", description: "Records per compressed shard (default 50000)", descriptionKey: "help.flag.chunkSize" },
+    ] },
+  { name: "archive.verify", summary: "Verify archive checksums and integer ledgers offline", usage: "mik db archive verify --manifest <path>",
+    flags: [{ name: "manifest", type: "string", description: "Archive manifest path", descriptionKey: "help.flag.manifest" }] },
+  { name: "archive.prune", summary: "Verify and atomically fold archived details", usage: "mik db archive prune --manifest <path> [--vacuum]",
+    flags: [
+      { name: "manifest", type: "string", description: "Archive manifest path", descriptionKey: "help.flag.manifest" },
+      { name: "vacuum", type: "boolean", description: "Reclaim SQLite pages after committed pruning", descriptionKey: "help.flag.archiveVacuum" },
+    ] },
+]
+
 export const COMMANDS: readonly CommandSpec[] = [
   {
     name: "daemon", summary: "Manage the background HTTP service", usage: "mik daemon <start|status|stop>",
@@ -389,8 +405,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     details: ["Maintenance affects every app in this database; --app-id does not limit it."],
     actions: [
       { name: "archive", summary: "Durably export JSONL and fold historical details", usage: "mik db archive --before <YYYY-MM-DD> --out <new.jsonl>",
-        flags: [{ name: "before", type: "string", placeholder: "<date>", description: "Exclusive local calendar date: YYYY-MM-DD", descriptionKey: "help.flag.before" }, FLAG_OUT],
-        details: ["A new .jsonl file is required; existing files are never overwritten.", "All apps are archived before local midnight; historical totals and trace/tag summaries remain."] },
+        flags: [{ name: "before", type: "string", placeholder: "<date>", description: "Exclusive local calendar date: YYYY-MM-DD", descriptionKey: "help.flag.before" }, FLAG_OUT, ...ARCHIVE_ACTIONS.flatMap(a => a.flags ?? []).filter(f => !["before", "out"].includes(f.name))],
+        details: ["A new .jsonl file is required; existing files are never overwritten.", "All apps are archived before local midnight; historical totals and trace/tag summaries remain.",
+          "Compressed archives: mik db archive export --before YYYY-MM-DD --out NEW_DIR [--chunk-size 50000]",
+          "Offline verification: mik db archive verify --manifest PATH",
+          "Verified pruning: mik db archive prune --manifest PATH [--vacuum]"] },
       { name: "vacuum", summary: "Checkpoint WAL and reclaim unused SQLite file pages", usage: "mik db vacuum",
         details: ["Local file-backed SQLite only; maintenance takes a write lock. All apps are affected."] },
     ],
@@ -676,6 +695,12 @@ export function parseCliArgs(argv: readonly string[], lang: Lang = "en"): Parsed
     args = positionals.slice(1)
   }
 
+  if (command.name === "db" && action?.name === "archive" && args.length) {
+    const subaction = ARCHIVE_ACTIONS.find(a => a.name === `archive.${args[0]}`)
+    if (!subaction) throw new CliUsageError(tr(lang, "archive.error.action"), "mik db archive --help")
+    action = subaction
+    args = args.slice(1)
+  }
   const allowed = allowedFlags(command, action)
   for (const name of Object.keys(rawValues)) {
     if (!allowed.has(name)) {

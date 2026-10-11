@@ -1,4 +1,9 @@
 # CHANGELOG — model-infra-kit
+## 未发布 — EVO-G131（2026-10-11，本地 main）
+
+- 分块 gzip 流式归档：SHA-256 校验、完整记录脱敏、Schema v7 整数消耗/节省清单；导出保留热库明细。Streaming gzip shards add redacted offline records and exact cost/savings manifests without pruning on export.
+- 离线逐行核验后，在写锁事务内比对完整记录摘要与微美元账本，安全折叠日账、trace/session 与标签总额；支持提交后 VACUUM。Verified pruning refuses a one-microdollar mismatch and retains historical totals.
+- 双语 `mik db archive export|verify|prune`；旧 JSONL 命令保留，版本仍为 1.6.0。本地交证：`docs/evo-g131-archive-delivery.md`。Local-only delivery; no push or publish.
 
 ## 未发布 — EVO-G130（2026-10-10，本地 main）
 

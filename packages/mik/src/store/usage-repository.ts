@@ -338,23 +338,37 @@ export class UsageRepository {
   }
 
   /** Exclusive snapshot: export must finish durably before the shared fold deletes details. */
-  archive(cutoff: number, exportRows: (rows: () => Generator<Record<string, unknown>>) => void): number {
+  archive(cutoff: number, exportRows: (rows: () => Generator<Record<string, unknown>>) => void, pageSize = 256): number {
     return this.driver.transaction(() => {
-      exportRows(() => this.archiveRows(cutoff))
+      exportRows(() => this.archiveRows(cutoff, Number.MAX_SAFE_INTEGER, pageSize))
       return this.rollup(cutoff)
     })
   }
 
-  private *archiveRows(cutoff: number): Generator<Record<string, unknown>> {
+  archiveMaxRowid(): number {
+    return Number(this.driver.prepare("SELECT COALESCE(MAX(rowid), 0) AS last FROM usage_events").get()!.last)
+  }
+
+  *archiveRows(cutoff: number, maxRowid = Number.MAX_SAFE_INTEGER, pageSize = 256): Generator<Record<string, unknown>> {
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 256 || !Number.isSafeInteger(maxRowid) || maxRowid < 0) throw new RangeError("Invalid archive cursor bounds")
+    const columns = this.driver.prepare("PRAGMA table_info(usage_events)").all().map(row => String(row.name))
+    const quoted = columns.map(name => `"${name.replaceAll('"', '""')}"`)
+    const bytes = quoted.map(name => `COALESCE(length(CAST(${name} AS BLOB)), 0)`).join(" + ")
+    // Bound bytes before crossing SQLite -> JS, including oversized legacy tags.
+    const projection = pageSize <= 16
+      ? quoted.map(name => `CASE WHEN (${bytes}) > 65536 THEN NULL ELSE ${name} END AS ${name}`).join(", ") + `, (${bytes}) > 65536 AS archive_oversized`
+      : "*"
     let last = 0
     for (;;) {
-      const rows = this.driver.prepare(`SELECT rowid AS archive_rowid, *,
+      const rows = this.driver.prepare(`SELECT rowid AS archive_rowid, ${projection},
         COALESCE(cost_micros, 0) AS cost_micros,
         COALESCE(cost_low_micros, 0) AS low_micros,
         COALESCE(cost_high_micros, 0) AS high_micros
-        FROM usage_events WHERE ts < ? AND rowid > ? ORDER BY rowid LIMIT 256`).all(cutoff, last)
+        FROM usage_events WHERE ts < ? AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ${pageSize}`).all(cutoff, last, maxRowid)
       if (rows.length === 0) return
       for (const row of rows) {
+        if (row.archive_oversized) throw new RangeError("Archive record exceeds 64 KiB limit")
+        delete row.archive_oversized
         last = Number(row.archive_rowid)
         delete row.archive_rowid
         yield row

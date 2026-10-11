@@ -2,6 +2,9 @@ import { sanitizeSpan } from "./span.js"
 import { toMicroUsd } from "../store/money.js"
 export { toMicroUsd } from "../store/money.js"
 import { archiveUsage, type ArchiveOptions, type ArchiveResult } from "./archive.js"
+import { exportArchive, type StreamArchiveOptions } from "../archive/stream-export.js"
+import { pruneArchived, verifyArchive } from "../archive/verify-prune.js"
+import type { ArchiveManifest } from "../archive/manifest.js"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { Store } from "../store/database.js"
 import type { BudgetUsageTotals } from "./budget.js"
@@ -359,6 +362,18 @@ export class UsageService {
   /** Explicit database-wide maintenance, independent of request app scope. */
   archive(options: ArchiveOptions): ArchiveResult {
     return archiveUsage(this.store.usage, options)
+  }
+
+  exportArchive(options: StreamArchiveOptions): Promise<string> {
+    return exportArchive(this.store.usage, options)
+  }
+
+  verifyArchive(manifestPath: string): Promise<ArchiveManifest> {
+    return verifyArchive(manifestPath)
+  }
+
+  pruneArchived(manifestPath: string, options: { vacuum?: boolean } = {}): Promise<number> {
+    return pruneArchived(manifestPath, { store: this.store, ...options })
   }
 
   vacuum(): { beforeBytes: number; afterBytes: number; reclaimedBytes: number } {

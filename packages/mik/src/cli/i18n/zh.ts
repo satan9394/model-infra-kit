@@ -7,6 +7,22 @@
  * suite), so a partial translation can never ship silently.
  */
 export const zh: Record<string, string> = {
+  "cmd.db.archive.export.summary": "导出压缩分块，保留数据库明细",
+  "cmd.db.archive.verify.summary": "离线校验归档哈希与整数账本",
+  "cmd.db.archive.prune.summary": "完整校验并原子折叠归档明细",
+  "help.flag.chunkSize": "每个压缩分块的记录数（默认 50000）",
+  "help.flag.manifest": "归档清单路径",
+  "help.flag.archiveVacuum": "修剪提交后回收 SQLite 空闲页",
+  "help.details.db.archive.2": "压缩归档：mik db archive export --before YYYY-MM-DD --out NEW_DIR [--chunk-size 50000]",
+  "help.details.db.archive.3": "离线校验：mik db archive verify --manifest PATH",
+  "help.details.db.archive.4": "验证修剪：mik db archive prune --manifest PATH [--vacuum]",
+  "archive.error.action": "归档操作必须为 export、verify 或 prune。",
+  "archive.error.options": "请提供真实 YYYY-MM-DD 日期、新输出目录与正整数分块大小，或归档清单路径。",
+  "archive.scope": "归档维护影响所有应用；修剪保留日账、trace 与标签总额。",
+  "archive.exported": "压缩归档清单：%s；数据库明细已保留。",
+  "archive.verified": "归档校验通过：%s 条记录，消耗 %s 微美元，节省 %s 微美元。",
+  "archive.pruned": "已安全折叠 %s 条归档记录；历史总额已保留。",
+  "archive.failed": "归档操作失败：%s",
   "cmd.db.summary": "归档用量并维护本地 SQLite 数据库（所有应用）",
   "cmd.db.archive.summary": "持久化导出 JSONL 并折叠历史明细",
   "cmd.db.vacuum.summary": "检查点同步 WAL 并回收 SQLite 空闲页",
