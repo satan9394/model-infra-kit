@@ -225,6 +225,21 @@ export class PricingService {
     }
   }
 
+  /** Full baseline call cost, with no provider-cache discount; integer-only arithmetic. */
+  localCacheSavings(input: EstimateInput): number {
+    input = { ...pricingRequest.getStore(), ...input, batch: input.batch ?? pricingRequest.getStore()?.batch }
+    const manual = this.findOverride(input.model)
+    const tier = manual ? manualTier(manual, input.model, input.providerId, input.batch)
+      : this.cachedTier(input.model, input.providerId) ?? this.liveTier(input.model, input.at, input.providerId, {
+        promptTokens: input.usage.input, usedReasoning: (input.usage.reasoning ?? 0) > 0,
+      })
+    const card = tier ? undefined : this.priceFor(input.model, input.at, { promptTokens: input.usage.input, usedReasoning: (input.usage.reasoning ?? 0) > 0 })
+    const baseline = tier ?? (card ? deriveModelPricingTier({ modelId: input.model, providerId: input.providerId ?? "catalog",
+      source: "synced", updatedAt: new Date().toISOString(), inputPerM: card.inputPerM ?? 0, outputPerM: card.outputPerM ?? 0 }) : undefined)
+    if (!baseline) return 0
+    return calculateTierCostMicros(baseline, { ...input.usage, cacheRead: 0, cacheWrite: 0 }, input.media, input).costLowMicros
+  }
+
   cacheSavings(input: EstimateInput): number {
     input = { ...pricingRequest.getStore(), ...input, batch: input.batch ?? pricingRequest.getStore()?.batch }
     if (!input.usage.cacheRead) return 0

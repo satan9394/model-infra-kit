@@ -3,6 +3,7 @@
 import { useI18n } from "@/lib/i18n/provider"
 
 import { Badge } from "@/components/ui"
+import { CacheHitBadge } from "@/components/cache-metrics"
 import { useRef, useState } from "react"
 import { traceTimeline } from "@/lib/trace-timeline"
 import { formatInt, formatMs, formatUsdSpan } from "@/lib/format"
@@ -34,7 +35,10 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
       <div className="min-w-[560px] space-y-2">
         {rows.map(({ event, tools, left, width, ttft, reasoning, output }) => <details key={event.requestId} open={expanded} className="rounded-lg border border-border p-2">
           <summary className="grid cursor-pointer grid-cols-[140px_1fr] items-center gap-3" title={`${event.modelActual} · ${formatMs(event.latencyMs)} · input ${event.usage.input} / reasoning ${event.usage.reasoning} / output ${event.usage.output} · ${formatUsdSpan(event.cost.low, event.cost.high)}`}>
-            <span className="truncate font-mono text-xs">{event.modelActual}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono text-xs">{event.modelActual}</span>
+              {event.cacheHit ? <CacheHitBadge label={t("cache.hitBadge")} /> : null}
+            </span>
             <span className="relative block h-5 rounded bg-surface-muted">
               <span className="absolute flex h-full overflow-hidden rounded" style={{ left: `${left}%`, width: `${width}%` }}>
                 <span className="bg-slate-400/80" style={{ width: `${ttft}%` }} />
@@ -43,7 +47,7 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
               </span>
             </span>
           </summary>
-          <p className="mt-2 break-all text-xs text-subtle">{event.providerId} · {t(event.status === "ok" ? "s68" : "s69")} · {t("s117")} {formatMs(event.firstTokenMs)} {t("s234")} {formatMs(event.latencyMs)} · {t("ping.prompt")} {formatInt(event.usage.input)} · {t("ping.reasoning")} {formatInt(event.usage.reasoning)} · {t("ping.completion")} {formatInt(event.usage.output)} · {formatUsdSpan(event.cost.low, event.cost.high)} · {event.traceId}</p>
+          <p className="mt-2 break-all text-xs text-subtle">{event.providerId} · {t(event.status === "ok" ? "s68" : "s69")} · {t("s117")} {formatMs(event.firstTokenMs)} {t("s234")} {formatMs(event.latencyMs)} · {t("ping.prompt")} {formatInt(event.usage.input)} · {t("ping.reasoning")} {formatInt(event.usage.reasoning)} · {t("ping.completion")} {formatInt(event.usage.output)} · {formatUsdSpan(event.cost.low, event.cost.high)} · {event.traceId}{event.cacheHit ? <span className="ml-2"><CacheHitBadge label={t("cache.hitBadge")} /></span> : null}</p>
           {(event.tags?.cascading_tier === "tier1" || event.tags?.cascading_tier === "tier2") && <div className="mt-2 flex flex-wrap gap-2" data-testid="trace-cascading">
             <Badge tone={event.tags.cascading_tier === "tier1" ? "ok" : "info"}>{t(event.tags.cascading_tier === "tier1" ? "cascade.tier1" : "cascade.tier2")}</Badge>
             {event.tags.cascading_escalated === "true" && <Badge tone="warn">{t("cascade.escalated")}</Badge>}

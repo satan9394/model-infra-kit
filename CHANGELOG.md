@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## 未发布 — EVO-G130（2026-10-10，本地 main）
+
+- 确定性请求支持空白、JSON 键序及工具定义规范化 SHA-256 缓存；TTL/LRU 内存与 SQLite 持久化，支持显式绕过。Deterministic requests gain normalized SHA-256 response caching with TTL/LRU persistence and explicit bypass.
+- 本地回放零实际开销，完整基准费用通过 BigInt 计入整数微美元节省；Schema v7 加法迁移保持 v6 成本列。Local replay bills zero and records full baseline savings in an additive integer ledger column.
+- 概览显示本地请求命中率与精确微美元节省，调用链与日志显示双语绿色零毫秒徽章；版本保持 1.6.0，仅本地提交。Evidence and boundaries: `docs/evo-g130-cache-delivery.md`.
+
 ## 未发布 — EVO-G129（2026-10-10，本地 main）
 
 - 自适应链路分流：32 次滑动窗口、往返/首词元延迟指数平滑、抖动方差及成功率评分；`routing: "adaptive_qos"` 在既有优先级层内动态调权，保留低权重恢复流量及熔断/并发/输出后不重放保护。Adaptive QoS weights react to latency, jitter and failures while preserving existing routing safeguards.

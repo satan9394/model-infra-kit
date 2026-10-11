@@ -1,5 +1,6 @@
 import { readStorageConfig, type StorageConfig } from "../store/adapter.js"
 import { readRouterConfig } from "../ai/smart-router.js"
+import { readCacheOptions } from "../cache/lru.js"
 import { readCascadingConfig } from "../router/cascading.js"
 import { readLoadBalancerConfig, readRoutingMode, type RoutingMode } from "../router/load-balancer.js"
 import { isModelInfraError } from "../errors.js"
@@ -32,6 +33,7 @@ export interface RunOptions {
 }
 
 export interface CliConfigFile {
+  cache?: false | import("../cache/lru.js").CacheOptions
   /** Declarative serve routing generation; unlike one-time initialProviders. */
   providers?: ProviderConfig[]
   defaultModel?: string
@@ -221,6 +223,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     if (record.router !== undefined) config.router = readRouterConfig(record.router)
     if (record.cascading !== undefined) config.cascading = readCascadingConfig(record.cascading)
     if (record.loadBalancer !== undefined) config.loadBalancer = readLoadBalancerConfig(record.loadBalancer)
+    if (record.cache !== undefined) config.cache = readCacheOptions(record.cache)
     if (record.routing !== undefined) config.routing = readRoutingMode(record.routing)
     if (Array.isArray(record.initialProviders)) config.initialProviders = record.initialProviders as ProviderConfig[]
     if (Array.isArray(record.providers)) config.providers = record.providers as ProviderConfig[]
@@ -319,6 +322,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     cacheDir,
     syncCatalog: !offline && needsCatalogSync(parsed),
     pricingFetch: offline ? offlineFetch : undefined,
+    cache: config.cache,
     budget: config.budget,
     router: config.router,
     loadBalancer: config.loadBalancer,

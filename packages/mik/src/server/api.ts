@@ -351,7 +351,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"], req: Serv
       : MISSING_COST(modelActual))
 
   const tags = readReportedTags(body.tags)
-  if (tags) Reflect.deleteProperty(tags, "_mik_cache_savings_micros")
+  if (tags) { Reflect.deleteProperty(tags, "_mik_cache_savings_micros"); Reflect.deleteProperty(tags, "_mik_local_cache_hit") }
   const savings = status === "ok" ? hub.pricing.cacheSavings({ model: modelActual || modelRequested, providerId, at: ts, usage: pricing }) : 0
   return {
     requestId,

@@ -254,6 +254,14 @@ export const MIGRATIONS: Migration[] = [
   },
 ]
 
+// Additive cache ledger migration; preserves the v6 integer cost authority.
+MIGRATIONS.push({ version: 7, statements: [driver => {
+  if (!driver.prepare("PRAGMA table_info(usage_events)").all().some(row => row.name === "cache_savings_micros")) {
+    driver.exec("ALTER TABLE usage_events ADD COLUMN cache_savings_micros INTEGER NOT NULL DEFAULT 0")
+    driver.exec("UPDATE usage_events SET cache_savings_micros = CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER)")
+  }
+}] })
+
 export function migrate(driver: SqlDriver): number {
   const adapter = isStorageAdapter(driver) ? driver : adaptSqlDriver(driver)
   driver.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (

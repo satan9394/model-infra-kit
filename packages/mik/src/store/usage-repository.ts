@@ -167,6 +167,7 @@ function rowToEvent(row: Record<string, unknown>): UsageEvent {
       reasoning: asNumber(row.reasoning_tokens),
     },
     cost,
+    cacheHit: parseTags(row.tags_json)._mik_local_cache_hit === "true",
     costMicros: asNumber(row.cost_micros),
     ...storedSpan(row.tags_json, asString(row.request_id)),
     stepCostMicros: asNumber(row.cost_micros),
@@ -369,7 +370,7 @@ export class UsageRepository {
       ...["", "low_", "high_"].map((part) => detail
         ? `SUM(COALESCE(cost_${part}micros, 0))`
         : `SUM(cost_${part}microusd)`),
-      detail ? "SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER))" : "SUM(cache_savings_micros)"]
+      detail ? "SUM(cache_savings_micros)" : "SUM(cache_savings_micros)"]
     const row = this.driver.prepare(`SELECT ${fields.map((field, i) => `COALESCE(${field}, 0) AS v${i}`).join(", ")}
       FROM ${table}${cutoff === undefined ? "" : " WHERE ts < ?"}`).get(...(cutoff === undefined ? [] : [cutoff]))!
     return fields.map((_, i) => {
@@ -387,8 +388,8 @@ export class UsageRepository {
             request_id, app_id, ts, source, provider_id, model_requested, model_actual, pricing_model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
             cost_micros, cost_low_micros, cost_high_micros, pricing_source, pricing_basis,
-            latency_ms, first_token_ms, status, error_code, is_streaming, session_id, trace_id, tags_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            latency_ms, first_token_ms, status, error_code, is_streaming, session_id, trace_id, tags_json, cache_savings_micros
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           event.requestId,
@@ -417,6 +418,7 @@ export class UsageRepository {
           toSqlValue(event.sessionId),
           toSqlValue(event.traceId),
           JSON.stringify({ ...event.tags, _mik_span: sanitizeSpan(event, event.requestId), tool_calls: sanitizeToolCalls(event.tool_calls, requestCostMicros(event.cost.usd)) }),
+          safeSavings(Number(event.tags?._mik_cache_savings_micros ?? 0)),
         )
       const inserted = Number(result.changes) > 0
       if (inserted && this.ftsAvailable) {
@@ -462,7 +464,7 @@ export class UsageRepository {
       .prepare(
         `SELECT
           COUNT(*) AS requests,
-          SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER)) AS cache_savings_micros,
+          SUM(cache_savings_micros) AS cache_savings_micros,
           SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS successes,
           SUM(input_tokens) AS input_tokens,
           SUM(output_tokens) AS output_tokens,
@@ -606,6 +608,10 @@ export class UsageRepository {
 
   summary(query: UsageQuery = {}): UsageSummary {
     const total = addAggregate(this.aggregateEvents(query), this.aggregateRollups(query))
+    const where = buildWhere(query, "ts")
+    const local = this.driver.prepare(`SELECT COUNT(*) AS requests,
+      COALESCE(SUM(CASE WHEN tags_json ->> '$._mik_local_cache_hit' = 'true' THEN 1 ELSE 0 END), 0) AS hits FROM usage_events ${where.clause}`).get(...where.params)!
+    const localCacheRequests = asNumber(local.requests), localCacheHits = asNumber(local.hits)
     const billableInput = total.tokens.input
     return {
       requests: total.requests,
@@ -616,6 +622,7 @@ export class UsageRepository {
       costLowUsd: fromMicroUsd(total.lowMicro),
       costHighUsd: fromMicroUsd(total.highMicro),
       tokens: total.tokens,
+      localCacheHits, localCacheRequests, localCacheHitRate: localCacheRequests ? localCacheHits / localCacheRequests : 0,
       cacheHitRate: billableInput === 0 ? 0 : Math.min(1, total.tokens.cacheRead / billableInput),
       cacheSavingsMicros: total.cacheSavingsMicros,
       // EVO-G82 (audit R232 F3): no measurement is `undefined`, not `0`. Both of
@@ -1238,7 +1245,7 @@ export class UsageRepository {
             SUM(COALESCE(cost_micros, 0)),
             SUM(COALESCE(cost_low_micros, 0)),
             SUM(COALESCE(cost_high_micros, 0)),
-            SUM(CAST(COALESCE(tags_json ->> '$._mik_cache_savings_micros', '0') AS INTEGER)),
+            SUM(cache_savings_micros),
             SUM(COALESCE(latency_ms, 0)),
             SUM(CASE WHEN latency_ms IS NULL THEN 0 ELSE 1 END),
             SUM(COALESCE(first_token_ms, 0)),

@@ -4,6 +4,7 @@ import { TraceSearch } from "@/components/trace-search"
 import { useI18n } from "@/lib/i18n/provider"
 
 import { useModalDialog } from "@/lib/use-modal-dialog"
+import { CacheHitBadge } from "@/components/cache-metrics"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { apiCall } from "@/lib/client-api"
@@ -62,6 +63,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
               <KeyValue label={t("s83")}>
                 <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
                 {event.errorCode ? <span className="ml-2 text-danger">{event.errorCode}</span> : null}
+                {event.cacheHit ? <span className="ml-2"><CacheHitBadge label={t("cache.hitBadge")} /></span> : null}
               </KeyValue>
               <KeyValue label={t("s84")}>{event.isStreaming ? t("s85") : t("s86")}</KeyValue>
               <KeyValue label={t("s87")}>{event.providerId}</KeyValue>
@@ -214,6 +216,7 @@ export function LogsClient({
                 <Td>
                   <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
                   {event.errorCode ? <div className="mt-1 text-[11px] text-danger">{event.errorCode}</div> : null}
+                  {event.cacheHit ? <div className="mt-1"><CacheHitBadge label={t("cache.hitBadge")} /></div> : null}
                 </Td>
                 <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle"><button type="button" aria-label={`${t("s78")}: ${event.requestId}`} onClick={() => setOpenId(event.requestId)} className="underline">{event.requestId}</button></Td>
               </tr>

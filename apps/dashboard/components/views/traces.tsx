@@ -164,7 +164,7 @@ export default async function TracesView({ params }: { params: SearchParams }) {
               {tree?.ok && <TraceTreeView key={selectedId} tree={tree.data} />}
               <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
               <ul aria-label={t("cache.status")} className="my-3 space-y-1">
-                {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} />)}
+                {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} localHit={event.cacheHit} localHitLabel={t("cache.hitBadge")} />)}
               </ul>
               <p className="text-xs text-subtle">Reasoning {formatInt(events.reduce((sum, event) => sum + event.usage.reasoning, 0))}</p>
             </div>

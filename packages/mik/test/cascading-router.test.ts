@@ -132,9 +132,9 @@ describe("G126 gateway cascading and actual-model billing", () => {
         driver.prepare("INSERT INTO schema_migrations VALUES (?, 0)").run(migration.version)
       }
       driver.prepare("INSERT INTO usage_events (request_id, app_id, ts, source, provider_id, cost_usd, cost_low_usd, cost_high_usd) VALUES ('legacy', 'app', 1, 'test', 'p', ?, ?, ?)").run(0.000001, 0.000001, 0.000002)
-      expect(migrate(driver)).toBe(6)
+      expect(migrate(driver)).toBe(MIGRATIONS.length)
       expect(driver.prepare("SELECT cost_micros, cost_low_micros, cost_high_micros, typeof(cost_micros) AS storage FROM usage_events").get()).toEqual({ cost_micros: 1, cost_low_micros: 1, cost_high_micros: 2, storage: "integer" })
-      expect(migrate(driver)).toBe(6)
+      expect(migrate(driver)).toBe(MIGRATIONS.length)
       expect(driver.prepare("SELECT COUNT(*) AS n FROM usage_events").get()?.n).toBe(1)
     } finally { driver.close() }
   })

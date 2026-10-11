@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ModelInfra } from "../src/index.js"
 import { createServer, type ServerHandle } from "../src/server/index.js"
+import { MIGRATIONS } from "../src/store/schema.js"
 import { Store } from "../src/store/database.js"
 
 const TOKEN = "g96-local-test-token"
@@ -47,7 +48,7 @@ describe("EVO-G96 agent trace attribution", () => {
   it("adds the trace column and trace rollup storage in schema v4", async () => {
     const store = await Store.open({ path: ":memory:" })
     try {
-      expect(store.schemaVersion).toBe(6)
+      expect(store.schemaVersion).toBe(MIGRATIONS.length)
       const eventColumns = store.driver.prepare("PRAGMA table_info(usage_events)").all().map((row) => String(row.name))
       expect(eventColumns).toContain("trace_id")
       expect(store.driver.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_trace_rollups'").get()).toBeTruthy()

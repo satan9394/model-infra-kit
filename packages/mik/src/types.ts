@@ -191,6 +191,8 @@ export interface SpanEventMetadata {
 }
 
 export interface ModelRequest extends SpanEventMetadata {
+  /** Explicit deterministic cache opt-in; false always bypasses. */
+  cache?: boolean
   /** Apply the local 50% batch base-rate discount. */
   batch?: boolean
   /** Measured media quantities priced only by explicitly configured media rates. */
@@ -221,6 +223,7 @@ export interface ModelRequest extends SpanEventMetadata {
 }
 
 export interface ModelResponse {
+  cacheHit?: boolean
   text: string
   toolCalls: ToolCall[]
   finishReason: string
@@ -265,6 +268,7 @@ export interface UsageEventInput extends SpanEventMetadata {
 }
 
 export interface UsageEvent extends UsageEventInput {
+  cacheHit?: boolean
   /** Schema v6 authoritative integer amount. */
   costMicros?: number
   pricingBasis?: string
@@ -284,6 +288,10 @@ export interface ToolCallAttribution {
 }
 
 export interface UsageSummary {
+  /** Local replay ratio over retained detail requests only. */
+  localCacheHitRate?: number
+  localCacheHits?: number
+  localCacheRequests?: number
   requests: number
   successes: number
   failures: number
@@ -492,6 +500,8 @@ export interface BudgetConfig {
 }
 
 export interface ModelInfraConfig {
+  /** Deterministic response cache. False disables; defaults 24h / 10,000 entries. */
+  cache?: false | { ttlMs?: number; maxEntries?: number }
   /** Scheduling within a virtual model's eligible priority tier. Default weighted. */
   routing?: import("./router/load-balancer.js").RoutingMode
   /** Semantic virtual models; cheap requests use tier1 with bounded tier2 escalation. */

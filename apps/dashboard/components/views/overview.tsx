@@ -138,6 +138,15 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
         <Card title={t("s304")} subtitle={t("s305")}>
           <dl className="divide-y divide-border/70">
             <CacheSavings micros={summaryData?.cacheSavingsMicros} label={t("cache.savings")} />
+            <div data-testid="overview-local-cache-hit-rate" className="pb-5">
+              <dt className="text-xs text-muted-foreground"> {t("cache.localHitRate")} </dt>
+              <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-primary">
+                {formatPercent(summaryData?.localCacheHitRate)}
+              </dd>
+              <dd className="mt-1 text-xs leading-5 text-subtle">
+                {summaryData ? t("cache.localHitDetail", formatInt(summaryData.localCacheHits), formatInt(summaryData.localCacheRequests)) : t("s294")}
+              </dd>
+            </div>
             <div className="pb-5">
               <dt className="text-xs text-muted-foreground"> {t("s306")} </dt>
               <dd className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums text-primary">

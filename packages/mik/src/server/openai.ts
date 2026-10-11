@@ -376,6 +376,7 @@ function toOpenAiCompletion(response: ModelResponse, id: string, created: number
       model_requested: response.model.requested,
       cost_usd: response.cost.usd,
       cost_source: response.cost.source,
+      cache_hit: response.cacheHit ?? false,
       latency_ms: response.latencyMs,
       first_token_ms: response.firstTokenMs ?? null,
       steps: response.steps ?? 1,
@@ -392,7 +393,11 @@ export async function handleChatCompletions(ctx: ServerContext): Promise<void> {
   const tools = toTools(body.tools)
 
   const request: ModelRequest = { ...readSpanHeaders(ctx.req, body), messages: prompt.messages, reasoning_effort: body.reasoning_effort, reasoning: body.reasoning, thinking: body.thinking,
-    headers: { "x-mik-model-tier": headerValue(ctx.req, "x-mik-model-tier") ?? "" } }
+    headers: { "x-mik-model-tier": headerValue(ctx.req, "x-mik-model-tier") ?? "", "x-mik-no-cache": headerValue(ctx.req, "x-mik-no-cache") ?? "" } }
+  if (body.cache !== undefined) {
+    if (typeof body.cache !== "boolean") throw badRequest("cache must be a boolean.")
+    request.cache = body.cache
+  }
   if (ctx.req.headers["x-mik-batch"] === "true" || body.batch === true || body["X-Mik-Batch"] === true || body["X-Mik-Batch"] === "true") request.batch = true
   if (prompt.system !== undefined) request.system = prompt.system
   if (tools !== undefined) request.tools = tools

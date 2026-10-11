@@ -1633,3 +1633,51 @@ Reproduce measured timing with
 `node --import ./scripts/e2e/loader.mjs scripts/qos-benchmark.mjs`; the benchmark
 asserts warmed sampling+weighting average <1µs and observed individual updates
 <10µs. Measurements do not constitute a hard real-time scheduling guarantee.
+
+## EVO-G130 deterministic local response cache
+
+`ModelInfraConfig.cache` accepts `false` (disabled) or `{ ttlMs?, maxEntries? }`;
+positive safe integer limits default to 24h and 10,000 entries. CLI JSON and
+hot-reload use the same validation. `ModelRequest.cache: true` declares a request
+deterministic; `false` bypasses. Otherwise only `temperature === 0` is eligible.
+HTTP `/v1/chat/completions` accepts the same boolean `cache`, and
+`X-Mik-No-Cache: true` always bypasses. Raw native forwarding and `mik.fetch`
+remain outside local replay; provider-cache metering remains available.
+
+Keys use SHA-256 over normalized ordered messages, system text, sorted tool
+schemas and generation parameters. Plain-text whitespace collapses; valid JSON
+keys sort recursively while JSON string values and array order stay intact.
+Message order, roles, tool call identifiers, limits, batch/reasoning flags and
+physical provider/model/app/config revision remain significant. Credential
+headers, custom headers, secret-bearing payloads, executable tools and
+multimodal facts bypass; prompts and headers are never persisted. Cache storage
+contains only a digest and completed safe ModelResponse. TTL is fixed at write;
+reads refresh LRU order without extending expiry. Incomplete/error/abandoned,
+executed-tool and fallback responses do not populate the primary cache.
+
+A replay returns original text, tool-call/usage structure, `cacheHit: true`,
+`latencyMs: 0`, `firstTokenMs: 0` and all actual cost bounds zero. Zero is a
+replay marker, not a wall-clock timing guarantee. Every hit records one new
+usage event under the current trace/session/app. No provider invocation or QoS
+observation occurs. HTTP JSON exposes `x_modelhub.cache_hit`; SSE uses the
+existing completion/usage frames.
+
+Schema v7 additively creates `usage_events.cache_savings_micros INTEGER` and
+backfills previous immutable savings tags. v6 `cost_micros` columns remain
+authoritative and unchanged. Local savings price the entire input/output using
+the current baseline tier and integer BigInt arithmetic, without provider cache
+read/write discount; unknown pricing stays zero rather than inventing a rate.
+The legacy snapshot tag and step savings field stay compatible. Event totals,
+archive monetary conservation checks and daily folding sum the integer column; daily rollups retain
+savings. `UsageSummary.localCacheHits`, `localCacheRequests`, and
+`localCacheHitRate` measure retained detail requests only and include all such
+requests in the denominator. `cacheHitRate` keeps its provider-token ratio.
+`UsageEvent.cacheHit` identifies local hits; dashboard labels distinguish local
+request hits from provider-token hits. The retained-detail denominator is an API
+boundary: archived requests are excluded from the local ratio. `cacheSavingsMicros` continues to include both provider
+discounts and full local replay savings.
+
+The normalizer and LRU are internal modules, not new package root exports.
+Benchmark: `node --import ./scripts/e2e/loader.mjs scripts/cache-benchmark.mjs`.
+The 50us threshold applies to warmed average on that small fixture, not an
+arbitrary-size prompt or OS scheduling upper bound.

@@ -1,5 +1,7 @@
 import { compatibleProtocols, isRetryableRouteFailure, ProviderCircuitBreaker, type FailoverOptions } from "./ai/failover.js"
 import type { StorageAdapterFactory } from "./store/adapter.js"
+import { LruCache, readCacheOptions, type CacheOptions } from "./cache/lru.js"
+import { normalizePromptForCache, safeCacheValue } from "./cache/normalizer.js"
 import { randomUUID } from "node:crypto"
 import { defaultCacheDir, defaultDbPath, expandPath } from "./util/paths.js"
 import { generateText, stepCountIs, streamText, type LanguageModelUsage } from "ai"
@@ -362,6 +364,7 @@ export class ModelInfra {
   private readonly loadBalancer: LoadBalancer | undefined
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
+  private readonly responseCache: LruCache<ModelResponse> | undefined
   private readonly budgetConfig: BudgetConfig | undefined
   private closePromise: Promise<void> | undefined
   private baseUrlValue: string
@@ -387,6 +390,7 @@ export class ModelInfra {
     providerHealth: ProviderCircuitBreaker
     reasoningTimeoutMs: number | undefined
     keyCooldownMs: number
+    cache: false | CacheOptions | undefined
     budgetConfig: BudgetConfig | undefined
     syncCatalog: boolean
   }) {
@@ -412,6 +416,7 @@ export class ModelInfra {
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
     this.budgetConfig = deps.budgetConfig
+    this.responseCache = deps.cache === false ? undefined : new LruCache(deps.cache, deps.store.driver, deps.appId)
 
     const forward = createMikFetch({
       // Checked here as well as in `resolveModel`: the adapter resolves the
@@ -519,6 +524,7 @@ export class ModelInfra {
     }
     const providerHealth = new ProviderCircuitBreaker(config.failover)
     const smartRouter = config.router === undefined ? undefined : new SmartRouter(config.router)
+    const cache = readCacheOptions(config.cache)
     const routing = readRoutingMode(config.routing)
     const loadBalancer = config.loadBalancer === undefined ? undefined : new LoadBalancer(config.loadBalancer, routing)
     const cascading = readCascadingConfig(config.cascading ?? {})
@@ -633,6 +639,7 @@ export class ModelInfra {
       providerHealth,
       reasoningTimeoutMs,
       keyCooldownMs,
+      cache,
       budgetConfig: config.budget,
       syncCatalog: config.syncCatalog ?? true,
     })
@@ -801,6 +808,9 @@ export class ModelInfra {
     request = { ...request, traceId: request.traceId ?? randomUUID() }
     const primary = this.resolveRequestModel(request, true)
     if (primary.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...primary.routingTags } }
+    const cacheKey = this.cacheKey(request, primary)
+    const cached = this.replayCache(cacheKey, request, primary, false)
+    if (cached) return cached
     const candidates = this.routeCandidates(primary, request.fallbackChain)
     const startedAt = Date.now()
     let lastError: ModelInfraError | undefined
@@ -892,6 +902,8 @@ export class ModelInfra {
             })
             this.providerHealth.success(healthKey)
             this.observeQoS(candidate.resolved, performance.now() - attemptStarted, true, firstTokenMs)
+            // Executable tools have no cache key; non-executing tool calls are replayable data.
+            if (candidateIndex === 0) this.storeCache(cacheKey, response)
             return response
           } catch (error) {
             if (!request.signal?.aborted) this.observeQoS(candidate.resolved, performance.now() - attemptStarted, false)
@@ -983,9 +995,23 @@ export class ModelInfra {
     let primary: ResolvedModelRef
     let candidates: Array<{ resolved: ResolvedModelRef; modelRef: string }>
     let reasoningTimeoutMs: number | undefined
+    let cacheKey: string | null = null
     try {
       const routed = this.resolveRequestModel(request, true)
       primary = routed
+      cacheKey = this.cacheKey(request, primary)
+      const cached = this.replayCache(cacheKey, request, primary, true)
+      if (cached) {
+        if (cached.text) yield { type: "text_delta", text: cached.text }
+        for (const call of cached.toolCalls) {
+          yield { type: "tool_call_delta", id: call.id, name: call.name, delta: JSON.stringify(call.input) }
+          yield { type: "tool_call_complete", call }
+        }
+        yield { type: "step_finish", finishReason: cached.finishReason, usage: cached.usage }
+        yield { type: "usage", usage: cached.usage, cost: cached.cost }
+        yield { type: "finish", response: cached }
+        return
+      }
       if (routed.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...routed.routingTags } }
       candidates = this.routeCandidates(primary, request.fallbackChain)
       reasoningTimeoutMs = positiveMilliseconds(request.reasoningTimeoutMs ?? this.reasoningTimeoutMs, "reasoningTimeoutMs")
@@ -1034,7 +1060,10 @@ export class ModelInfra {
               for (const pending of buffered) yield pending
               buffered.length = 0
             }
-            if (event.type === "finish") this.providerHealth.success(healthKey)
+            if (event.type === "finish") {
+              this.providerHealth.success(healthKey)
+              if (candidateIndex === 0 && event.response.steps === 1) this.storeCache(cacheKey, event.response)
+            }
             if (committed || event.type === "finish" || event.type === "usage") yield event
             else buffered.push(event)
           }
@@ -1460,8 +1489,38 @@ export class ModelInfra {
     })
   }
 
+  private cacheKey(request: ModelRequest, resolved: ResolvedModelRef): string | null {
+    if (!this.responseCache || request.signal?.aborted || request.media) return null
+    // Auth/config-generation isolation without ever hashing credentials.
+    const provider = this.providers.get(resolved.providerId)!
+    if (Object.keys(provider.headers).length) return null
+    return normalizePromptForCache(request.messages, { ...request,
+      model: `${this.usage.currentAppId}:${resolved.providerId}:${resolved.modelId}:${provider.updatedAt}` })
+  }
+
+  private storeCache(key: string | null, response: ModelResponse): void {
+    if (!key || !safeCacheValue(response)) return
+    safely(() => this.responseCache!.set(key, response), this.warn)
+  }
+
+  private replayCache(key: string | null, request: ModelRequest, resolved: ResolvedModelRef, streaming: boolean): ModelResponse | undefined {
+    if (!key) return undefined
+    let cached: ModelResponse | undefined
+    safely(() => { cached = this.responseCache!.get(key) }, this.warn)
+    if (!cached) return undefined
+    const at = Date.now()
+    const savings = this.pricingService.localCacheSavings({ model: cached.model.actual, providerId: cached.provider,
+      at, usage: cached.usage, batch: request.batch })
+    const cost = { ...cached.cost, usd: 0, low: 0, high: 0 }
+    const response = { ...cached, model: { ...cached.model, requested: resolved.requested }, cost, cacheHit: true, latencyMs: 0, firstTokenMs: 0 }
+    this.record({ requestId: randomUUID(), at, source: streaming ? "stream" : "generate", resolved,
+      actual: cached.model.actual, usage: cached.usage, cost, latencyMs: 0, firstTokenMs: 0, status: "ok", isStreaming: streaming,
+      request, diagnosticTags: { _mik_local_cache_hit: "true", _mik_cache_savings_micros: String(savings) } })
+    return response
+  }
+
   private record(input: UsageRecordInput): void {
-    const savings = input.status === "ok" ? this.pricingService.cacheSavings({
+    const savings = input.diagnosticTags?._mik_local_cache_hit === "true" ? Number(input.diagnosticTags._mik_cache_savings_micros) : input.status === "ok" ? this.pricingService.cacheSavings({
       model: input.actual, providerId: input.resolved.providerId, at: input.at, usage: input.usage,
       batch: input.request?.batch ?? (input.diagnosticTags?._mik_batch === "true" ? true : undefined),
     }) : 0
@@ -1485,10 +1544,11 @@ export class ModelInfra {
      * same `'{}'` default it always did.
      */
     const hostTags = sanitizeTags(input.request?.tags)
-    if (hostTags) Reflect.deleteProperty(hostTags, "_mik_cache_savings_micros")
+    if (hostTags) { Reflect.deleteProperty(hostTags, "_mik_cache_savings_micros"); Reflect.deleteProperty(hostTags, "_mik_local_cache_hit") }
     const merged = diagnostic && Object.keys(diagnostic).length > 0 ? { ...hostTags, ...diagnostic } : hostTags
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,
+      cacheHit: input.diagnosticTags?._mik_local_cache_hit === "true",
       tool_calls: input.tool_calls,
       spanId: input.request?.spanId,
       parentSpanId: input.request?.parentSpanId,

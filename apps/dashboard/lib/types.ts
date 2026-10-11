@@ -127,6 +127,10 @@ export interface ModelCatalogPayload {
 }
 
 export interface UsageSummary {
+  /** Local replay ratio over retained detail requests only. */
+  localCacheHitRate?: number
+  localCacheHits?: number
+  localCacheRequests?: number
   requests: number
   successes: number
   failures: number
@@ -188,6 +192,7 @@ export interface UsageEvent {
   latencyMs?: number
   firstTokenMs?: number
   status: "ok" | "error"
+  cacheHit?: boolean
   errorCode?: string
   isStreaming: boolean
   traceId?: string
