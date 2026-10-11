@@ -55,7 +55,7 @@
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "dependencies": {
-    "ai": "^7.0.94",
+    "ai": "^7.0.133",
     "llm-pricing": "^0.19.0"
   },
   "peerDependencies": {
