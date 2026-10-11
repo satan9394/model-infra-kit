@@ -8,6 +8,9 @@ packages:
 # GHSA-fxqj-rqcc-2cmp). Force the patched 8.5 line.
 overrides:
   postcss: ^8.5.23
+  # Dependabot GHSA-68fv-2mgg-jv7q (high): indexed source-map section offsets
+  # allow an event-loop denial of service. Force the patched 1.2.2+ line.
+  source-map-js: ">=1.2.2"
 
 allowBuilds:
   esbuild: true

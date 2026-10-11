@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## 2026-10-10 — 仓库健康修复（安全 / CI 稳定性）
+
+- 供应链：通过 `pnpm.overrides` 将传递依赖 `source-map-js` 提升至 `>=1.2.2`，修复 GHSA-68fv-2mgg-jv7q（indexed source-map section offsets 导致的 event-loop 拒绝服务，high）。
+- CI 稳定性：重写 `packages/mik/test/server.test.ts` 的 SSE keepalive 用例——移除对 250ms 响应头竞速的依赖，改为等待响应并用 `AbortSignal.timeout(10_000)` 与 15s 用例超时构造上界，消除 macOS/Windows runner 上的间歇性超时。
+- 依据：2026-10-10 仓库健康体检（Dependabot 告警与 PR CI 失败根因）。
+
 ## 未发布 — EVO-G120（2026-10-05，本地 main）
 
 - 添加供应商前可通过受管理权限保护的 `POST /api/providers/probe` 现场拉取模型；不写库，复用凭据引用、出站地址守卫与脱敏，禁止重定向，整个探测限时 5 秒。OpenAI 兼容地址支持根路径回退与误填聊天端点修正。
