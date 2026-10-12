@@ -27,6 +27,8 @@ import { Router } from "./router.js"
 import { SseStream } from "./sse.js"
 import { MetricsExporter, METRICS_CONTENT_TYPE } from "./metrics.js"
 import { HotReloadManager, prepareConfig, type ReloadOptions, type ReloadResult } from "./reload.js"
+import { QuotaHierarchy, type TenantQuotas } from "../quota/hierarchy.js"
+import { guardQuota } from "./quota.js"
 
 /** Loopback only: this API is not meant to be exposed to a network. */
 export const DEFAULT_HOST = "127.0.0.1"
@@ -35,6 +37,7 @@ export const DEFAULT_PORT = 3211
 export const DEFAULT_HEARTBEAT_MS = 15_000
 
 export interface ServerOptions {
+  quotas?: TenantQuotas
   budget?: BudgetConfig
   onWarn?: (message: string) => void
   hub: ModelInfra
@@ -156,6 +159,9 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
     tokens.push({ token, scopes: ["admin"] })
   }
   const cors = resolveCors(options.cors)
+  if (options.quotas && (!hub.usage.isEnabled || options.reload?.hubOptions.recordUsage === false)) throw new HttpError(400, "Tenant quotas require an enabled usage ledger.", "INVALID_REQUEST")
+  const quotas = options.quotas ? new QuotaHierarchy(options.quotas, (app, from, to) =>
+    manager.activeContext.hub.usage.withAppScope(app, () => manager.activeContext.hub.usage.quotaCostMicros(from, to))) : undefined
 
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new ModelInfraError(`Invalid port "${String(port)}".`, { code: "INVALID_REQUEST" })
@@ -203,6 +209,13 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
 
   const router = new Router()
   registerApiRoutes(router)
+  router.add("GET", "/api/quotas", ctx => {
+    requireScope("read:usage")(ctx)
+    const logs = ctx.hub.usage.query({ status: "RATE_LIMITED", limit: 50 }).events.map(event => ({
+      requestId: event.requestId, ts: event.ts, appId: event.appId, errorCode: event.errorCode,
+    }))
+    sendJson(ctx.res, 200, { quotas: quotas?.snapshot(ctx.appId!) ?? [], logs })
+  })
   router.add("GET", "/api/connections", (ctx) => {
     const entries = [...resources.values()].flatMap(value => value.connections.snapshot(ctx.appId ?? ctx.hub.appId).connections)
     sendJson(ctx.res, 200, { active: entries.length, requests: entries.filter(entry => entry.kind === "chat").length,
@@ -312,6 +325,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
       const kind = method === "POST" && ["v1/chat/completions", "v1/messages", "v1/responses"].includes(routePath) ? "chat"
         : method === "GET" && routePath === "api/events" ? "events" : undefined
       if (kind === "chat") {
+        if (quotas && !await guardQuota(ctx, quotas)) return
         const status = hub.usage.withAppScope(ctx.appId!, () => ctx.budgetStatus!())
         if (status.hardCap && [status.daily, status.monthly].some(period => period?.status === "exceeded")) {
           const bypass = principal?.scopes.includes("admin") || principal?.scopes.includes("*")

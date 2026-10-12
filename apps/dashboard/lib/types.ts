@@ -191,7 +191,7 @@ export interface UsageEvent {
   cost: CostInfo
   latencyMs?: number
   firstTokenMs?: number
-  status: "ok" | "error"
+  status: "ok" | "error" | "RATE_LIMITED"
   cacheHit?: boolean
   errorCode?: string
   isStreaming: boolean
@@ -345,7 +345,7 @@ export interface TraceTreeNode {
   firstTokenMs?: number
   cascadingTier?: "tier1" | "tier2"
   cascadingEscalated?: boolean
-  status: "ok" | "error"
+  status: "ok" | "error" | "RATE_LIMITED"
   startedAt: number
   endedAt: number
   durationMs: number

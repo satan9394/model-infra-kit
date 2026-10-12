@@ -109,6 +109,7 @@ export async function readBody(req: IncomingMessage): Promise<string> {
 }
 
 /** An empty body is an empty object; anything that is not a JSON object is a 400. */
+const jsonBodies = new WeakMap<IncomingMessage, Record<string, unknown>>()
 export async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   // Only true JSON media types: `application/json` and `*+json`, charset
   // allowed. `text/plain` is the one Content-Type a browser can send on a
@@ -121,6 +122,12 @@ export async function readJsonBody(req: IncomingMessage): Promise<Record<string,
       `This endpoint only accepts application/json request bodies (received "${mediaType || "no content-type"}").`,
       "UNSUPPORTED_MEDIA_TYPE",
     )
+  }
+  const cached = jsonBodies.get(req)
+  if (cached) {
+    const facts = pricingRequest.getStore()
+    if (facts && (cached.batch === true || cached["X-Mik-Batch"] === true || cached["X-Mik-Batch"] === "true")) facts.batch = true
+    return cached
   }
   const raw = await readBody(req)
   if (!raw.trim()) return {}
@@ -136,6 +143,7 @@ export async function readJsonBody(req: IncomingMessage): Promise<Record<string,
   const body = parsed as Record<string, unknown>
   const facts = pricingRequest.getStore()
   if (facts && (body.batch === true || body["X-Mik-Batch"] === true || body["X-Mik-Batch"] === "true")) facts.batch = true
+  jsonBodies.set(req, body)
   return body
 }
 
@@ -192,8 +200,8 @@ export function parseUsageQuery(url: URL, options: { traceId?: boolean } = {}): 
   if (limit !== undefined) query.limit = limit
   if (offset !== undefined) query.offset = offset
   if (status) {
-    if (status !== "ok" && status !== "error") {
-      throw new HttpError(400, '"status" must be "ok" or "error".', "INVALID_REQUEST")
+    if (status !== "ok" && status !== "error" && status !== "RATE_LIMITED") {
+      throw new HttpError(400, '"status" must be "ok", "error" or "RATE_LIMITED".', "INVALID_REQUEST")
     }
     query.status = status
   }

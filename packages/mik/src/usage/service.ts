@@ -385,6 +385,11 @@ export class UsageService {
     return this.store.usage.budgetTotals(this.currentAppId, from, to)
   }
 
+  /** Integer quota accounting under the existing authenticated app scope. */
+  quotaCostMicros(from: number, to: number): bigint {
+    return this.store.usage.quotaCostMicros(this.currentAppId, from, to)
+  }
+
   /**
    * How much of the range carries no resolved price (EVO-G74), for the
    * `usage summary` to-do block. Display-only: it feeds no cost total and

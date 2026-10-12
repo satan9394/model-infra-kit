@@ -1,4 +1,10 @@
 # CHANGELOG — model-infra-kit
+## 未发布 — EVO-G133 tenant quotas (2026-10-11)
+
+- Opt-in server organization/application quotas enforce exact trailing-minute RPM/TPM reservations and recorded BigInt daily/monthly spend, with 429 retry headers and zero-cost `RATE_LIMITED` audits.
+- Bilingual `/quotas` and overview snapshots show scoped application/shared organization limits and blocked requests. TPM requires local text context and a route-specific output ceiling.
+- Rate state is server-local; spend caps use completed ledger charges. Performance evidence is measured warmed timing, with individual outliers documented; strict per-call timing acceptance remains open. No push/publish.
+
 ## 未发布 — v1.7.0 audit hardening (2026-10-11)
 
 - Fail closed on cyclic, oversized and non-finite cache inputs; preserve JSON-looking string literals inside JSON prompts.

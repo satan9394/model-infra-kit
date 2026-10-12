@@ -590,6 +590,16 @@ export class UsageRepository {
    * rollups. Rollup dates are local calendar keys, so any included archive is
    * explicitly marked as having limited UTC allocation precision.
    */
+  /** Exact quota ledger read: text casts keep SQLite integers out of JS floats. */
+  quotaCostMicros(appId: string, from: number, to: number): bigint {
+    const detail = this.driver.prepare(`SELECT CAST(COALESCE(SUM(cost_micros), 0) AS TEXT) AS amount
+      FROM usage_events WHERE app_id = ? AND ts >= ? AND ts < ?`).get(appId, from, to)
+    const rollup = this.driver.prepare(`SELECT CAST(COALESCE(SUM(cost_microusd), 0) AS TEXT) AS amount
+      FROM usage_daily_rollups WHERE app_id = ? AND date >= ? AND date <= ?`)
+      .get(appId, localDateKey(from), localDateKey(to - 1))
+    return BigInt(String(detail?.amount ?? "0")) + BigInt(String(rollup?.amount ?? "0"))
+  }
+
   budgetTotals(appId: string, from: number, to: number): BudgetUsageTotals {
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
       return { spentMicros: 0, unpricedRequests: 0, archivedRequests: 0, historicalAllocationLimited: false }

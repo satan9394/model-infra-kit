@@ -259,7 +259,7 @@ export interface UsageEventInput extends SpanEventMetadata {
   cost: CostInfo
   latencyMs?: number
   firstTokenMs?: number
-  status: "ok" | "error"
+  status: "ok" | "error" | "RATE_LIMITED"
   errorCode?: string
   isStreaming: boolean
   traceId?: string
@@ -426,7 +426,7 @@ export interface UsageQuery {
   appId?: string
   providerId?: string
   model?: string
-  status?: "ok" | "error"
+  status?: "ok" | "error" | "RATE_LIMITED"
   traceId?: string
   sessionId?: string
   /** Only rows carrying this attribution tag key (EVO-G75). */

@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/trends", label: message("s127"), hint: message("s128"), icon: "M3 3v18h18 M6 15l4-5 4 3 6-8" },
   { href: "/traces", label: message("s129"), hint: message("s130"), icon: "M5 4v12a4 4 0 0 0 4 4h7 M5 8h11 M16 5l3 3-3 3 M16 17l3 3-3 3" },
   { href: "/logs", label: message("s131"), hint: message("s132"), icon: "M8 3h8l4 4v14H4V3h4 M8 11h8 M8 15h8 M8 7h3" },
+  { href: "/quotas", label: "quotas.title", hint: "quotas.description", icon: "M12 3v18 M3 8h18 M5 8l-3 8h6L5 8 M19 8l-3 8h6l-3-8 M8 21h8" },
   { href: "/providers", label: message("s87"), hint: message("s133"), icon: "M8 3v5 M16 3v5 M5 8h14v3a7 7 0 0 1-14 0V8 M12 18v3" },
   { href: "/models", label: message("s134"), hint: message("s135"), icon: "m12 3 9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 16l9 5 9-5" },
   { href: "/connect", label: "connect.title", hint: "connect.description", icon: "m13 2-8 12h6l-1 8 9-12h-6z" },
@@ -42,11 +43,11 @@ export function Nav() {
       </Link>
       <nav className="dashboard-nav-links" aria-label={t("s143")}>
         <p className="nav-group-label"> {t("s144")} </p>
-        {LINKS.map((link, index) => {
+        {LINKS.map((link) => {
           const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)
           return (
             <div key={link.href} className="nav-item">
-              {index === 4 ? <p className="nav-group-label mt-7"> {t("s145")} </p> : null}
+              {link.href === "/providers" ? <p className="nav-group-label mt-7"> {t("s145")} </p> : null}
               <Link href={link.href} title={t(link.hint)} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "nav-link-active" : ""}`}>
                 <NavIcon path={link.icon} /><span>{t(link.label)}</span>
                 {active ? <span className="nav-active-dot" aria-hidden="true" /> : null}

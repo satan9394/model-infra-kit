@@ -1729,3 +1729,62 @@ Successful non-error JSON bodies retain their existing bytes. HTTP-200 JSON
 errors are metered as failures rather than successful billable calls.
 
 `cutoffMs` is the recorded absolute boundary; offline verification validates the calendar label in UTC and uses this checksummed boundary without recomputing the exporter timezone. A Honolulu export verified from Tokyo is covered by regression.
+
+## EVO-G133 — authenticated hierarchical quotas
+
+`createServer({ hub, quotas })` accepts optional `TenantQuotas` (type export from
+`model-infra-kit/server`): `applications: TenantQuotaConfig[]` and optional
+`organizations: Omit<TenantQuotaConfig, "appId">[]`. Organizations require `orgId`;
+applications require `appId` and may reference an existing `orgId`. Config supports
+`maxRpm`, `maxTpm`, `dailyHardCapMicros: bigint`, `monthlyHardCapMicros: bigint`.
+The configuration is injected in memory; JSON/CLI editing and hot-reload of quota
+configuration are outside this card. Existing runtime exports remain 42/2/29/11.
+
+Only the authenticated effective app is used; headers/query cannot select a
+sibling, and no client org ID is trusted. With quotas enabled, unknown apps fail
+closed (403), and metering must be enabled. Parent and child exact trailing-minute
+reservations are probed then committed synchronously without await/locks. No
+Redis, external engine changes, public runtime classes, or unlimited tenant maps.
+RPM/TPM limits are integers 1..100000; IDs are bounded ASCII identifiers of 128
+characters. At most 4096 nodes and 1000000 ring entries (24 MB typed arrays plus node overhead) are
+accepted, validated before allocation. Rate state is process/server-local and
+resets on server restart; budgets read the shared durable ledger on admission.
+
+Hard TPM reserves the JSON payload UTF-8 byte count plus the route-specific explicitly
+specified positive output-token ceiling. Locally serialized text requests only; provider tools and stored context references, image/audio/file
+payloads fail 400. Reservations are not refunded, including failed requests, so
+admission is conservative and includes in-flight requests. This is a token
+reservation policy, not a provider-specific tokenizer. Unsupported tokenization
+or providers ignoring output ceilings cannot be guaranteed by a local guard.
+Nodes without RPM/TPM configuration allocate no rate ring and report zero rate
+reservations. The algorithm uses exact rolling-window expiry rather than a refill
+token bucket, preventing fixed-window or refill bursts from exceeding a trailing
+minute. Warmed batch mean performance is checked by `node scripts/quota-benchmark.mjs`;
+Node.js does not provide a universal per-call hard-real-time 5-microsecond bound.
+
+Daily/monthly money is read from Schema v7 `cost_micros` and retained rollup
+`cost_microusd`, with SQL integer sums cast to text and BigInt accumulation. UTC
+windows are monotonic with respect to observed wall time (rollback cannot reset
+spent budgets). Historical daily rollups retain their existing local-date
+allocation precision. SQL overflow or ledger failure fails closed before dispatch.
+Hard budgets block admission at/above recorded spend, without a privileged bypass.
+The final charge is known after completion; concurrently admitted/in-flight or
+unpriced calls can exceed a spend threshold. No speculative price reservation or
+claim of exact future-invoice caps is made.
+
+All three POST generation routes return 429 on quota rejection with positive
+integer `Retry-After`, Unix-seconds `X-Mik-RateLimit-Reset` and nonnegative
+`X-Mik-RateLimit-Remaining-Requests` for the rejecting node (zero if no RPM limit).
+Budget retry uses the latest exhausted UTC window end. Quota rejection records
+`status: "RATE_LIMITED"`, zero authoritative `cost_micros`, zero tokens and fixed
+local model/provider metadata, without prompt, request headers or credentials.
+Responses use `sendError`/`sendJson` and the shared redactor.
+
+`GET /api/quotas` requires `read:usage` and returns `{ quotas, logs }`, restricted
+to the effective app. Its optional `org` snapshot exposes only shared counters
+and budgets, never sibling identities/details. Budget amounts serialize as decimal
+integer strings. Logs contain only requestId, ts, appId, errorCode (last 50 retained
+blocked detail rows). `/quotas` and the existing root overview show these snapshots
+with visibility-aware polling and bilingual labels. `RATE_LIMITED` is an additive
+UsageEvent/UsageQuery/trace status; reports from external clients still accept only
+ok/error to prevent forged internal audit rows.

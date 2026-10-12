@@ -1,6 +1,7 @@
 import { getI18n } from "@/lib/i18n/server"
 import { CacheSavings } from "@/components/cache-metrics"
 import Link from "next/link"
+import { QuotasPanel } from "@/components/quotas-panel"
 import { BudgetPill } from "@/components/budget-pill"
 import { CostTrendChart } from "@/components/charts/cost-trend"
 import { FilterPanel } from "@/components/filter-panel"
@@ -61,6 +62,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           neutral guide; the red banner is demoted to a reaction to "重试". */}
       <UpstreamNotice message={upstreamErrors[0]} />
       <BudgetPill showAlert />
+      {!embedded ? <QuotasPanel compact /> : null}
 
       {!embedded ? (
         <FilterPanel range={range} params={params} providers={shell.providers} models={shell.models} />
