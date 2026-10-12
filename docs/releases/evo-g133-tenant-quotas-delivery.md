@@ -1,7 +1,7 @@
 # EVO-G133 local tenant quota delivery — 2026-10-11
 
 Baseline: local `main` at `e7c3933f3f3427a92e075fbc6124f5042d61e8f1`, version 1.7.0.
-Local implementation candidate; strict per-call performance acceptance remains open.
+Local delivery accepted and closed. Implementation commit: `cd9b3b9`.
 No push, publish, remote CI, dependencies, filesystem deletion or schema migration.
 
 ## Changes and scope
@@ -35,7 +35,8 @@ multipliers, linear ring scans and reload with disabled accounting. Re-audit fou
 provider-side context expansion. Fixes require route-specific output ceilings and
 reject media, `n != 1`, stored context references, provider tools/functions under
 hard TPM; reject disabled recording on reload; index all large-ring paths.
-Final independent **code review PASS**, with the timing discrepancy explicitly open.
+Final independent **code review PASS**. The timing criterion was subsequently
+accepted by the user as described below.
 
 Adversarial evidence: 21 focused tests; 1000 simultaneous admissions; exact expiry,
 ring wrap, UTC rollover/rollback, oversized IDs, sibling isolation, no upstream call
@@ -44,16 +45,19 @@ safe-number precision. A 10000-operation reference test runs in the suite; the
 independent evaluator additionally matched 100000 randomized operations.
 Evidence: `.tmp/g133/review.md`, `benchmark.json`, ordered gate logs and `verification.json`.
 
-## Performance acceptance gap
+## Accepted performance criterion and observed outliers
 
 Runnable check: `node scripts/quota-benchmark.mjs`.
 The corrected check measures admission, full-capacity TPM denial, and 60 separately
 filled 100000-entry rings for full expiry, excluding setup and the first ten expiry
 warm-ups. Observed maximum batch mean **3.008 microseconds**; individual measured
 expiry samples reached **8.4 microseconds**. This is evidence for a warmed mean,
-not a universal every-call bound. The user's strict **every call <5 microseconds**
-requirement is **not met**. An acceptance clarification is pending; it has not been
-silently relaxed, and this candidate is not marked fully closed.
+not a universal every-call bound. The original strict **every call <5 microseconds**
+requirement was not met. The user explicitly approved the revised DoD:
+**"Accept measured mean <5µs and document individual outliers"**. The accepted
+criterion is the reproducible warmed mean <5 microseconds; individual outliers
+remain disclosed, with no hard-real-time guarantee. This resolves the acceptance
+gap and closes EVO-G133 without changing implementation or benchmark thresholds.
 
 The initial linear implementation independently measured 497.3072 microseconds mean
 for TPM denials and 5300.2 microseconds for full expiry. After indexing, the first
@@ -108,5 +112,6 @@ security/performance-only repairs; UI schema and layout were unchanged thereafte
 `clean: false` retained. Final gates use the existing artifact-retention preload;
 temporary databases/logs/tarballs remain. Task card, BOARD, HANDOVER and bounded
 state follow their existing local-ignore policy. All source/test/docs changes are
-explicitly staged; no `git add -A`. Standby follows the local commit, awaiting the
-performance acceptance decision and any separate human release authorization.
+explicitly staged; no `git add -A`. The acceptance follow-up changes documentation
+only; prior source gates remain applicable. Standby follows the local commits;
+push/publish still require separate human release authorization.

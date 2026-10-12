@@ -1761,6 +1761,8 @@ reservations. The algorithm uses exact rolling-window expiry rather than a refil
 token bucket, preventing fixed-window or refill bursts from exceeding a trailing
 minute. Warmed batch mean performance is checked by `node scripts/quota-benchmark.mjs`;
 Node.js does not provide a universal per-call hard-real-time 5-microsecond bound.
+The user accepted the EVO-G133 performance DoD as reproducible warmed mean <5µs,
+with individual outliers disclosed (observed full-expiry mean3.008µs, max8.4µs).
 
 Daily/monthly money is read from Schema v7 `cost_micros` and retained rollup
 `cost_microusd`, with SQL integer sums cast to text and BigInt accumulation. UTC

@@ -3,7 +3,7 @@
 
 - Opt-in server organization/application quotas enforce exact trailing-minute RPM/TPM reservations and recorded BigInt daily/monthly spend, with 429 retry headers and zero-cost `RATE_LIMITED` audits.
 - Bilingual `/quotas` and overview snapshots show scoped application/shared organization limits and blocked requests. TPM requires local text context and a route-specific output ceiling.
-- Rate state is server-local; spend caps use completed ledger charges. Performance evidence is measured warmed timing, with individual outliers documented; strict per-call timing acceptance remains open. No push/publish.
+- Rate state is server-local; spend caps use completed ledger charges. User-approved performance DoD is warmed mean <5µs; measured mean3.008µs and individual outliers up to8.4µs are documented. No hard-real-time guarantee; no push/publish.
 
 ## 未发布 — v1.7.0 audit hardening (2026-10-11)
 
