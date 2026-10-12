@@ -8,18 +8,50 @@ import { usePathname } from "next/navigation"
 import { useTheme } from "@/components/theme-provider"
 import type { ThemePreference } from "@/lib/theme"
 
-const LINKS = [
-  { href: "/", label: message("s125"), hint: message("s126"), icon: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z" },
-  { href: "/trends", label: message("s127"), hint: message("s128"), icon: "M3 3v18h18 M6 15l4-5 4 3 6-8" },
-  { href: "/traces", label: message("s129"), hint: message("s130"), icon: "M5 4v12a4 4 0 0 0 4 4h7 M5 8h11 M16 5l3 3-3 3 M16 17l3 3-3 3" },
-  { href: "/logs", label: message("s131"), hint: message("s132"), icon: "M8 3h8l4 4v14H4V3h4 M8 11h8 M8 15h8 M8 7h3" },
-  { href: "/quotas", label: "quotas.title", hint: "quotas.description", icon: "M12 3v18 M3 8h18 M5 8l-3 8h6L5 8 M19 8l-3 8h6l-3-8 M8 21h8" },
-  { href: "/webhooks", label: "webhooks.title", hint: "webhooks.description", icon: "M4 12h16 M12 4v16 M4 4l16 16" },
-  { href: "/providers", label: message("s87"), hint: message("s133"), icon: "M8 3v5 M16 3v5 M5 8h14v3a7 7 0 0 1-14 0V8 M12 18v3" },
-  { href: "/models", label: message("s134"), hint: message("s135"), icon: "m12 3 9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 16l9 5 9-5" },
-  { href: "/connect", label: "connect.title", hint: "connect.description", icon: "m13 2-8 12h6l-1 8 9-12h-6z" },
-  { href: "/pricing", label: message("s136"), hint: message("s137"), icon: "M3 3h8l10 10-8 8L3 11V3z M7 7h.01" },
-] as const
+interface NavItem {
+  readonly href: string
+  readonly label: string
+  readonly hint: string
+  readonly icon: string
+}
+
+interface NavSection {
+  readonly groupKey: string
+  readonly items: ReadonlyArray<NavItem>
+}
+
+const NAV_SECTIONS: ReadonlyArray<NavSection> = [
+  {
+    groupKey: "nav.workspace",
+    items: [
+      { href: "/", label: message("s125"), hint: message("s126"), icon: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z" },
+      { href: "/trends", label: "nav.usageCosts", hint: message("s128"), icon: "M3 3v18h18 M6 15l4-5 4 3 6-8" },
+      { href: "/logs", label: message("s131"), hint: message("s132"), icon: "M8 3h8l4 4v14H4V3h4 M8 11h8 M8 15h8 M8 7h3" },
+      { href: "/traces", label: "nav.traces", hint: message("s130"), icon: "M5 4v12a4 4 0 0 0 4 4h7 M5 8h11 M16 5l3 3-3 3 M16 17l3 3-3 3" },
+    ],
+  },
+  {
+    groupKey: "nav.modelInfra",
+    items: [
+      { href: "/providers", label: message("s87"), hint: message("s133"), icon: "M8 3v5 M16 3v5 M5 8h14v3a7 7 0 0 1-14 0V8 M12 18v3" },
+      { href: "/models", label: "nav.models", hint: message("s135"), icon: "m12 3 9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 16l9 5 9-5" },
+      { href: "/pricing", label: "nav.pricing", hint: message("s137"), icon: "M3 3h8l10 10-8 8L3 11V3z M7 7h.01" },
+    ],
+  },
+  {
+    groupKey: "nav.governance",
+    items: [
+      { href: "/quotas", label: "nav.quotas", hint: "quotas.description", icon: "M12 3v18 M3 8h18 M5 8l-3 8h6L5 8 M19 8l-3 8h6l-3-8 M8 21h8" },
+      { href: "/webhooks", label: "webhooks.title", hint: "webhooks.description", icon: "M4 12h16 M12 4v16 M4 4l16 16" },
+    ],
+  },
+  {
+    groupKey: "nav.developer",
+    items: [
+      { href: "/connect", label: "nav.connect", hint: "connect.description", icon: "m13 2-8 12h6l-1 8 9-12h-6z" },
+    ],
+  },
+]
 
 function NavIcon({ path }: { path: string }) {
   return <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={path} /></svg>
@@ -43,19 +75,22 @@ export function Nav() {
         <span><span className="block text-xl font-semibold tracking-tight">mik<span className="ml-1.5 text-sm font-normal text-subtle">console</span></span><span className="brand-caption"> {t("s142")} </span></span>
       </Link>
       <nav className="dashboard-nav-links" aria-label={t("s143")}>
-        <p className="nav-group-label"> {t("s144")} </p>
-        {LINKS.map((link) => {
-          const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)
-          return (
-            <div key={link.href} className="nav-item">
-              {link.href === "/providers" ? <p className="nav-group-label mt-7"> {t("s145")} </p> : null}
-              <Link href={link.href} title={t(link.hint)} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "nav-link-active" : ""}`}>
-                <NavIcon path={link.icon} /><span>{t(link.label)}</span>
-                {active ? <span className="nav-active-dot" aria-hidden="true" /> : null}
-              </Link>
-            </div>
-          )
-        })}
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.groupKey} className="nav-group" role="group" aria-label={t(section.groupKey)}>
+            <p className="nav-group-label"> {t(section.groupKey)} </p>
+            {section.items.map((link) => {
+              const active = link.href === "/" ? pathname === "/" : (pathname === link.href || pathname.startsWith(link.href + "/"))
+              return (
+                <div key={link.href} className="nav-item">
+                  <Link href={link.href} title={t(link.hint)} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "nav-link-active" : ""}`}>
+                    <NavIcon path={link.icon} /><span>{t(link.label)}</span>
+                    {active ? <span className="nav-active-dot" aria-hidden="true" /> : null}
+                  </Link>
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </nav>
       <div className="nav-footer">
         <div className="nav-product-note"><span className="block font-medium text-foreground">model-infra-kit</span><span className="mt-1 block"> {t("s146")} </span></div>
