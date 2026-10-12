@@ -4,6 +4,8 @@ import { LruCache, readCacheOptions, type CacheOptions } from "./cache/lru.js"
 import { normalizePromptForCache, safeCacheValue } from "./cache/normalizer.js"
 import { randomUUID } from "node:crypto"
 import { defaultCacheDir, defaultDbPath, expandPath } from "./util/paths.js"
+import { NotificationBus } from "./events/bus.js"
+import { WebhookDispatcher, readWebhookConfigs } from "./events/webhook.js"
 import { generateText, stepCountIs, streamText, type LanguageModelUsage } from "ai"
 import type { PricingCatalog, PricingSource } from "llm-pricing"
 import { createAiBridge, type AiBridge } from "./ai/bridge.js"
@@ -349,6 +351,8 @@ export class ModelInfra {
   private readonly providerRegistry: ProviderRegistry
   private readonly pricingService: PricingService
   private readonly usageService: UsageService
+  private readonly notificationBus = new NotificationBus()
+  readonly webhooks: WebhookDispatcher
   private readonly modelCatalog: ModelCatalog
   private readonly canonicalCatalog: ModelCatalogService
   private readonly store: Store
@@ -393,6 +397,7 @@ export class ModelInfra {
     cache: false | CacheOptions | undefined
     budgetConfig: BudgetConfig | undefined
     syncCatalog: boolean
+    webhooks: ModelInfraConfig["webhooks"]
   }) {
     this.appId = deps.appId
     this.store = deps.store
@@ -416,6 +421,26 @@ export class ModelInfra {
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
     this.budgetConfig = deps.budgetConfig
+    this.webhooks = new WebhookDispatcher(this.notificationBus, deps.webhooks)
+    if (deps.webhooks?.length) deps.usage.onRecorded(event => {
+      this.notificationBus.defer(() => {
+        const row = this.store.driver.prepare(`SELECT CAST(cost_micros AS TEXT) AS cost,
+          CAST(cost_low_micros AS TEXT) AS low, CAST(cost_high_micros AS TEXT) AS high,
+          CAST(cache_savings_micros AS TEXT) AS savings FROM usage_events WHERE request_id = ?`).get(event.requestId)
+        if (!row) return
+        const data = { requestId: event.requestId, appId: event.appId, providerId: event.providerId,
+          model: event.modelActual, status: event.status, usage: event.usage,
+          costMicros: BigInt(String(row.cost)), costLowMicros: BigInt(String(row.low)),
+          costHighMicros: BigInt(String(row.high)), cacheSavingsMicros: BigInt(String(row.savings)) }
+        this.notificationBus.dispatch("USAGE_RECORDED", data)
+        if (event.status === "RATE_LIMITED" || event.errorCode === "RATE_LIMITED" || event.errorCode === "RATE_LIMIT") this.notificationBus.dispatch("RATE_LIMITED", data)
+        if (event.tags?.failover === "true" || event.tags?.is_fallback === "true") this.notificationBus.dispatch("FAILOVER_TRIGGERED", data)
+        if (this.budgetConfig) {
+          const status = this.usage.withAppScope(event.appId, () => this.budgetStatus())
+          if ([status.daily, status.monthly].some(period => period?.status === "exceeded")) this.notificationBus.dispatch("BUDGET_EXCEEDED", data)
+        }
+      })
+    })
     this.responseCache = deps.cache === false ? undefined : new LruCache(deps.cache, deps.store.driver, deps.appId)
 
     const forward = createMikFetch({
@@ -519,6 +544,7 @@ export class ModelInfra {
       onWarn(message, error)
     }
     const appId = config.appId ?? process.env.MIK_APP_ID ?? DEFAULT_APP_ID
+    const webhooks = readWebhookConfigs(config.webhooks)
     if (config.fallbackChain !== undefined && (!Array.isArray(config.fallbackChain) || config.fallbackChain.some((item) => typeof item !== "string"))) {
       throw new ModelInfraError('"fallbackChain" must be an array of model references.', { code: "INVALID_REQUEST" })
     }
@@ -641,6 +667,7 @@ export class ModelInfra {
       keyCooldownMs,
       cache,
       budgetConfig: config.budget,
+      webhooks,
       syncCatalog: config.syncCatalog ?? true,
     })
     reloadIdentities.set(hub, { db: store.path, cacheDir: expandPath(config.cacheDir ?? defaultCacheDir()),
@@ -968,6 +995,7 @@ export class ModelInfra {
    * Calling `close()` more than once is a no-op.
    */
   close(): Promise<void> {
+    this.closeNotifications()
     this.closePromise ??= this.closeAfterSync()
     return this.closePromise
   }
@@ -993,6 +1021,12 @@ export class ModelInfra {
     this.providerRegistry.close()
     this.store.close()
   }
+
+  /** @internal The server owns delivery lifetime, even with an externally owned hub. */
+  closeNotifications(): void { this.webhooks.close(); this.notificationBus.close() }
+
+  /** @internal Never accept arbitrary user payloads or destinations at management endpoints. */
+  notifyBudgetExceeded(appId: string): void { this.notificationBus.emit("BUDGET_EXCEEDED", { appId, reason: "Hard budget limit reached" }) }
 
   private async *runStream(request: ModelRequest): AsyncGenerator<StreamEvent> {
     request = { ...request, traceId: request.traceId ?? randomUUID() }
@@ -1111,6 +1145,8 @@ export class ModelInfra {
   ): AsyncGenerator<StreamEvent> {
 
     const attemptStarted = performance.now()
+    const fallbackTags = { ...(isFallback ? { is_fallback: "true" } : {}),
+      ...(originalProvider ? { failover: "true", original_provider: originalProvider } : {}) }
     let qosTtftMs: number | undefined
 
     let model: Awaited<ReturnType<AiBridge["languageModel"]>>
@@ -1132,6 +1168,7 @@ export class ModelInfra {
         errorCode: mapped.code,
         isStreaming: true,
         request,
+        diagnosticTags: fallbackTags,
       })
       onFailure(mapped)
       yield { type: "error", error: { code: mapped.code, message: mapped.message } }
@@ -1171,7 +1208,7 @@ export class ModelInfra {
       if (!request.signal?.aborted && input.errorCode !== "ABORTED" && input.errorCode !== "ABANDONED") {
         this.observeQoS(resolved, performance.now() - attemptStarted, input.status === "ok", qosTtftMs)
       }
-      this.record({ ...input, tool_calls: toolTrace.finish(requestCostMicros(input.cost.usd), input.usage) })
+      this.record({ ...input, diagnosticTags: { ...input.diagnosticTags, ...fallbackTags }, tool_calls: toolTrace.finish(requestCostMicros(input.cost.usd), input.usage) })
     }
 
     const timeoutController = new AbortController()

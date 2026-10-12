@@ -1049,6 +1049,14 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           }), "401": error("Missing or invalid token."), "403": error("Insufficient scope or different app.") },
         },
       },
+      "/api/webhooks/status": {
+        get: { tags: ["events"], summary: "Admin-only bounded webhook delivery counters and dead letters; no secrets or destinations.",
+          responses: { "200": ok("In-memory webhook status.", { type: "object" }), "403": error("Requires admin.") } },
+      },
+      "/api/webhooks/test": {
+        post: { tags: ["events"], summary: "Admin-only enqueue a synthetic usage notification to configured subscribers; no request-supplied destination.",
+          responses: { "202": ok("Queued, not delivered.", { type: "object" }), "503": error("Queue full or closed."), "403": error("Requires admin.") } },
+      },
       "/api/events": {
         get: {
           tags: ["events"],

@@ -194,6 +194,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
     value.release()
     value.connections.clear()
     resources.delete(value.hub)
+    value.hub.closeNotifications()
     if (value.owned) await value.hub.close()
   }, options.reload?.onWarn)
   const streams = new Set<SseStream>()
@@ -330,7 +331,10 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
         if (status.hardCap && [status.daily, status.monthly].some(period => period?.status === "exceeded")) {
           const bypass = principal?.scopes.includes("admin") || principal?.scopes.includes("*")
             || req.headers["x-mik-bypass-budget"] === "true"
-          if (!bypass) throw new HttpError(429, redact("Local hard budget limit reached."), "BUDGET_EXCEEDED")
+          if (!bypass) {
+            hub.notifyBudgetExceeded(ctx.appId!)
+            throw new HttpError(429, redact("Local hard budget limit reached."), "BUDGET_EXCEEDED")
+          }
           const warning = redact("BUDGET_EXCEEDED: privileged budget bypass allowed.")
           try { (options.onWarn ?? console.warn)(warning) } catch { /* A warning sink cannot block dispatch. */ }
         }
@@ -411,6 +415,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
     close(): Promise<void> {
       if (closing) return closing
       closing = (async () => {
+        for (const value of resources.values()) value.hub.closeNotifications()
         for (const stream of [...streams]) stream.close()
         streams.clear()
         await new Promise<void>((resolve) => {

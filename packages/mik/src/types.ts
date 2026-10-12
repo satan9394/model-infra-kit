@@ -500,6 +500,8 @@ export interface BudgetConfig {
 }
 
 export interface ModelInfraConfig {
+  /** Trusted host configuration only; secrets remain process-local. */
+  webhooks?: import("./events/webhook.js").WebhookConfig[]
   /** Deterministic response cache. False disables; defaults 24h / 10,000 entries. */
   cache?: false | { ttlMs?: number; maxEntries?: number }
   /** Scheduling within a virtual model's eligible priority tier. Default weighted. */

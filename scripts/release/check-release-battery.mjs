@@ -977,6 +977,57 @@ console.log(redact(JSON.stringify({ weightedRoundRobin: true, failoverAudit: tru
 `
 }
 
+function webhookSmokeSource() {
+  return `import assert from "node:assert/strict"
+import { createServer as httpServer } from "node:http"
+import { createHmac } from "node:crypto"
+import { ModelInfra } from "model-infra-kit"
+import { createServer } from "model-infra-kit/server"
+const secret = process.env.MIK_RELEASE_BATTERY_KEY
+const received = []
+const receiver = httpServer(async (req, res) => {
+  let body = ""
+  for await (const chunk of req) body += chunk
+  const expected = "sha256=" + createHmac("sha256", secret).update(req.headers["x-mik-timestamp"] + "." + body).digest("hex")
+  assert.equal(req.headers["x-mik-signature"], expected)
+  assert.ok(!body.includes(secret))
+  received.push(JSON.parse(body))
+  res.writeHead(204); res.end()
+})
+await new Promise(resolve => receiver.listen(0, "127.0.0.1", resolve))
+let hub, server
+try {
+  hub = await ModelInfra.init({ db: ":memory:", cacheDir: "./webhook-cache", syncCatalog: false, pricingAutoSync: false,
+    pricingFetch: async () => { throw Error("offline") }, onWarn: () => {},
+    webhooks: [{ url: "http://127.0.0.1:" + receiver.address().port + "/hook", secret, events: ["USAGE_RECORDED"], maxRetries: 0 }] })
+  server = await createServer({ hub, port: 0, tokens: [{ token: secret, scopes: ["admin"] }, { token: "reader", scopes: ["read:usage"] }] })
+  assert.equal((await fetch(server.url + "/api/webhooks/status", { headers: { authorization: "Bearer reader" } })).status, 403)
+  const headers = { authorization: "Bearer " + secret }
+  assert.equal((await fetch(server.url + "/api/webhooks/test", { method: "POST", headers })).status, 202)
+  hub.usage.record({ requestId: "webhook-installed", ts: Date.now(), source: "test", providerId: "p", modelRequested: "m", modelActual: "m",
+    status: "ok", isStreaming: false, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+    cost: { usd: 0.000003, low: 0.000003, high: 0.000003, basis: "exact", source: "manual" }, tags: { token: secret } })
+  for (let i=0; i<100 && received.length<2; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(received.length, 2)
+  assert.equal(received.find(event => event.data.requestId === "webhook-installed").data.costMicros, "3")
+  let status
+  for (let i=0; i<100; i++) {
+    status = await (await fetch(server.url + "/api/webhooks/status", { headers })).json()
+    if(status.delivered === 2)break
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(status.delivered, 2)
+  assert.ok(!JSON.stringify(status).includes(secret))
+  console.log(JSON.stringify({ webhookSignature: "verified", costMicros: "3", delivered: status.delivered }))
+} finally {
+  if(server)await server.close()
+  if(hub)await hub.close()
+  receiver.closeAllConnections()
+  await new Promise(resolve => receiver.close(resolve))
+}
+`
+}
+
 async function main() {
   if (process.argv.includes("--self-test-auto")) {
     autoArtifactFailureSelfCheck()
@@ -1071,6 +1122,9 @@ async function main() {
   const v170Path = join(consumerDir, "v170-smoke.mjs")
   writeAbsolute(v170Path, v170SmokeSource())
   await run("node", [v170Path], { cwd: consumerDir, label: "installed v1.7.0 QoS, normalized cache and verified gzip archive", env: smokeEnv, redactSecrets: [batteryKey] })
+  const webhookPath = join(consumerDir, "webhooks-smoke.mjs")
+  writeAbsolute(webhookPath, webhookSmokeSource())
+  await run("node", [webhookPath], { cwd: consumerDir, label: "installed G134 signed webhook and admin management", env: smokeEnv, redactSecrets: [batteryKey] })
   process.stdout.write(`[result] release battery passed; retained clean room=${cleanRoom}\n`)
 }
 

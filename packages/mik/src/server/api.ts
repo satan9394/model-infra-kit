@@ -15,6 +15,7 @@ import { assertSafeOutboundUrl } from "./outbound.js"
 import type { Router } from "./router.js"
 import { registerBudgetRoutes } from "./routes/budget.js"
 import { registerQoSRoutes } from "./routes/qos.js"
+import { registerWebhookRoutes } from "./routes/webhooks.js"
 import { SseStream } from "./sse.js"
 import { probeProvider } from "./provider-probe.js"
 
@@ -382,6 +383,7 @@ function buildReportedEvent(input: unknown, hub: ServerContext["hub"], req: Serv
 
 export function registerApiRoutes(router: Router): void {
   registerQoSRoutes(router)
+  registerWebhookRoutes(router)
   registerBudgetRoutes(router)
   router
     .add("GET", "/api/health", (ctx) => {

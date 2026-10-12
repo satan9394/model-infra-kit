@@ -308,6 +308,34 @@ try {
 
 ## 相关文档
 
+### 异步 Webhook（本地候选）
+
+宿主可在 `ModelInfra.init()` 配置 `webhooks`：
+
+```ts
+webhooks: [{
+  url: "https://your-service.example/mik-events",
+  secret: process.env.WEBHOOK_SECRET!,
+  events: ["USAGE_RECORDED", "BUDGET_EXCEEDED", "FAILOVER_TRIGGERED", "RATE_LIMITED"],
+  timeoutMs: 5000,
+  maxRetries: 3,
+}]
+```
+
+CLI JSON 配置使用 `secretRef: "env:WEBHOOK_SECRET"` 替代 `secret`，不保存明文签名密钥。
+`/webhooks` 看板显示订阅、投递计数和最多100条失败记录；管理 API 为
+`GET /api/webhooks/status`、`POST /api/webhooks/test`，均要求管理员权限。
+测试返回202仅表示入队，测试目标来自宿主配置。
+
+载荷为 `{ id, type, timestamp, data }`，费用和节省额是 Schema v7 整数微美元的十进制字符串，
+不包含提示词、请求头或凭据。`X-Mik-Timestamp` 使用秒，`X-Mik-Signature` 为
+`sha256=hex(HMAC-SHA256(secret, timestamp + '.' + exactBody))`。
+接收端应常量时间校验签名、检查时间窗口并按事件 id 去重。
+
+投递通过 `setImmediate` 异步执行，不等待生成或流式链路；5xx、网络错误和超时最多重试3次，
+间隔1/2/4秒。内存队列有界，过载会丢弃并计数，关闭会取消在途投递，重启不会保留队列。
+这适合通知和告警；财务对账应以持久账本为准。
+
 - 接入示例：[`examples/`](https://github.com/satan9394/model-infra-kit/tree/main/examples/)（`cli-agent` 嵌入式库、`openai-sdk` fetch 适配器、`python-host` 跨语言）
 - 项目 README：[`README.md`](https://github.com/satan9394/model-infra-kit/blob/main/README.md)
 - 契约：[`docs/interfaces.md`](https://github.com/satan9394/model-infra-kit/blob/main/docs/interfaces.md)；取舍：[`docs/decisions.md`](https://github.com/satan9394/model-infra-kit/blob/main/docs/decisions.md)

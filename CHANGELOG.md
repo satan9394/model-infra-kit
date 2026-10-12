@@ -1,4 +1,10 @@
 # CHANGELOG — model-infra-kit
+
+## Local candidate — EVO-G134
+
+- Add asynchronous signed usage/audit webhooks, bounded retries/dead letters, cancellable delivery and admin status/test APIs. Costs use Schema v7 integer strings.
+- Add bilingual webhook monitor; trusted host/env-reference configuration keeps signing secrets out of dashboard responses.
+
 ## 未发布 — EVO-G133 tenant quotas (2026-10-11)
 
 - Opt-in server organization/application quotas enforce exact trailing-minute RPM/TPM reservations and recorded BigInt daily/monthly spend, with 429 retry headers and zero-cost `RATE_LIMITED` audits.

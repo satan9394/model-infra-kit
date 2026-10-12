@@ -1,6 +1,7 @@
 import { readStorageConfig, type StorageConfig } from "../store/adapter.js"
 import { readRouterConfig } from "../ai/smart-router.js"
 import { readCacheOptions } from "../cache/lru.js"
+import { resolveWebhookConfigs } from "../events/webhook.js"
 import { readCascadingConfig } from "../router/cascading.js"
 import { readLoadBalancerConfig, readRoutingMode, type RoutingMode } from "../router/load-balancer.js"
 import { isModelInfraError } from "../errors.js"
@@ -33,6 +34,7 @@ export interface RunOptions {
 }
 
 export interface CliConfigFile {
+  webhooks?: unknown
   cache?: false | import("../cache/lru.js").CacheOptions
   /** Declarative serve routing generation; unlike one-time initialProviders. */
   providers?: ProviderConfig[]
@@ -219,6 +221,7 @@ export function loadConfig(path: string, io: CliIo, options: RunOptions = {}, la
     if (record.storage !== undefined) config.storage = readStorageConfig(record.storage)
     if (typeof record.cacheDir === "string" && record.cacheDir) config.cacheDir = record.cacheDir
     config.budget = readBudgetConfig(record.budget)
+    config.webhooks = record.webhooks
     if (record.serverTokens !== undefined) config.serverTokens = record.serverTokens
     if (record.router !== undefined) config.router = readRouterConfig(record.router)
     if (record.cascading !== undefined) config.cascading = readCascadingConfig(record.cascading)
@@ -324,6 +327,7 @@ export async function openContext(parsed: ParsedCli, options: OpenContextOptions
     pricingFetch: offline ? offlineFetch : undefined,
     cache: config.cache,
     budget: config.budget,
+    webhooks: resolveWebhookConfigs(config.webhooks, env),
     router: config.router,
     loadBalancer: config.loadBalancer,
     routing: config.routing,

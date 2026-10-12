@@ -197,6 +197,13 @@ export class UsageService {
   /** `appId|windowStart` pairs already warned about, so each window warns once. */
   private readonly budgetWarned = new Set<string>()
   private readonly observers = new Set<(event: UsageEvent) => void>()
+  private readonly recordedObservers = new Set<(event: UsageEvent) => void>()
+
+  /** @internal Committed rows only, including report/quota writes; no disabled/duplicate events. */
+  onRecorded(listener: (event: UsageEvent) => void): () => void {
+    this.recordedObservers.add(listener)
+    return () => { this.recordedObservers.delete(listener) }
+  }
 
   constructor(deps: UsageServiceDeps) {
     this.store = deps.store
@@ -336,6 +343,9 @@ export class UsageService {
       return false
     }
     if (!this.store.usage.insert(stored)) return false
+    for (const listener of this.recordedObservers) {
+      try { listener(stored) } catch { /* Delivery cannot change a committed write. */ }
+    }
     this.notifyObservers(stored)
     this.noteBudget(stored)
     try {

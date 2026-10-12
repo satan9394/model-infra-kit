@@ -1550,6 +1550,8 @@ describe("GET /api/events", () => {
 describe("GET /openapi.json", () => {
   const CONTRACT_PATHS = [
     "/api/quotas",
+    "/api/webhooks/status",
+    "/api/webhooks/test",
     "/api/reload",
     "/api/health",
     "/api/connections",

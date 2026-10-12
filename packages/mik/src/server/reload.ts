@@ -3,6 +3,7 @@ import { statSync } from "node:fs"
 import { ModelInfra, type ModelInfraOptions } from "../hub.js"
 import { readRouterConfig } from "../ai/smart-router.js"
 import { readCacheOptions } from "../cache/lru.js"
+import { resolveWebhookConfigs } from "../events/webhook.js"
 import { readCascadingConfig } from "../router/cascading.js"
 import { readLoadBalancerConfig, readRoutingMode } from "../router/load-balancer.js"
 import { splitModelRef } from "../registry/registry.js"
@@ -36,7 +37,7 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
   const value: unknown = JSON.parse(await readFile(options.configPath, "utf8"))
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Reload config must be an object.")
   const config = value as Record<string, unknown>
-  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "routing", "cascading", "cache", "initialProviders", "providers", "defaultModel", "watch"])
+  const allowed = new Set(["appId", "db", "storage", "cacheDir", "budget", "serverTokens", "router", "loadBalancer", "routing", "cascading", "cache", "initialProviders", "providers", "defaultModel", "watch", "webhooks"])
   if (Object.keys(config).some(key => !allowed.has(key))) throw new Error("Unknown reload config field.")
   for (const key of ["appId", "db", "cacheDir", "defaultModel"]) {
     if (config[key] !== undefined && (typeof config[key] !== "string" || !config[key])) throw new Error(`Invalid ${key} configuration.`)
@@ -101,6 +102,7 @@ export async function prepareConfig(options: ReloadOptions): Promise<{ hub: Mode
     cache: readCacheOptions(config.cache),
     routing: readRoutingMode(config.routing),
     budget: config.budget as ModelInfraOptions["budget"],
+    webhooks: resolveWebhookConfigs(config.webhooks, env),
     isolatedProviders: true, syncCatalog: false, pricingAutoSync: false,
   })
   try {

@@ -104,6 +104,8 @@ export {
 
 export { buildTraceTree, type TraceTreeNode } from "./usage/trace-tree.js"
 export { maskSecret, redact, redactDeep } from "./util/redact.js"
+export type { WebhookConfig, WebhookStatus } from "./events/webhook.js"
+export type { NotificationEvent, NotificationType } from "./events/bus.js"
 export { defaultCacheDir, defaultDbPath, expandPath } from "./util/paths.js"
 
 export type {
