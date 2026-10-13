@@ -476,7 +476,7 @@ export const zh = {
   "connections.pending": "正在探测连接…",
   "connections.offline": "连接探测不可用",
   "search.label": "检索保留的追踪与日志",
-  "search.placeholder": "关键词或 FTS5 语法，如 timeout OR retry",
+  "search.placeholder": "追踪标识或普通文本，如 timeout",
   "search.scope": "检索追踪标识、标签、错误码、模型和供应商。不会存储原始提示词或工具结果。",
   "search.results": "{0} 条匹配（最多 50 条），按相关度排序",
   "provider.searchPresets": "搜索供应商预设…",

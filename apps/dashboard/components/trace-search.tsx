@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { apiCall } from "@/lib/client-api"
 import { useI18n } from "@/lib/i18n/provider"
-import { snippetParts } from "@/lib/search-snippet"
+import { literalSearchQuery, snippetParts } from "@/lib/search-snippet"
 import type { UsageEvent } from "@/lib/types"
 
 interface SearchHit { event: UsageEvent; score: number; snippet: string }
@@ -22,7 +22,7 @@ export function TraceSearch({ baseQuery, onOpen }: { baseQuery: string; onOpen?:
     setState({ loading: true, hits: [] })
     const timer = setTimeout(() => {
       const params = new URLSearchParams(baseQuery)
-      params.set("q", query)
+      params.set("q", literalSearchQuery(query))
       params.set("limit", "50")
       params.delete("offset")
       void apiCall<{ hits: SearchHit[] }>(`/usage/search?${params}`).then((result) => {

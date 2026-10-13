@@ -1,3 +1,8 @@
+/** The dashboard search box accepts literal text; the API still supports FTS syntax. */
+export function literalSearchQuery(query: string): string {
+  return `"${query.replaceAll("\u0000", "").trim().slice(0, 2046).replaceAll('"', '""')}"`
+}
+
 /** FTS markers carry text, never HTML. React escapes each returned text segment. */
 export function snippetParts(snippet: string): { text: string; highlighted: boolean }[] {
   const parts: { text: string; highlighted: boolean }[] = []

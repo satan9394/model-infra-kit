@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { mikServerToken, mikServerUrl } from "@/lib/config"
-import { redact, redactPlaygroundStream } from "@/lib/playground"
+import { isSameOriginRequest, redact, redactPlaygroundStream } from "@/lib/playground"
 
 export const runtime = "nodejs"
 
 export async function POST(request: NextRequest) {
   // A cookie-authenticated proxy must not accept cross-origin billed requests.
-  if (request.headers.get("origin") !== request.nextUrl.origin) return NextResponse.json({ error: "Origin rejected" }, { status: 403 })
+  if (!isSameOriginRequest(request.headers.get("origin"), request.headers.get("host"), request.nextUrl.protocol)) return NextResponse.json({ error: "Origin rejected" }, { status: 403 })
   const raw = await request.text()
   if (raw.length > 10_000) return NextResponse.json({ error: "Prompt too long" }, { status: 400 })
   let body: { model?: unknown; prompt?: unknown; traceId?: unknown }

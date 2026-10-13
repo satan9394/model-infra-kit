@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G138 (2026-10-13)
+
+- Make dashboard search treat IDs and punctuation as bounded literal phrases; restore request-button focus after opening log details from a row cell.
+- Correct provider ID validation in modern browsers and allow same-origin loopback Playground requests while retaining cross-origin rejection.
+- Improve light-theme secondary-text contrast on normal page and card surfaces.
+
 ## Local candidate — EVO-G134
 
 - Add asynchronous signed usage/audit webhooks, bounded retries/dead letters, cancellable delivery and admin status/test APIs. Costs use Schema v7 integer strings.

@@ -3,7 +3,17 @@ import test from "node:test"
 import { readFileSync } from "node:fs"
 import ts from "typescript"
 import { connectionSnippet, FRAMEWORKS, publicBaseUrl } from "../lib/connect.ts"
-import { readPlaygroundStream, redactPlaygroundStream, usdToMicros } from "../lib/playground.ts"
+import { isSameOriginRequest, readPlaygroundStream, redactPlaygroundStream, usdToMicros } from "../lib/playground.ts"
+
+test("Playground validates actual request authority without trusting forwarded hosts", () => {
+  assert.equal(isSameOriginRequest("http://127.0.0.1:33210", "127.0.0.1:33210", "http:"), true)
+  assert.equal(isSameOriginRequest("http://localhost:3210", "localhost:3210", "http:"), true)
+  assert.equal(isSameOriginRequest("https://dashboard.example", "dashboard.example", "https:"), true)
+  for (const origin of [null, "null", "https://evil.example", "http://localhost:33210", "http://127.0.0.1:33211"]) {
+    assert.equal(isSameOriginRequest(origin, "127.0.0.1:33210", "http:"), false)
+  }
+  assert.equal(isSameOriginRequest("http://null", null, "http:"), false)
+})
 
 test("all five snippets use the runtime endpoint, namespaced model and gateway environment reference", () => {
   const base = publicBaseUrl("https://example.test:4321/prefix/")

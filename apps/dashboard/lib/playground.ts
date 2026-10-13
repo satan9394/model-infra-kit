@@ -102,3 +102,8 @@ export async function readPlaygroundStream(response: Response, onText: (text: st
     return { text: redact(text), ttftMs, durationMs: Math.round(now() - startedAt), input, output, reasoning }
   } finally { await reader.cancel(); reader.releaseLock() }
 }
+
+/** Next may normalize nextUrl.hostname to localhost; Host retains the browser's authority. */
+export function isSameOriginRequest(origin: string | null, host: string | null, protocol: string): boolean {
+  return Boolean(host) && (protocol === "http:" || protocol === "https:") && origin === `${protocol}//${host}`
+}

@@ -202,7 +202,10 @@ export function LogsClient({
             {events.map((event) => (
               <tr
                 key={event.requestId}
-                onClick={() => setOpenId(event.requestId)}
+                onClick={(click) => {
+                  click.currentTarget.querySelector<HTMLButtonElement>("button")?.focus()
+                  setOpenId(event.requestId)
+                }}
                 className="cursor-pointer transition-colors hover:bg-surface-muted"
               >
                 <Td className="whitespace-nowrap font-mono text-xs">{formatDateTime(event.ts)}</Td>

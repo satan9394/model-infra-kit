@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { readFileSync } from "node:fs"
 import {
   buildCreateProviderPayload,
   buildProviderUpdatePayload,
@@ -10,6 +11,16 @@ import {
   PROVIDER_PRESETS,
   PROVIDER_PROTOCOLS,
 } from "../lib/provider-presets.ts"
+
+test("provider ID HTML pattern compiles under browser Unicode sets mode", () => {
+  const source = readFileSync(new URL("../components/add-provider-modal.tsx", import.meta.url), "utf8")
+  const pattern = source.match(/pattern="([^"]+)"/)?.[1]
+  assert.ok(pattern)
+  const browserPattern = new RegExp(`^(?:${pattern})$`, "v")
+  assert.ok(browserPattern.test("my.gateway_2-prod"))
+  assert.equal(browserPattern.test("bad:id"), false)
+  assert.equal(browserPattern.test("<script>"), false)
+})
 
 test("provider protocol options match the dashboard API contract", () => {
   assert.deepEqual(PROVIDER_PROTOCOLS, [

@@ -192,7 +192,7 @@ export function AddProviderModal({
                 placeholder="my-gateway"
                 autoComplete="off"
                 maxLength={64}
-                pattern="[a-zA-Z0-9_.-]+"
+                pattern="[a-zA-Z0-9_.\-]+"
                 aria-describedby="provider-id-help"
                 required
               />
