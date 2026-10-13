@@ -29,7 +29,7 @@ export interface HubEventsState {
  * `EventSource` reconnects on its own, so a mik restart is picked up without a
  * page reload; `connected` only reflects the browser's view of the stream.
  */
-export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
+export function useHubEvents(handlers: HubEventsHandlers, enabled = true): HubEventsState {
   const ref = useRef(handlers)
   ref.current = handlers
   const [state, setState] = useState<HubEventsState>({
@@ -40,8 +40,10 @@ export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
   })
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof EventSource === "undefined") return
-    const source = new EventSource("/api/events")
+    if (!enabled || typeof window === "undefined" || typeof EventSource === "undefined") return
+    let source: EventSource
+    let retry: ReturnType<typeof setTimeout> | undefined
+    let disposed = false
 
     const handle = (type: HubEventFrame["type"]) => (event: MessageEvent<string>) => {
       let frame: HubEventFrame
@@ -64,16 +66,24 @@ export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
     const onCatalog = handle("catalog.updated")
     const onPricing = handle("pricing.updated")
     const onOpen = () => setState((previous) => ({ ...previous, connected: true, error: null }))
-    const onError = () =>
+    const onError = () => {
       setState((previous) => ({ ...previous, connected: false, error: message("s410") }))
+      // A non-200 response can permanently close EventSource instead of retrying.
+      if (source.readyState === EventSource.CLOSED && retry === undefined) {
+        retry = setTimeout(() => { retry = undefined; detach(); if (!disposed) connect() }, 5_000)
+      }
+    }
 
-    source.addEventListener("open", onOpen)
-    source.addEventListener("error", onError)
-    source.addEventListener("usage.recorded", onUsage as EventListener)
-    source.addEventListener("catalog.updated", onCatalog as EventListener)
-    source.addEventListener("pricing.updated", onPricing as EventListener)
+    function connect() {
+      source = new EventSource("/api/events")
+      source.addEventListener("open", onOpen)
+      source.addEventListener("error", onError)
+      source.addEventListener("usage.recorded", onUsage as EventListener)
+      source.addEventListener("catalog.updated", onCatalog as EventListener)
+      source.addEventListener("pricing.updated", onPricing as EventListener)
+    }
 
-    return () => {
+    function detach() {
       source.removeEventListener("open", onOpen)
       source.removeEventListener("error", onError)
       source.removeEventListener("usage.recorded", onUsage as EventListener)
@@ -81,7 +91,9 @@ export function useHubEvents(handlers: HubEventsHandlers): HubEventsState {
       source.removeEventListener("pricing.updated", onPricing as EventListener)
       source.close()
     }
-  }, [])
+    connect()
+    return () => { disposed = true; clearTimeout(retry); detach() }
+  }, [enabled])
 
   return state
 }

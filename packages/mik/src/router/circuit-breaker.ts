@@ -30,6 +30,10 @@ export class CircuitBreaker {
   state(providerId: string): ProviderHealthState {
     return this.health.get(providerId)?.state ?? "CLOSED"
   }
+  /** Read-only copies of retained observations, keyed by provider or provider:model. */
+  snapshot(): Array<{ key: string; state: ProviderHealthState }> {
+    return [...this.health].map(([key, health]) => ({ key, state: health.state }))
+  }
   available(providerId: string): boolean {
     const health = this.health.get(providerId)
     return !health || health.state === "CLOSED" || (!health.probing && this.now() - health.openedAt >= this.cooldownMs)

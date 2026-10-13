@@ -48,7 +48,7 @@ export interface ServerContext {
   budgetStatus?: () => import("../usage/budget.js").BudgetStatus
   hub: ModelInfra
   /** Token metadata only; the bearer secret never reaches handlers. */
-  auth?: { scopes: string[]; appId?: string }
+  auth?: { scopes: string[]; appId?: string; authenticated?: boolean }
   appId?: string
   /** Fan-out for `GET /api/events`; fed by the taps in `events.ts`. */
   bus: EventBus

@@ -24,12 +24,12 @@ export function BudgetPill({ showAlert = false }: { showAlert?: boolean }) {
     return () => { active = false; clearInterval(timer) }
   }, [])
   const level = status ? budgetLevel(status) : "ok"
-  const periods = ([ [t("s23"), status?.daily], [t("s24"), status?.monthly] ] as const).filter((entry) => entry[1])
+  const periods = ([ [t("s23"), status?.daily], [t("s24"), status?.monthly] ] as const).filter((entry) => entry[1] && Number.isFinite(entry[1].limitMicros) && entry[1].limitMicros > 0)
   return <div className="my-2 text-xs" data-testid={showAlert ? "overview-budget-center" : "budget-center"}>
-    <details className={`rounded-xl border px-3 py-2 ${error ? "border-border text-subtle" : BUDGET_TONES[level]}`}>
+    <details className={`rounded-xl border px-3 py-2 ${error || periods.length === 0 ? "border-border text-subtle" : BUDGET_TONES[level]}`}>
       <summary className="cursor-pointer select-none rounded focus-visible:outline-2 focus-visible:outline-primary" data-testid={showAlert ? "overview-budget-pill" : "budget-pill"}>
         <span aria-hidden="true" className={`mr-2 inline-block h-2 w-2 rounded-full bg-current ${level === "warning" ? "motion-safe:animate-pulse" : ""}`} />
-        {error ? t("s25") : !status ? t("s26") : periods.length === 0 ? t("s27") : periods.map(([label, period]) => `${label} ${period!.percent}%`).join(" · ")}
+        {error ? t("s25") : !status ? t("s26") : periods.length === 0 ? t("status.budgetUnconfigured") : periods.map(([label, period]) => `${label} ${period!.percent}%`).join(" · ")}
         {status?.hardCap && !error ? <span role="status" data-testid="budget-hard-cap" className="ml-2">{level === "exceeded" ? t("budget.hardBlocked") : t("budget.hardReady")}</span> : null}
       </summary>
       <div className="mt-3 space-y-3">

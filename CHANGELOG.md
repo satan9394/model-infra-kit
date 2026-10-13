@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G140 (2026-10-13)
+
+- Add a shared topbar with authenticated app scope, page title, independent gateway/SSE status, connection snapshot freshness and global controls.
+- Show unconfigured budgets without percentages; separate explicit provider test results from retained instance-local circuit observations.
+- Recover terminally closed SSE streams after gateway outages; keep status reads pure and add scoped app identity/circuit observations to diagnostic responses.
+
 ## Local candidate — EVO-G139 (2026-10-13)
 
 - Preserve dashboard URL filters across overview rankings, failed-request links, cost trends and daily log drilldowns; clear stale pagination on filter changes.

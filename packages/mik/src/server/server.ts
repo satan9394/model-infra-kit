@@ -219,7 +219,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
   })
   router.add("GET", "/api/connections", (ctx) => {
     const entries = [...resources.values()].flatMap(value => value.connections.snapshot(ctx.appId ?? ctx.hub.appId).connections)
-    sendJson(ctx.res, 200, { active: entries.length, requests: entries.filter(entry => entry.kind === "chat").length,
+    sendJson(ctx.res, 200, { appId: ctx.appId ?? ctx.hub.appId, authenticated: ctx.auth?.authenticated === true, active: entries.length, requests: entries.filter(entry => entry.kind === "chat").length,
       events: entries.filter(entry => entry.kind === "events").length, connections: entries })
   })
   router.add("GET", "/metrics", (ctx) => {
@@ -314,7 +314,7 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
         heartbeatMs,
         startedAt,
         trackSse,
-        auth: principal ? { scopes: principal.scopes, appId: principal.appId } : { scopes: ["admin"] },
+        auth: principal ? { scopes: principal.scopes, appId: principal.appId, authenticated: true } : { scopes: ["admin"], authenticated: false },
         appId: principal?.appId ?? hub.appId,
       }
       if (!isPublicRoute(segments)) requireScope(endpointScope(method, segments))(ctx)

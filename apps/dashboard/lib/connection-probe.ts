@@ -1,4 +1,6 @@
 export interface ConnectionSnapshot {
+  appId?: string
+  authenticated?: boolean
   active: number
   requests: number
   events: number
@@ -8,6 +10,10 @@ export interface ProbeState {
   status: "pending" | "ready" | "offline"
   snapshot: ConnectionSnapshot | null
   rttMs: number | null
+}
+
+export function connectionAppScope(snapshot: ConnectionSnapshot): string {
+  return snapshot.authenticated ? snapshot.appId ?? "default" : "default"
 }
 
 /** Latest probe wins; disposal/aborts never publish stale network results. */
@@ -33,7 +39,7 @@ export function createConnectionProbe(
         const response = await fetcher("/api/mik/connections", { cache: "no-store", signal: current.signal })
         if (!response.ok) throw new Error("Connection probe failed")
         const snapshot: ConnectionSnapshot = await response.json()
-        if (!Number.isSafeInteger(snapshot.requests) || snapshot.requests < 0 || !Number.isSafeInteger(snapshot.events)
+        if ((snapshot.appId !== undefined && typeof snapshot.appId !== "string") || (snapshot.authenticated !== undefined && typeof snapshot.authenticated !== "boolean") || !Number.isSafeInteger(snapshot.requests) || snapshot.requests < 0 || !Number.isSafeInteger(snapshot.events)
           || snapshot.events < 0 || snapshot.active !== snapshot.requests + snapshot.events || !Array.isArray(snapshot.connections)
           || snapshot.connections.some(entry => !Number.isFinite(entry.startedAt) || typeof entry.model !== "string")) {
           throw new Error("Invalid connection snapshot")

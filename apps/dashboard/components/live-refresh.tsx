@@ -22,11 +22,15 @@ export function LiveRefresh({
   topics,
   ticker = false,
   debounceMs = 400,
+  controlsOnly = false,
+  onRefresh,
 }: {
   topics: Array<HubEventFrame["type"]>
   /** Show a running "本次会话新增" counter driven by `usage.recorded` frames. */
   ticker?: boolean
   debounceMs?: number
+  controlsOnly?: boolean
+  onRefresh?: () => void
 }) {
   const { t } = useI18n()
 
@@ -37,12 +41,13 @@ export function LiveRefresh({
   const [probe, setProbe] = useState<ProbeState>({ status: "pending", snapshot: null, rttMs: null })
   const probeRef = useRef<ReturnType<typeof createConnectionProbe> | null>(null)
   useEffect(() => {
+    if (controlsOnly) return
     const connectionProbe = createConnectionProbe(setProbe)
     probeRef.current = connectionProbe
     void connectionProbe.run()
     const interval = setInterval(() => { void connectionProbe.run() }, 15_000)
     return () => { clearInterval(interval); connectionProbe.dispose(); probeRef.current = null }
-  }, [])
+  }, [controlsOnly])
 
   const connectionLabel = probe.status === "ready"
     ? `${t("connections.active")}: ${probe.snapshot!.requests} · ${t("connections.rtt")}: ${probe.rttMs}ms`
@@ -78,7 +83,7 @@ export function LiveRefresh({
     onPricingUpdated: () => {
       if (topicsRef.current.includes("pricing.updated")) schedule()
     },
-  })
+  }, !controlsOnly)
 
   useEffect(() => {
     return () => {
@@ -88,7 +93,8 @@ export function LiveRefresh({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <LiveBadge state={state} />
+      {!controlsOnly ? <LiveBadge state={state} /> : null}
+      {!controlsOnly ? <>
       <button
         type="button"
         data-testid="connection-probe"
@@ -108,11 +114,13 @@ export function LiveRefresh({
       {refreshes > 0 ? (
         <span className="rounded border border-border bg-surface-muted px-2 py-1 text-[11px] text-subtle"> {t("s74")} {refreshes} {t("s75")} </span>
       ) : null}
+      </> : null}
       <button
         type="button"
         onClick={() => {
           setRefreshes((value) => value + 1)
           router.refresh()
+          onRefresh?.()
         }}
         className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
       > {t("s76")} </button>

@@ -18,6 +18,7 @@ import { formatDateTime } from "@/lib/format"
 import type { ModelInfo, ProviderRecord, ProviderStatus } from "@/lib/types"
 import { Badge, EmptyState } from "@/components/ui"
 import { QoSStatus } from "@/components/qos-status"
+import { StatusIndicator } from "@/components/status-indicator"
 import { useQoS } from "@/lib/qos"
 
 interface RowState {
@@ -284,6 +285,10 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                               {provider.name || provider.id}
                             </h3>
                             <QoSStatus channels={qos.channels.filter(s => s.providerId === provider.id)} unavailable={qos.unavailable} />
+                            <StatusIndicator signal={{ kind: "probe", outcome: row.status ? row.status.ok ? "success" : "failed" : null, testedAt: row.status?.checkedAt ?? null }} />
+                            {qos.unavailable || !qos.circuits.some(entry => entry.key === provider.id || entry.key.startsWith(`${provider.id}:`))
+                              ? <StatusIndicator signal={{ kind: "circuit", state: null, unavailable: qos.unavailable }} />
+                              : qos.circuits.filter(entry => entry.key === provider.id || entry.key.startsWith(`${provider.id}:`)).map(entry => <StatusIndicator key={entry.key} signal={{ kind: "circuit", state: entry.state, healthKey: entry.key }} />)}
                             <Badge tone="info">{provider.protocol ?? "openai-compatible"}</Badge>
                             <code className="truncate font-mono text-[11px] text-subtle" title={provider.id}>{provider.id}</code>
                           </div>
@@ -314,7 +319,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                                 : "border-border bg-surface-muted/50 text-subtle"
                         }`}>
                           <span aria-hidden="true" className={`size-1.5 rounded-full bg-current ${row.testing || isOnline || isOffline ? "motion-safe:animate-pulse shadow-[0_0_8px_currentColor]" : ""}`} />
-                          {row.testing ? t("s203") : isOnline ? t("s204") : isOffline ? t("s205") : t("s206")}
+                          {row.testing ? t("s203") : t("status.activeProbe")}
                         </div>
                         {typeof row.status?.latencyMs === "number" ? (
                           <span

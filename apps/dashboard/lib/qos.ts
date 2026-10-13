@@ -20,20 +20,21 @@ export interface EndpointQoSStats {
 
 /** One poll per view, never one per card. Keep credentials in the existing proxy. */
 export function useQoS() {
+  const [circuits, setCircuits] = useState<Array<{ key: string; state: "CLOSED" | "OPEN" | "HALF_OPEN" }>>([])
   const [channels, setChannels] = useState<EndpointQoSStats[]>([])
   const [unavailable, setUnavailable] = useState(false)
   useEffect(() => {
     const abort = new AbortController()
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
-      const result = await apiCall<{ channels: EndpointQoSStats[] }>("/providers/qos", { signal: abort.signal })
+      const result = await apiCall<{ channels: EndpointQoSStats[]; circuits?: typeof circuits }>("/providers/qos", { signal: abort.signal })
       if (abort.signal.aborted) return
       setUnavailable(!result.ok)
-      if (result.ok) setChannels(result.data.channels)
+      if (result.ok) { setChannels(result.data.channels); setCircuits(result.data.circuits ?? []) }
       timer = setTimeout(poll, 5000)
     }
     void poll()
     return () => { abort.abort(); clearTimeout(timer) }
   }, [])
-  return { channels, unavailable }
+  return { channels, circuits, unavailable }
 }

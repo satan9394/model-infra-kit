@@ -799,7 +799,7 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
               ewmaRttMs: { type: "number" }, ewmaTtftMs: { type: ["number", "null"] }, jitterMs: { type: "number" },
               jitterVarianceMs2: { type: "number" }, successRate: { type: "number" }, consecutiveFailures: { type: "integer" },
               qosScore: { type: "integer" }, effectiveWeight: { type: "integer" }, lastUpdated: { type: "number" },
-            } } } },
+            } } }, circuits: { type: "array", description: "Retained passive observations in this runtime instance; an absent key is not a provider test result.", items: { type: "object", properties: { key: { type: "string" }, state: { enum: ["CLOSED", "OPEN", "HALF_OPEN"] } } } } },
           }), "401": error("Missing gateway credentials."), "403": error("insufficient_scope") },
         },
       },
@@ -1034,7 +1034,7 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           tags: ["events"],
           summary: "App-scoped active chat requests and event streams; requires read:usage.",
           responses: { "200": ok("Process-local connection metadata, no prompt or headers.", {
-            type: "object", properties: { active: { type: "integer" }, requests: { type: "integer" }, events: { type: "integer" },
+            type: "object", properties: { appId: { type: "string", description: "Effective application scope." }, authenticated: { type: "boolean", description: "This non-public diagnostic read passed configured token authentication." }, active: { type: "integer" }, requests: { type: "integer" }, events: { type: "integer" },
               connections: { type: "array", items: { type: "object", properties: { id: { type: "string" }, kind: { enum: ["chat", "events"] },
                 startedAt: { type: "integer" }, model: { type: "string" }, ip: { type: "string" }, appId: { type: "string" } } } } },
           }), "401": error("Missing or invalid token."), "403": error("Insufficient scope or different app.") },
