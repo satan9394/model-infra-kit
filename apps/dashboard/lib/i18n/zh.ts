@@ -605,4 +605,9 @@ export const zh = {
   "nav.pricing": "价格管理",
   "nav.quotas": "配额与限流",
   "nav.connect": "快速接入与调试",
+  "drilldown.viewFailures": "查看失败请求",
+  "drilldown.viewLogs": "查看日志",
+  "drilldown.filterItem": "按 {0} 筛选",
+  "drilldown.viewItemLogs": "查看 {0} 的日志",
+  "drilldown.viewDayLogs": "查看 {0} 当天的日志",
 } as const

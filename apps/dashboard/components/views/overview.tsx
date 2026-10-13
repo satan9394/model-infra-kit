@@ -9,7 +9,7 @@ import { LiveRefresh } from "@/components/live-refresh"
 import { Badge, Card, CardGrid, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
 import { formatCompact, formatInt, formatMs, formatPercent, formatUsd, formatUsdSpan, tokenTotal } from "@/lib/format"
-import { rangeQueryString, readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
+import { preserveFiltersQuery, toRouteHref, readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadBuckets, loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
 export interface ViewProps {
@@ -98,7 +98,14 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           value={formatInt(summaryData?.requests)}
           hint={
             summaryData
-              ? t("s296", formatInt(summaryData.successes), formatInt(summaryData.failures), formatPercent(summaryData.successRate))
+              ? <>
+                  {t("s296", formatInt(summaryData.successes), formatInt(summaryData.failures), formatPercent(summaryData.successRate))}
+                  {summaryData.failures > 0 ? (
+                    <Link href={toRouteHref("/logs", params, { status: "error" })} data-testid="overview-failures-drilldown" aria-label={t("drilldown.viewFailures")} className="ml-2 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                      {t("drilldown.viewFailures")}
+                    </Link>
+                  ) : null}
+                </>
               : t("s294")
           }
           tone={summaryData && summaryData.failures > 0 ? "warn" : "neutral"}
@@ -130,7 +137,9 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           className="min-w-0"
           actions={
             <Link
-              href={`/trends${rangeQueryString(range)}`}
+              href={toRouteHref("/trends", params)}
+              data-testid="overview-trends-drilldown"
+              aria-label={t("s303")}
               className="rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             > {t("s303")} </Link>
           }
@@ -196,8 +205,11 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                 {providerBuckets.map((bucket) => (
                   <tr key={bucket.key}>
                     <Td>
-                      <Link href={`?provider=${encodeURIComponent(bucket.key)}`} className="text-foreground hover:text-info">
+                      <Link href={preserveFiltersQuery(params, { provider: bucket.key }) || "?"} data-testid="overview-provider-filter" aria-label={t("drilldown.filterItem", bucket.key)} className="text-foreground hover:text-info focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                         {bucket.key || t("s317")}
+                      </Link>
+                      <Link href={toRouteHref("/logs", params, { provider: bucket.key })} data-testid="overview-provider-logs" aria-label={t("drilldown.viewItemLogs", bucket.key)} className="ml-2 inline-block text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        {t("drilldown.viewLogs")}
                       </Link>
                     </Td>
                     <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
@@ -231,8 +243,11 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                 {modelBuckets.map((bucket) => (
                   <tr key={bucket.key}>
                     <Td>
-                      <Link href={`?model=${encodeURIComponent(bucket.key)}`} className="text-foreground hover:text-info">
+                      <Link href={preserveFiltersQuery(params, { model: bucket.key }) || "?"} data-testid="overview-model-filter" aria-label={t("drilldown.filterItem", bucket.key)} className="text-foreground hover:text-info focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                         {bucket.key || t("s317")}
+                      </Link>
+                      <Link href={toRouteHref("/logs", params, { model: bucket.key })} data-testid="overview-model-logs" aria-label={t("drilldown.viewItemLogs", bucket.key)} className="ml-2 inline-block text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        {t("drilldown.viewLogs")}
                       </Link>
                     </Td>
                     <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>

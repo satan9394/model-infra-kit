@@ -1,11 +1,12 @@
 import { getI18n } from "@/lib/i18n/server"
+import Link from "next/link"
 import { TokenCostChart } from "@/components/charts/token-cost"
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { Card, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
 import { formatCompact, formatInt, formatUsdSpan, tokenTotal } from "@/lib/format"
-import { readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
+import { readFilters, resolveRange, toRouteHref, usageQuery, type SearchParams } from "@/lib/range"
 import { loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
 export interface ViewProps {
@@ -112,7 +113,11 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
               <tbody>
                 {points.map((point) => (
                   <tr key={point.date}>
-                    <Td className="font-mono">{point.date}</Td>
+                    <Td className="font-mono">
+                      <Link href={toRouteHref("/logs", params, { range: "custom", from: point.date, to: point.date })} data-testid="trends-day-drilldown" aria-label={t("drilldown.viewDayLogs", point.date)} className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        {point.date}
+                      </Link>
+                    </Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.requests)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.input)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.output)}</Td>

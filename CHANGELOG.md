@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G139 (2026-10-13)
+
+- Preserve dashboard URL filters across overview rankings, failed-request links, cost trends and daily log drilldowns; clear stale pagination on filter changes.
+- Restore incoming provider/model selections even when absent from the catalog; reset all filters to the default view.
+- Keep local calendar day boundaries through DST and preserve exact epoch boundaries in existing log pagination links.
+
 ## Local candidate — EVO-G138 (2026-10-13)
 
 - Make dashboard search treat IDs and punctuation as bounded literal phrases; restore request-button focus after opening log details from a row cell.

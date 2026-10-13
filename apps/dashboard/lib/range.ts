@@ -32,8 +32,6 @@ export interface ResolvedRange {
 
 export type SearchParams = Record<string, string | string[] | undefined>
 
-const DAY_MS = 86_400_000
-
 function first(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0]
   return value
@@ -56,12 +54,26 @@ export function parseDateInput(value: string | undefined): number | null {
   if (!match) return null
   const [, y, m, d] = match
   const date = new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0)
-  return Number.isNaN(date.getTime()) ? null : date.getTime()
+  return Number.isNaN(date.getTime()) || toDateInput(date.getTime()) !== value.trim() ? null : date.getTime()
 }
 
 export function startOfLocalDay(ts: number): number {
   const d = new Date(ts)
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
+}
+
+/** Calendar arithmetic preserves local midnight across 23/25-hour DST days. */
+function shiftLocalDay(ts: number, days: number): number {
+  const d = new Date(ts)
+  d.setDate(d.getDate() + days)
+  return d.getTime()
+}
+
+/** Existing log pagination URLs carry exact API epoch-ms boundaries. */
+function parseEpoch(value: string | undefined): number | null {
+  if (!value || !/^\d+$/.test(value)) return null
+  const ts = Number(value)
+  return Number.isSafeInteger(ts) && !Number.isNaN(new Date(ts).getTime()) ? ts : null
 }
 
 function presetLabel(preset: RangePreset, range: ResolvedRange): string {
@@ -96,19 +108,19 @@ export function resolveRange(params: SearchParams, now = Date.now()): ResolvedRa
     from = todayStart
     to = now
   } else if (preset === "7d") {
-    from = todayStart - 6 * DAY_MS
+    from = shiftLocalDay(todayStart, -6)
     to = now
   } else if (preset === "30d") {
-    from = todayStart - 29 * DAY_MS
+    from = shiftLocalDay(todayStart, -29)
     to = now
   } else {
-    const parsedFrom = parseDateInput(first(params.from))
+    const parsedFrom = parseEpoch(first(params.from)) ?? parseDateInput(first(params.from))
+    const exactTo = parseEpoch(first(params.to))
     const parsedTo = parseDateInput(first(params.to))
-    const fallbackTo = toDateInput(now)
-    const start = parsedFrom ?? startOfLocalDay(now) - 29 * DAY_MS
+    const start = parsedFrom ?? shiftLocalDay(todayStart, -29)
     // An end date is inclusive: it covers the whole local day.
     const endDay = parsedTo ?? startOfLocalDay(now)
-    to = Math.min(endDay + DAY_MS - 1, now)
+    to = Math.min(exactTo ?? shiftLocalDay(endDay, 1) - 1, now)
     from = Math.min(start, to)
   }
 
@@ -160,18 +172,33 @@ export function usageQuery(range: ResolvedRange, filters: UsageFilters = {}): st
   return search.toString()
 }
 
-/** Preserve the current filters while replacing the window. */
-export function withRange(params: SearchParams, patch: Partial<{ range: RangePreset; from: string; to: string }>): string {
+/** Merge URL view state without carrying a stale page number. First value wins. */
+export function preserveFiltersQuery(params: SearchParams, overrides: Record<string, string | undefined> = {}): string {
   const search = new URLSearchParams()
-  for (const key of ["provider", "model", "status", "limit"]) {
-    const value = first(params[key])
+  for (const [key, raw] of Object.entries(params)) {
+    const value = first(raw)
     if (value) search.set(key, value)
   }
-  if (patch.range) search.set("range", patch.range)
-  if (patch.from) search.set("from", patch.from)
-  if (patch.to) search.set("to", patch.to)
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value) search.set(key, value)
+    else search.delete(key)
+  }
+  search.delete("offset")
   const query = search.toString()
   return query ? `?${query}` : ""
+}
+
+/** Only navigation paths or explicit HTTP(S) URLs; never executable schemes. */
+export function toRouteHref(targetRoute: string, params: SearchParams, overrides?: Record<string, string | undefined>): string {
+  if (!/^(?:https?:\/\/[^\s\\?#]+|\/?[\w./-]+)$/.test(targetRoute) || targetRoute.startsWith("//")) {
+    throw new TypeError("Invalid dashboard route")
+  }
+  return `${targetRoute}${preserveFiltersQuery(params, overrides)}`
+}
+
+/** Preserve all filters while replacing the window and removing stale dates. */
+export function withRange(params: SearchParams, patch: Partial<{ range: RangePreset; from: string; to: string }>): string {
+  return preserveFiltersQuery(params, { range: patch.range, from: patch.from, to: patch.to })
 }
 
 /** `?range=...` (plus `from`/`to` for a custom window) to link between pages. */

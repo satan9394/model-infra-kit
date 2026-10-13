@@ -605,4 +605,9 @@ export const en = {
   "nav.pricing": "Pricing Management",
   "nav.quotas": "Quotas & Rate Limits",
   "nav.connect": "Quick Connect & Debug",
+  "drilldown.viewFailures": "View failed requests",
+  "drilldown.viewLogs": "View logs",
+  "drilldown.filterItem": "Filter by {0}",
+  "drilldown.viewItemLogs": "View logs for {0}",
+  "drilldown.viewDayLogs": "View logs for {0}",
 } as const
