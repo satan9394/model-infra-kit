@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G142 (2026-10-13)
+
+- Distinguish supplier-exact, estimated and unknown cost coverage, with reconciliation warnings and micro-dollar precision even on chart axes.
+- Separate daily token and recorded USD charts; show cost endpoints and output/input ratios without inventing missing charges.
+- Show effective model-price sources and replace native revoke dialogs with inline confirmation showing the actual fallback; preserve remaining overrides and historical bills.
+
 ## Local candidate — EVO-G141 (2026-10-13)
 
 - Separate recorded logical calls from Attempts with runtime-owned identity, ordinal, timing and structured error/fallback categories; preserve existing usage counts and accounting.

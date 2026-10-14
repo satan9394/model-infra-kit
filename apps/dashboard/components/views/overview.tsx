@@ -8,7 +8,7 @@ import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { Badge, Card, CardGrid, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
-import { formatCompact, formatInt, formatMs, formatPercent, formatUsd, formatUsdSpan, tokenTotal } from "@/lib/format"
+import { costAccuracy, formatCompact, formatInt, formatMs, formatPercent, formatUsd, formatUsdSpan, tokenTotal } from "@/lib/format"
 import { preserveFiltersQuery, toRouteHref, readFilters, resolveRange, usageQuery, type SearchParams } from "@/lib/range"
 import { loadBuckets, loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
@@ -86,10 +86,17 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
           label={t("s292")}
           featured
           testId="overview-cost-span"
-          value={formatUsdSpan(summaryData?.costLowUsd, summaryData?.costHighUsd)}
+          value={costAccuracy(summaryData) === "unknown" && summaryData?.costHighUsd === 0 && hasUsage ? "—" : formatUsdSpan(summaryData?.costLowUsd, summaryData?.costHighUsd)}
           hint={
             summaryData
-              ? t("s293", formatUsd(summaryData.costLowUsd), formatUsd(summaryData.costHighUsd))
+              ? <>
+                  <Badge tone={costAccuracy(summaryData) === "unknown" ? "warn" : "muted"}>{t(`cost.${costAccuracy(summaryData)}`)}</Badge>
+                  <span className="ml-2">
+                    {costAccuracy(summaryData) === "unknown" && summaryData.costHighUsd === 0 && hasUsage
+                      ? t("cost.noKnownAmount")
+                      : t("s293", formatUsd(summaryData.costLowUsd), formatUsd(summaryData.costHighUsd))}
+                  </span>
+                </>
               : t("s294")
           }
         />
@@ -121,6 +128,12 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
         />
       </CardGrid>
 
+      {costAccuracy(summaryData) === "unknown" && hasUsage ? (
+        <p data-testid="overview-cost-reconciliation" role="status" className="mt-3 rounded-lg border border-warning/35 bg-warning/10 p-3 text-sm text-warning">
+          {t("cost.reconcile", formatInt(summaryData?.unpricedRequests), formatInt(summaryData?.unmeasuredRequests))}
+        </p>
+      ) : null}
+
       {!hasUsage && upstreamErrors.length === 0 ? (
         <div className="mt-5">
           <EmptyState
@@ -133,7 +146,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <Card
           title={t("s301", t(range.label))}
-          subtitle={t("s302")}
+          subtitle={t("cost.bandNote")}
           className="min-w-0"
           actions={
             <Link
@@ -215,7 +228,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                     <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
                     <Td className="text-right tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
                     <Td className="whitespace-nowrap text-right tabular-nums">
-                      {formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
+                      {costAccuracy(summaryData) === "unknown" && bucket.costHighUsd === 0 && bucket.requests > 0 ? "—" : formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
                     </Td>
                   </tr>
                 ))}
@@ -253,7 +266,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
                     <Td className="text-right tabular-nums">{formatInt(bucket.requests)}</Td>
                     <Td className="text-right tabular-nums">{formatCompact(tokenTotal(bucket.tokens))}</Td>
                     <Td className="whitespace-nowrap text-right tabular-nums">
-                      {formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
+                      {costAccuracy(summaryData) === "unknown" && bucket.costHighUsd === 0 && bucket.requests > 0 ? "—" : formatUsdSpan(bucket.costLowUsd, bucket.costHighUsd)}
                     </Td>
                   </tr>
                 ))}

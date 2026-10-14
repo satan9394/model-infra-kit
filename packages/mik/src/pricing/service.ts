@@ -328,6 +328,20 @@ export class PricingService {
       const tier = manualTier(manual, model)
       return tier ? pricingFromTier(tier) : pricingFromOverride(manual)
     }
+    return this.catalogPriceFor(model, at, facts)
+  }
+
+  /** Preview removal of this exact key, retaining any bare-model override. */
+  priceAfterRemovingOverride(model: string, at?: number, facts?: RequestFacts): ModelPricing | null {
+    const manual = this.findOverride(model, model)
+    if (manual) {
+      const tier = manualTier(manual, model)
+      return tier ? pricingFromTier(tier) : pricingFromOverride(manual)
+    }
+    return this.catalogPriceFor(model, at, facts)
+  }
+
+  private catalogPriceFor(model: string, at?: number, facts?: RequestFacts): ModelPricing | null {
     const cachedTier = this.cachedTier(model)
     if (cachedTier) return pricingFromTier(cachedTier, facts?.usedReasoning)
     this.warm()
@@ -503,11 +517,12 @@ export class PricingService {
    * `provider:model` reaches us from `ModelRequest` refs, while a manual price
    * is keyed on the model id, so the bare id is tried as a fallback.
    */
-  private findOverride(model: string): PricingOverride | null {
-    const direct = this.store.pricing.get(model)
+  private findOverride(model: string, excluded?: string): PricingOverride | null {
+    const direct = model === excluded ? null : this.store.pricing.get(model)
     if (direct) return direct
     const colon = model.indexOf(":")
-    return colon >= 0 ? this.store.pricing.get(model.slice(colon + 1)) : null
+    const bare = colon >= 0 ? model.slice(colon + 1) : null
+    return bare !== null && bare !== excluded ? this.store.pricing.get(bare) : null
   }
 
   private warnMissing(model: string): void {

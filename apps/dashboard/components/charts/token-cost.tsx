@@ -37,7 +37,7 @@ const SERIES = [
  * Token mix per day (stacked areas, left axis) with cost as a line on the
  * right axis, so a cheap day with a large token count stays visible.
  */
-export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoint[]; height?: number }) {
+export function TokenCostChart({ points, height = 340, tokensOnly = false }: { points: UsageTrendPoint[]; height?: number; tokensOnly?: boolean }) {
   const { t } = useI18n()
 
   if (points.length === 0) {
@@ -52,7 +52,7 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
   const data = points.map((point) => ({
     label: formatDay(point.date),
     date: point.date,
-    input: point.tokens.input,
+    input: tokensOnly ? Math.max(0, point.tokens.input - point.tokens.cacheRead - point.tokens.cacheWrite) : point.tokens.input,
     output: point.tokens.output,
     cacheRead: point.tokens.cacheRead,
     cacheWrite: point.tokens.cacheWrite,
@@ -72,14 +72,14 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
             axisLine={{ stroke: "var(--color-chart-grid)" }}
             width={64}
           />
-          <YAxis
+          {!tokensOnly ? <YAxis
             yAxisId="cost"
             orientation="right"
             tickFormatter={(value: unknown) => formatUsd(Number(value), 2)}
             tickLine={false}
             axisLine={{ stroke: "var(--color-chart-grid)" }}
             width={70}
-          />
+          /> : null}
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
             labelStyle={{ color: "var(--color-chart-axis)" }}
@@ -92,7 +92,7 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
             <Area
               key={series.key}
               yAxisId="tokens"
-              type="monotone"
+              type="linear"
               dataKey={series.key}
               name={series.label}
               stackId="tokens"
@@ -100,9 +100,10 @@ export function TokenCostChart({ points, height = 340 }: { points: UsageTrendPoi
               fill={series.color}
               fillOpacity={0.28}
               strokeWidth={1.5}
+              isAnimationActive={false}
             />
           ))}
-          <Line yAxisId="cost" type="monotone" dataKey="costUsd" name={t("s42")} stroke="var(--color-chart-cost)" strokeWidth={2} dot={false} />
+          {!tokensOnly ? <Line yAxisId="cost" type="linear" dataKey="costUsd" name={t("s42")} stroke="var(--color-chart-cost)" strokeWidth={2} dot={false} /> : null}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

@@ -1836,3 +1836,13 @@ are not included in the diagnostic projection. 408/504 classify as timeout;
 other 4xx classify as terminal_4xx; diagnostic classification does not change routing.
 Trace trees require a complete retained graph with one real root and valid,
 unique, acyclic parent edges; otherwise render Call Sequence without inferred parents.
+
+## EVO-G142: recorded cost provenance and removal preview
+
+GET /api/usage/summary adds costAccuracy (exact | estimate | unknown), exactRequests and retainedRequests to summary. Exact requires every request to remain in detail and carry pricing_source=provider with pricing_basis=exact. A point-shaped manual/catalogue estimate is still estimate. Missing prices or folded provenance make the whole range unknown; recorded amounts remain lower bounds. Empty ranges are estimate, with zero recorded requests. These fields do not reprice or change integer ledger amounts. Older servers without these fields display unknown provenance.
+
+UsageService.costProvenance(query) returns scoped retainedRequests and exactRequests; folded records contribute neither. PricingService.priceAfterRemovingOverride(modelId, at?, facts?) reads the existing effective-price chain while excluding only the exact override key selected for removal. A remaining bare-model override can still apply. It never removes or rewrites an override.
+
+GET /api/pricing adds prices: [{ modelId, effective: ModelPricing | null, baseline: ModelPricing | null }], covering known models and manual override keys. Baseline is the price after removing that exact key, including a remaining bare override, cached/live catalogue tiers, catalogue and archive fallback. Missing cards remain null and absent rates remain absent. This preview is a current read, not a locked price promise; later sync/edits may change future pricing. Historical recorded costs never change.
+
+Dashboard charts use recorded daily low/high endpoints, separated from token consumption. The token panel subtracts cache read/write from reported input for the uncached series; reasoning is already included in output. Daily table keeps reported token fields, with output/input ratio undefined for zero input. Revoke is a two-step row interaction; cancellation sends nothing, success refreshes, failure preserves retry and reports the error.

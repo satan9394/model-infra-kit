@@ -42,7 +42,7 @@ test("EVO-G88: formatUsd follows the CLI's usage-money precision rule", () => {
   // A negative that rounds to zero micro-USD is zero, never "-$0".
   assert.equal(formatUsd(-0.0000001), "$0")
   // An explicit `digits` still wins (chart axes ask for 2, the log panel for 6).
-  assert.equal(formatUsd(0.000654, 2), "$0.00")
+  assert.equal(formatUsd(0.000654, 2), "$0.000654")
   assert.equal(formatUsd(0.000654, 6), "$0.000654")
   assert.equal(formatUsd(1.5, 2), "$1.50")
 })

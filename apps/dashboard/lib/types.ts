@@ -127,6 +127,12 @@ export interface ModelCatalogPayload {
 }
 
 export interface UsageSummary {
+  costAccuracy?: "exact" | "estimate" | "unknown"
+  costLowerBoundOnly?: boolean
+  unpricedRequests?: number
+  unmeasuredRequests?: number
+  exactRequests?: number
+  retainedRequests?: number
   /** Local replay ratio over retained detail requests only. */
   localCacheHitRate?: number
   localCacheHits?: number
@@ -291,6 +297,7 @@ export interface PricingDiscount {
 }
 
 export interface PricingPayload {
+  prices?: { modelId: string; effective: ModelPricing | null; baseline: ModelPricing | null }[]
   discounts?: PricingDiscount[]
   state: PricingState
   overrides: PricingOverride[]

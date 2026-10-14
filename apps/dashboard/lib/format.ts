@@ -4,7 +4,7 @@ import { message } from "./i18n/core.ts"
 /**
  * USD for the dashboard's cost surfaces.
  *
- * `digits` is the caller's own precision **when it names one** — the chart axes
+ * `digits` is the caller's precision unless it would hide a nonzero charge — the chart axes
  * ask for two, the log detail panel for six. The default follows the CLI's usage
  * money convention (`formatUsageMoney`, EVO-G85/G88): every amount comes from
  * integer micro-USD, so a value with nothing below 1e-4 keeps the four decimals
@@ -23,7 +23,8 @@ export function formatUsd(value: number | undefined | null, digits?: number): st
   const micros = Math.round(value * 1_000_000)
   // Also covers `-0` from a tiny negative: there is no "-$0".
   if (micros === 0) return "$0"
-  const places = digits ?? (micros % 100 === 0 ? 4 : 6)
+  const precision = micros % 100 === 0 ? 4 : 6
+  const places = digits !== undefined && Number((micros / 1_000_000).toFixed(digits)) !== 0 ? digits : precision
   const fixed = (micros / 1_000_000).toFixed(places)
   // Trim the noise a fixed-point rendering adds, keeping at least two decimals.
   const trimmed = fixed.replace(/(\.\d{2}\d*?)0+$/, "$1")
@@ -53,6 +54,28 @@ export function formatUsdSpan(low: number | undefined | null, high: number | und
     return floor
   }
   return low === high ? floor : `${floor} ~ ${formatUsd(high)}`
+}
+
+/** Point-shaped catalogue estimates are still estimates, never supplier bills. */
+export function costAccuracy(summary: {
+  costAccuracy?: "exact" | "estimate" | "unknown"
+  costLowerBoundOnly?: boolean
+  unpricedRequests?: number
+  unmeasuredRequests?: number
+} | null): "exact" | "estimate" | "unknown" {
+  if (!summary || summary.costLowerBoundOnly || (summary.unpricedRequests ?? 0) > 0 || (summary.unmeasuredRequests ?? 0) > 0) return "unknown"
+  return summary.costAccuracy ?? "unknown"
+}
+
+export function pricingSource(source: string | undefined): "override" | "synced" | "archive" | "unknown" {
+  if (source === "manual" || source === "override") return "override"
+  if (source === "modelsdev" || source === "openrouter") return "synced"
+  return source === "fallback" ? "archive" : "unknown"
+}
+
+/** Output / input; cache and reasoning are already subsets of those counts. */
+export function outputInputRatio(tokens: { input: number; output: number }): string {
+  return tokens.input > 0 ? `${(tokens.output / tokens.input * 100).toFixed(1)}%` : "—"
 }
 
 export function formatInt(value: number | undefined | null): string {
@@ -116,7 +139,10 @@ export function truncate(value: string | undefined | null, max = 40): string {
 export function formatRate(value: number | undefined | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—"
   if (value === 0) return "$0"
-  return `$${value.toFixed(value < 1 ? 3 : 2)}`
+  if (value > 0 && value < 0.000001) return `$${value.toPrecision(3)}`
+  const minimum = value < 1 ? 3 : 2
+  const fixed = value.toFixed(6)
+  return `$${fixed.replace(new RegExp(`(\\.\\d{${minimum}}\\d*?)0+$`), "$1")}`
 }
 
 export function tokenTotal(tokens: {

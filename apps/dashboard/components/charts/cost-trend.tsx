@@ -61,20 +61,21 @@ export function CostTrendChart({ points, height = 280 }: { points: UsageTrendPoi
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
             labelStyle={{ color: "var(--color-chart-axis)" }}
-            formatter={(value: unknown) => [formatUsd(Number(value)), t("s39")]}
+            formatter={(value: unknown, name: unknown) => [formatUsd(Number(value)), String(name)]}
             labelFormatter={(label: unknown) => String(label)}
             cursor={{ stroke: "var(--color-chart-cost)", strokeDasharray: "3 5", strokeOpacity: 0.4 }}
           />
           <Area
-            type="monotone"
-            dataKey="costUsd"
-            name={t("s39")}
+            type="linear"
+            dataKey="costLowUsd"
+            name={t("cost.low")}
             stroke="var(--color-chart-cost)"
             strokeWidth={2.5}
             fill="url(#costFill)"
             activeDot={{ r: 4, stroke: "var(--color-surface)", strokeWidth: 2 }}
             isAnimationActive={false}
           />
+          <Area type="linear" dataKey="costHighUsd" name={t("cost.high")} stroke="var(--color-chart-cost)" strokeDasharray="4 4" fill="none" isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

@@ -358,6 +358,9 @@ function schemas(): Record<string, Schema> {
           description:
             'True when `costUsd`/`costLowUsd`/`costHighUsd` must be read as a floor ("at least this much"), because part of the range has no knowable price: `unpricedRequests` and/or `unmeasuredRequests` is non-zero. A client that ignores this flag reads an unknown amount as an exact one — those three fields sum only what was recorded, and an unpriced request contributes 0. No amount is ever interpolated or estimated, and when this is false the cost is the exact recorded total.',
         },
+        costAccuracy: { type: "string", enum: ["exact", "estimate", "unknown"], description: "Exact requires every retained request to have supplier-reported provider/exact cost. Missing or aggregate-only provenance is unknown; catalogue and manual pricing remain estimates." },
+        exactRequests: { type: "integer", description: "Retained supplier-reported provider/exact records in this filter." },
+        retainedRequests: { type: "integer", description: "Retained detail records in this filter; excludes folded rows." },
         unpricedRequests: {
           type: "integer",
           description:
@@ -841,7 +844,9 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
           responses: {
             "200": ok("The pricing state.", {
               type: "object",
-              properties: { state: ref("PricingState"), overrides: { type: "array", items: ref("PricingOverride") } },
+              properties: { state: ref("PricingState"), overrides: { type: "array", items: ref("PricingOverride") }, prices: { type: "array", items: { type: "object", properties: {
+                modelId: { type: "string" }, effective: { anyOf: [ref("ModelPricing"), { type: "null" }] }, baseline: { anyOf: [ref("ModelPricing"), { type: "null" }] },
+              } } } },
             }),
           },
         },

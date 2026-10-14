@@ -409,6 +409,10 @@ export class UsageService {
    * sides of its ratios are measured over the rows whose provenance still
    * exists. See `UnpricedCoverage` for the exact accounting.
    */
+  costProvenance(query?: UsageQuery): { exactRequests: number; retainedRequests: number } {
+    return this.store.usage.costProvenance(this.scoped(query))
+  }
+
   unpricedCoverage(query?: UsageQuery): UnpricedCoverage {
     return this.store.usage.unpricedCoverage(this.scoped(query))
   }

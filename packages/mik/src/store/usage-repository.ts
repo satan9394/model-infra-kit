@@ -674,6 +674,14 @@ export class UsageRepository {
    * Display-only. No money is aggregated here at all, so there is no float sum
    * to avoid (rule 2) — and none of the cost totals change.
    */
+  costProvenance(query: UsageQuery = {}): { exactRequests: number; retainedRequests: number } {
+    const where = buildWhere(query, "ts")
+    const row = this.driver.prepare(`SELECT COUNT(*) AS retained,
+      COALESCE(SUM(CASE WHEN pricing_source = 'provider' AND pricing_basis = 'exact' THEN 1 ELSE 0 END), 0) AS exact
+      FROM usage_events${where.clause}`).get(...where.params)
+    return { exactRequests: asNumber(row?.exact), retainedRequests: asNumber(row?.retained) }
+  }
+
   unpricedCoverage(query: UsageQuery = {}): UnpricedCoverage {
     const where = buildWhere(query, "ts")
     const unpriced = "COALESCE(pricing_source, 'missing') = 'missing'"

@@ -1,11 +1,12 @@
 import { getI18n } from "@/lib/i18n/server"
 import Link from "next/link"
 import { TokenCostChart } from "@/components/charts/token-cost"
+import { CostTrendChart } from "@/components/charts/cost-trend"
 import { FilterPanel } from "@/components/filter-panel"
 import { LiveRefresh } from "@/components/live-refresh"
 import { Card, EmptyState, PageHeader, StatCard, TableWrap, Td, Th } from "@/components/ui"
 import { UpstreamNotice } from "@/components/upstream-notice"
-import { formatCompact, formatInt, formatUsdSpan, tokenTotal } from "@/lib/format"
+import { costAccuracy, formatCompact, formatInt, formatUsdSpan, outputInputRatio, tokenTotal } from "@/lib/format"
 import { readFilters, resolveRange, toRouteHref, usageQuery, type SearchParams } from "@/lib/range"
 import { loadShell, loadSummary, loadTrends } from "@/lib/server-data"
 
@@ -46,7 +47,7 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
     <>
       <PageHeader
         title={t("s127")}
-        description={t("s353")}
+        description={t("cost.separatedDescription")}
         actions={<LiveRefresh topics={["usage.recorded"]} />}
       />
 
@@ -73,20 +74,26 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
         <StatCard
           label={t("s356")}
           testId="trends-cost-span"
-          value={formatUsdSpan(totals?.costLowUsd, totals?.costHighUsd)}
-          hint={t("s357")}
+          value={costAccuracy(totals) === "unknown" && totals?.costHighUsd === 0 && totals.requests > 0 ? "—" : formatUsdSpan(totals?.costLowUsd, totals?.costHighUsd)}
+          hint={t(`cost.${costAccuracy(totals)}`)}
         />
         <StatCard
           label={t("s358")}
-          value={busiest ? formatUsdSpan(busiest.costLowUsd, busiest.costHighUsd) : "—"}
+          value={busiest && !(costAccuracy(totals) === "unknown" && busiest.costHighUsd === 0) ? formatUsdSpan(busiest.costLowUsd, busiest.costHighUsd) : "—"}
           hint={busiest ? busiest.date : t("s359")}
         />
         <StatCard label={t("s295")} value={formatInt(totals?.requests)} hint={t("s360")} />
       </div>
 
-      <Card title={t("s361", t(range.label))} subtitle="GET /api/usage/trends?bucket=day">
-        <TokenCostChart points={points} />
-      </Card>
+      {totals && costAccuracy(totals) === "unknown" ? <p role="status" className="mb-4 text-sm text-warning">{t("cost.reconcile", formatInt(totals.unpricedRequests), formatInt(totals.unmeasuredRequests))}</p> : null}
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card title={t("cost.tokenTrend")} subtitle={t("cost.tokenUnit")} className="min-w-0">
+          <TokenCostChart points={points} tokensOnly />
+        </Card>
+        <Card title={t("cost.moneyTrend")} subtitle={t("cost.bandNote")} className="min-w-0">
+          <CostTrendChart points={points} height={340} />
+        </Card>
+      </div>
 
       <div className="mt-4">
         <Card title={t("s362")} subtitle={t("s363")} padded={false}>
@@ -108,6 +115,7 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
                   <Th className="text-right">cache_read</Th>
                   <Th className="text-right">cache_write</Th>
                   <Th className="text-right"> {t("s42")} </Th>
+                  <Th className="text-right">{t("cost.outputRatio")}</Th>
                 </tr>
               </thead>
               <tbody>
@@ -124,8 +132,9 @@ export default async function TrendsView({ params, embedded }: ViewProps) {
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.cacheRead)}</Td>
                     <Td className="text-right font-mono tabular-nums">{formatInt(point.tokens.cacheWrite)}</Td>
                     <Td className="text-right font-mono tabular-nums">
-                      {formatUsdSpan(point.costLowUsd, point.costHighUsd)}
+                      {costAccuracy(totals) === "unknown" && point.costHighUsd === 0 && point.requests > 0 ? "—" : formatUsdSpan(point.costLowUsd, point.costHighUsd)}
                     </Td>
+                    <Td className="text-right font-mono tabular-nums">{outputInputRatio(point.tokens)}</Td>
                   </tr>
                 ))}
               </tbody>

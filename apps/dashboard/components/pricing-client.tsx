@@ -5,8 +5,8 @@ import { useI18n } from "@/lib/i18n/provider"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { apiCall } from "@/lib/client-api"
-import { formatDateTime, formatRate } from "@/lib/format"
-import type { ModelInfo, PricingOverride, PricingState, PricingDiscount } from "@/lib/types"
+import { formatDateTime, formatRate, pricingSource } from "@/lib/format"
+import type { ModelInfo, PricingOverride, PricingState, PricingDiscount, PricingPayload } from "@/lib/types"
 import { Badge, Card, EmptyState, TableWrap, Td, Th } from "@/components/ui"
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000
@@ -34,11 +34,13 @@ function parseRate(value: string): number | undefined | null {
 }
 
 export function PricingClient({
+  prices = [],
   discounts = [],
   state,
   overrides,
   models,
 }: {
+  prices?: PricingPayload["prices"]
   discounts?: PricingDiscount[]
   state: PricingState | null
   overrides: PricingOverride[]
@@ -49,6 +51,7 @@ export function PricingClient({
   const router = useRouter()
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null)
 
   const stale =
@@ -101,11 +104,11 @@ export function PricingClient({
   }
 
   const remove = async (modelId: string) => {
-    if (!window.confirm(t("s154", modelId))) return
     setBusy(modelId)
     const result = await apiCall(`/pricing/${encodeURIComponent(modelId)}`, { method: "DELETE" })
     setBusy(null)
     if (result.ok) {
+      setConfirmId(null)
       setNotice({ tone: "ok", text: t("s155", modelId) })
       router.refresh()
     } else {
@@ -137,6 +140,7 @@ export function PricingClient({
       </Card>
       {notice ? (
         <div
+          role={notice.tone === "bad" ? "alert" : "status"}
           className={
             notice.tone === "ok"
               ? "rounded-lg border border-positive/35 bg-positive/10 px-3 py-2 text-xs text-positive"
@@ -154,7 +158,7 @@ export function PricingClient({
           <button
             type="button"
             onClick={() => void sync()}
-            disabled={busy === "__sync__"}
+            disabled={busy !== null}
             className="rounded border border-border-strong bg-surface-muted px-3 py-1.5 text-xs text-foreground hover:bg-surface-active disabled:opacity-50"
           >
             {busy === "__sync__" ? t("s158") : t("s159")}
@@ -175,6 +179,19 @@ export function PricingClient({
           <p className="mt-2 break-all font-mono text-xs text-danger"> {t("s164")} {state.lastError}</p>
         ) : null}
         <p className="mt-2 text-[11px] text-subtle"> {t("s165")} </p>
+      </Card>
+
+      <Card title={t("price.effective")} subtitle={t("price.priority")} padded={false}>
+        <TableWrap>
+          <thead><tr><Th>{t("s177")}</Th><Th>{t("price.source")}</Th><Th className="text-right">input / 1M</Th><Th className="text-right">output / 1M</Th><Th className="text-right">cache_read / 1M</Th><Th className="text-right">cache_write / 1M</Th></tr></thead>
+          <tbody>{prices.map(item => <tr key={item.modelId}>
+            <Td className="break-all font-mono">{item.modelId}</Td>
+            <Td><span data-testid="pricing-source-badge"><Badge tone={pricingSource(item.effective?.source) === "unknown" ? "warn" : "muted"}>{t(`price.source.${pricingSource(item.effective?.source)}`)}</Badge></span></Td>
+            <Td className="text-right font-mono">{formatRate(item.effective?.inputPerM)}</Td><Td className="text-right font-mono">{formatRate(item.effective?.outputPerM)}</Td>
+            <Td className="text-right font-mono">{formatRate(item.effective?.cacheReadPerM)}</Td><Td className="text-right font-mono">{formatRate(item.effective?.cacheWritePerM)}</Td>
+          </tr>)}</tbody>
+        </TableWrap>
+        {prices.length === 0 ? <p className="p-4 text-sm text-subtle">{t("price.noCards")}</p> : null}
       </Card>
 
       <Card
@@ -198,19 +215,19 @@ export function PricingClient({
           <label className="text-xs text-subtle"> {t("s170")} <input className={inputClass} value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} />
           </label>
           <label className="text-xs text-subtle">
-            input / 1M（USD）
+            input / 1M (USD)
             <input className={inputClass} value={form.inputPerM} onChange={(event) => setForm({ ...form, inputPerM: event.target.value })} placeholder="0.27" />
           </label>
           <label className="text-xs text-subtle">
-            output / 1M（USD）
+            output / 1M (USD)
             <input className={inputClass} value={form.outputPerM} onChange={(event) => setForm({ ...form, outputPerM: event.target.value })} placeholder="1.10" />
           </label>
           <label className="text-xs text-subtle">
-            cache_read / 1M（USD）
+            cache_read / 1M (USD)
             <input className={inputClass} value={form.cacheReadPerM} onChange={(event) => setForm({ ...form, cacheReadPerM: event.target.value })} />
           </label>
           <label className="text-xs text-subtle">
-            cache_write / 1M（USD）
+            cache_write / 1M (USD)
             <input className={inputClass} value={form.cacheWritePerM} onChange={(event) => setForm({ ...form, cacheWritePerM: event.target.value })} />
           </label>
         </div>
@@ -218,7 +235,7 @@ export function PricingClient({
           <button
             type="button"
             onClick={() => void save(form.modelId.trim(), form)}
-            disabled={busy === form.modelId || !form.modelId.trim()}
+            disabled={busy !== null || !form.modelId.trim()}
             className="rounded-md border border-border-strong bg-surface-muted px-3 py-1.5 text-xs text-foreground hover:bg-surface-active disabled:opacity-50"
           >
             {busy === form.modelId ? t("s54") : t("s171")}
@@ -264,8 +281,8 @@ export function PricingClient({
                   <Td className="text-right font-mono tabular-nums">{formatRate(override.cacheReadPerM)}</Td>
                   <Td className="text-right font-mono tabular-nums">{formatRate(override.cacheWritePerM)}</Td>
                   <Td className="text-xs text-subtle">{formatDateTime(override.updatedAt)}</Td>
-                  <Td>
-                    <div className="flex gap-1.5">
+                  <Td className="min-w-64">
+                    <div className="flex gap-1.5 whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => edit(override)}
@@ -273,11 +290,18 @@ export function PricingClient({
                       > {t("s180")} </button>
                       <button
                         type="button"
-                        onClick={() => void remove(override.modelId)}
-                        disabled={busy === override.modelId}
+                        data-testid={confirmId === override.modelId ? "revoke-confirm-btn" : "revoke-btn"}
+                        onClick={() => confirmId === override.modelId ? void remove(override.modelId) : setConfirmId(override.modelId)}
+                        disabled={busy !== null}
                         className="rounded border border-danger/35 px-2 py-1 text-[11px] text-danger hover:bg-danger/10 disabled:opacity-50"
-                      > {t("s181")} </button>
+                      > {t(confirmId === override.modelId ? "price.confirmRevoke" : "s181")} </button>
+                      {confirmId === override.modelId ? <button type="button" disabled={busy !== null} onClick={() => setConfirmId(null)} className="rounded border border-border px-2 py-1 text-xs focus-visible:ring-2 focus-visible:ring-primary">{t("price.cancel")}</button> : null}
                     </div>
+                    {confirmId === override.modelId ? <p role="status" className="mt-2 max-w-sm text-xs leading-5 text-warning">
+                      {t("price.fallback", t(`price.source.${pricingSource(prices.find(item => item.modelId === override.modelId)?.baseline?.source)}`),
+                        formatRate(prices.find(item => item.modelId === override.modelId)?.baseline?.inputPerM), formatRate(prices.find(item => item.modelId === override.modelId)?.baseline?.outputPerM),
+                        formatRate(prices.find(item => item.modelId === override.modelId)?.baseline?.cacheReadPerM), formatRate(prices.find(item => item.modelId === override.modelId)?.baseline?.cacheWritePerM))}
+                    </p> : null}
                   </Td>
                 </tr>
               ))}

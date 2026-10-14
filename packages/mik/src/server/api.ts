@@ -510,6 +510,11 @@ export function registerApiRoutes(router: Router): void {
         discounts: ctx.hub.pricing.discountRules(),
         state: ctx.hub.pricing.state(),
         overrides: sanitize(ctx.hub.pricing.listOverrides()),
+        prices: [...new Set([...ctx.hub.models.list().map(model => model.modelId), ...ctx.hub.pricing.listOverrides().map(item => item.modelId)])].map(modelId => ({
+          modelId,
+          effective: ctx.hub.pricing.priceFor(modelId),
+          baseline: ctx.hub.pricing.priceAfterRemovingOverride(modelId),
+        })),
       })
     })
 
@@ -571,7 +576,11 @@ export function registerApiRoutes(router: Router): void {
       const query = parseUsageQuery(ctx.url)
       const summary = ctx.hub.usage.summary(query)
       const coverage = ctx.hub.usage.unpricedCoverage(query)
-      sendJson(ctx.res, 200, { summary: { ...summary, ...costBound(summary, coverage) } })
+      const bound = costBound(summary, coverage)
+      const provenance = ctx.hub.usage.costProvenance(query)
+      const costAccuracy = bound.costLowerBoundOnly || provenance.retainedRequests !== summary.requests ? "unknown"
+        : summary.requests > 0 && provenance.exactRequests === summary.requests ? "exact" : "estimate"
+      sendJson(ctx.res, 200, { summary: { ...summary, ...bound, ...provenance, costAccuracy } })
     })
 
     .add("GET", "/api/usage/trends", (ctx) => {
