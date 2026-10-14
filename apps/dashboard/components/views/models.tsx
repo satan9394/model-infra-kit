@@ -51,6 +51,7 @@ export function ModelsClient({
   const [provider, setProvider] = useState("")
   const [capability, setCapability] = useState("")
   const [query, setQuery] = useState("")
+  const [minContext, setMinContext] = useState("")
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null)
 
@@ -58,6 +59,7 @@ export function ModelsClient({
     const needle = query.trim().toLowerCase()
     return models.filter((model) => {
       if (provider && model.providerId !== provider) return false
+      if (minContext && (model.contextWindow ?? 0) < Number(minContext)) return false
       if (!matchesCapabilities(model, tags, firstTokens[model.ref])) return false
       if (capability && !model.capabilities[capability as keyof ModelInfo["capabilities"]]) return false
       if (!needle) return true
@@ -67,10 +69,11 @@ export function ModelsClient({
         model.ref.toLowerCase().includes(needle)
       )
     })
-  }, [models, provider, capability, query, tags, firstTokens])
+  }, [models, provider, capability, query, tags, firstTokens, minContext])
 
   const visibleCatalog = catalogModels.filter((model) => {
     if (provider && !catalogBindings.some((binding) => binding.modelId === model.id && binding.providerId === provider)) return false
+    if (minContext && model.contextWindow < Number(minContext)) return false
     if (query.trim() && ![model.id, model.name].some((name) => name.toLowerCase().includes(query.trim().toLowerCase()))) return false
     return matchesCapabilities({ modelId: model.id, ref: model.id, contextWindow: model.contextWindow, capabilities: { text: true, image: model.capabilities.vision, toolCall: model.capabilities.tools, reasoning: model.capabilities.reasoning, structuredOutput: model.capabilities.structuredOutputs } }, tags)
   })
@@ -134,6 +137,14 @@ export function ModelsClient({
                 </option>
               ))}
             </select>
+            <select aria-label={t("model.contextFilter")} data-testid="model-context-filter" value={minContext} onChange={(event) => setMinContext(event.target.value)} className={selectClass}>
+              <option value=""> {t("model.contextAny")} </option>
+              {[32000, 128000, 200000].map((value) => (
+                <option key={value} value={String(value)}>
+                  {t("model.contextTokens", formatInt(value))}
+                </option>
+              ))}
+            </select>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -156,6 +167,7 @@ export function ModelsClient({
       </div>
       {pingModel ? <ModelPingModal key={pingModel} refName={pingModel} onClose={() => setPingModel(null)} onResult={measured} /> : null}
       <Card title={t("s268")} subtitle={t("s269", visibleCatalog.length, catalogModels.length)} padded={false}>
+        <p className="border-b border-border px-5 py-3 text-xs leading-5 text-subtle" data-testid="model-catalog-scope">{t("model.catalogScope")}</p>
         {visibleCatalog.length === 0 ? (
           <div className="p-4">
             <EmptyState title={catalogModels.length === 0 ? t("s270") : t("s271")} description={catalogModels.length === 0 ? t("s272") : t("s273")} />
@@ -242,6 +254,7 @@ export function ModelsClient({
         subtitle={t("s284", models.length, visible.length)}
         padded={false}
       >
+        <p className="border-b border-border px-5 py-3 text-xs leading-5 text-subtle" data-testid="model-local-scope">{t("model.localScope")}</p>
         {models.length === 0 ? (
           <div className="p-4">
             <EmptyState

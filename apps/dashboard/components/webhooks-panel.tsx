@@ -42,6 +42,10 @@ export function WebhooksPanel() {
   }
   return <div data-testid="webhook-monitor">
     <Card title={t("webhooks.title")} subtitle={t("webhooks.configuration")}>
+      <section className="mb-5 rounded-xl border border-border bg-surface-muted/50 p-3" data-testid="webhook-semantic-note">
+        <h3 className="text-xs font-medium text-foreground">{t("webhooks.semanticsTitle")}</h3>
+        <p className="mt-1 text-xs leading-5 text-subtle">{t("webhooks.semanticsBody")}</p>
+      </section>
       {failed ? <p role="status">{t("webhooks.unavailable")}</p> : !data ? <p role="status">{t("webhooks.loading")}</p> : <>
         {!data.endpoints.length ? <p className="text-sm text-subtle">{t("webhooks.empty")}</p> : <ul className="space-y-3">
           {data.endpoints.map(endpoint => <li key={endpoint.index} className="rounded-xl border border-border p-3 text-sm">
@@ -59,8 +63,20 @@ export function WebhooksPanel() {
         <p role="status" aria-live="polite" className="mt-2 text-sm">{testResult ? t(testResult === "queued" ? "webhooks.testQueued" : "webhooks.testFailed") : ""}</p>
         <h3 className="mt-6 text-sm font-medium">{t("webhooks.deadLetters")}</h3>
         {!data.deadLetters.length ? <p className="mt-2 text-sm text-subtle">{t("webhooks.noFailures")}</p> : <ul className="mt-2 divide-y divide-border" data-testid="webhook-dead-letters">
-          {data.deadLetters.map(entry => <li key={`${entry.endpoint}:${entry.eventId}`} className="break-all py-3 font-mono text-xs">
-            {entry.type} · {entry.error} · {t("webhooks.attempts")}: {entry.attempts}<br />{entry.eventId}
+          {data.deadLetters.map(entry => <li key={`${entry.endpoint}:${entry.eventId}`} className="min-w-0 py-3">
+            <details className="min-w-0">
+              <summary data-testid="webhook-dead-letter-summary" className="cursor-pointer break-all font-mono text-xs text-foreground">
+                {entry.type} · {t("webhooks.attempts")}: {entry.attempts} · {entry.eventId}
+              </summary>
+              <div className="mt-2 min-w-0 rounded-lg border border-border bg-surface-muted/50 p-3 text-xs">
+                <dl className="min-w-0 space-y-1">
+                  <div className="flex min-w-0 gap-2"><dt className="shrink-0 text-subtle">{t("webhooks.endpoint")}</dt><dd className="break-all font-mono">{entry.endpoint + 1}</dd></div>
+                  <div className="flex min-w-0 gap-2"><dt className="shrink-0 text-subtle">{t("webhooks.attempts")}</dt><dd className="font-mono tabular-nums">{entry.attempts}</dd></div>
+                  <div className="min-w-0"><dt className="text-subtle">{t("webhooks.deadLetterError")}</dt><dd data-testid="webhook-dead-letter-error" className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-surface p-2 font-mono [overflow-wrap:anywhere]">{entry.error}</dd></div>
+                </dl>
+                <p className="mt-2 text-subtle">{t("webhooks.timestampUnavailable")}</p>
+              </div>
+            </details>
           </li>)}
         </ul>}
       </>}

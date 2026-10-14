@@ -1,5 +1,12 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G143 (2026-10-14)
+
+- State the provider rack's real configuration source (startup config with `isolatedProviders` by default) and spell out that active probes and the instance-local passive breaker are independent dimensions.
+- Turn the empty tenant-quota state into a structured guide with the real `TenantQuotaConfig` field names and integer micro-dollar bigint example; make a blocked request open its recorded detail in Logs.
+- Declare Webhook delivery as a post-commit asynchronous best-effort side channel (no queue recovery after restart, no rollback of recorded usage) and make dead letters expandable with bounded, wrap-anywhere error output.
+- Keep the standard catalogue and locally configured models explicitly distinct, add a minimum context-window filter, and link a successful Playground run to its attempt chain in Logs.
+
 ## Local candidate — EVO-G142 (2026-10-13)
 
 - Distinguish supplier-exact, estimated and unknown cost coverage, with reconciliation warnings and micro-dollar precision even on chart axes.

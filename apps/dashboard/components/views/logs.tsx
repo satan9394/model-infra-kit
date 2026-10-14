@@ -50,7 +50,9 @@ export default async function LogsView({ params, embedded }: ViewProps) {
         limit={logs.ok ? logs.data.limit : limit}
         offset={logs.ok ? logs.data.offset : offset}
         baseQuery={baseQuery}
+        initialId={filters.focusId}
       />
+      {filters.focusId ? <p className="mt-3 text-xs text-subtle" data-testid="logs-focused-detail">{t("logs.focusedDetail")}</p> : null}
     </>
   )
 }

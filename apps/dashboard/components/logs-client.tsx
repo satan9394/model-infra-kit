@@ -151,6 +151,7 @@ export function LogsClient({
   limit,
   offset,
   baseQuery,
+  initialId,
 }: {
   events: UsageEvent[]
   total: number
@@ -158,10 +159,12 @@ export function LogsClient({
   offset: number
   /** Current filters as a query string without `limit`/`offset`. */
   baseQuery: string
+  /** Deep-link target (EVO-G143): open this recorded request detail on mount. */
+  initialId?: string
 }) {
   const { t } = useI18n()
 
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialId ?? null)
   const page = Math.floor(offset / Math.max(1, limit)) + 1
   const pages = Math.max(1, Math.ceil(total / Math.max(1, limit)))
 

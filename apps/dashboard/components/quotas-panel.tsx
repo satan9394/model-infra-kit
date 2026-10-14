@@ -7,6 +7,23 @@ import { useI18n } from "@/lib/i18n/provider"
 import { quotaPercent, quotaRatePercent, type QuotaUsage, type QuotasPayload } from "@/lib/quotas"
 import { Card } from "@/components/ui"
 
+/**
+ * EVO-G143: host-side quota configuration is not editable from this read-only
+ * page, so the empty state shows the exact contract instead of a blank panel.
+ * Field names mirror `TenantQuotaConfig` (`packages/mik/src/quota/rate-limiter.ts`).
+ */
+const QUOTA_SNIPPET = `createServer({
+  quotas: {
+    applications: [{
+      appId: "default",
+      maxRpm: 600,                 // requests per minute
+      maxTpm: 120000,              // tokens per minute
+      dailyHardCapMicros: 5_000_000n,     // 5 USD in microdollars
+      monthlyHardCapMicros: 100_000_000n, // 100 USD in microdollars
+    }],
+  },
+})`
+
 export function QuotasPanel({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   const [data, setData] = useState<QuotasPayload | null>(null)
@@ -46,7 +63,21 @@ export function QuotasPanel({ compact = false }: { compact?: boolean }) {
   return <div className="my-4" data-testid={compact ? "overview-quotas" : "tenant-quotas"}>
     <Card title={t("quotas.title")} subtitle={t("quotas.scope")} actions={compact ? <Link href="/quotas" className="text-xs text-primary underline">{t("quotas.details")}</Link> : undefined}>
       <div aria-live="polite">
-        {error ? <p role="status" className="text-sm text-subtle">{t("quotas.unavailable")}</p> : !data ? <p className="text-sm text-subtle">{t("quotas.loading")}</p> : data.quotas.length === 0 ? <p className="text-sm text-subtle">{t("quotas.empty")}</p> : <div className="space-y-5">
+        {error ? <p role="status" className="text-sm text-subtle">{t("quotas.unavailable")}</p> : !data ? <p className="text-sm text-subtle">{t("quotas.loading")}</p> : data.quotas.length === 0 ? <div data-testid="quota-guide" className="space-y-3">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">{t("quotas.guideTitle")}</h3>
+            <p className="mt-1 text-xs leading-5 text-subtle">{t("quotas.guideIntro")}</p>
+          </div>
+          <p className="text-xs font-medium text-muted-foreground">{t("quotas.guideSnippet")}</p>
+          <pre data-testid="quota-guide-snippet" className="max-w-full overflow-x-auto rounded-xl border border-border bg-surface-muted p-4 text-xs leading-6"><code>{QUOTA_SNIPPET}</code></pre>
+          <ul className="space-y-1 text-xs leading-5 text-subtle">
+            <li>{t("quotas.guideRpm")}</li>
+            <li>{t("quotas.guideTpm")}</li>
+            <li>{t("quotas.guideDaily")}</li>
+            <li>{t("quotas.guideMonthly")}</li>
+          </ul>
+          <p className="text-xs leading-5 text-subtle">{t("quotas.guideNote")}</p>
+        </div> : <div className="space-y-5">
           {data.quotas.map((quota) => <article key={quota.appId} className="rounded-xl border border-border p-4" data-testid="quota-application">
             <h3 className="break-all text-sm font-medium">{t("quotas.application")} · {quota.appId}</h3>
             {usage(quota)}
@@ -64,7 +95,7 @@ export function QuotasPanel({ compact = false }: { compact?: boolean }) {
           {data.logs.slice(0, 50).map((log) => <li key={log.requestId} className="grid gap-1 py-3 text-xs sm:grid-cols-2">
             <time dateTime={new Date(log.ts).toISOString()} className="font-mono">{new Date(log.ts).toISOString()}</time>
             <span className="break-all text-danger">{t(`quotas.${log.errorCode}`)}</span>
-            <span className="break-all text-subtle">{log.appId}</span><code className="break-all text-subtle">{log.requestId}</code>
+            <span className="break-all text-subtle">{log.appId}</span><Link href={`/logs?focusId=${encodeURIComponent(log.requestId)}`} title={t("quotas.openLog")} aria-label={t("quotas.openLog")} className="break-all text-info underline">{log.requestId}</Link>
           </li>)}
         </ul>}
       </div> : null}

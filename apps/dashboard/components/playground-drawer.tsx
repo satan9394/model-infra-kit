@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useRef, useState, type FormEvent } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useModalDialog } from "@/lib/use-modal-dialog"
 import { useI18n } from "@/lib/i18n/provider"
@@ -20,6 +21,7 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
   const [result, setResult] = useState<PlaygroundStreamResult | null>(null)
   const [cost, setCost] = useState<number | null>(null)
   const [costStatus, setCostStatus] = useState("")
+  const [recordedId, setRecordedId] = useState<string | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
   async function send(event: FormEvent) {
     event.preventDefault()
@@ -27,7 +29,7 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
     const abort = new AbortController()
     controller.current = abort
     const traceId = `playground-${crypto.randomUUID()}`
-    setBusy(true); setText(""); setError(""); setResult(null); setCost(null); setCostStatus("")
+    setBusy(true); setText(""); setError(""); setResult(null); setCost(null); setCostStatus(""); setRecordedId(null)
     const start = performance.now()
     try {
       const response = await fetch("/api/playground", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, prompt, traceId }), signal: abort.signal })
@@ -37,6 +39,7 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
       const logs = await apiCall<LogsPayload>(`/usage/logs?traceId=${encodeURIComponent(traceId)}&limit=1`)
       if (abort.signal.aborted) return
       const recorded = logs.ok ? logs.data.events.find((item) => item.traceId === traceId) : undefined
+      if (recorded) setRecordedId(recorded.requestId)
       if (!recorded) setCostStatus(t("playground.noRecord"))
       else if (recorded.cost.source === "missing") setCostStatus(t("playground.unpriced"))
       else setCost(usdToMicros(recorded.cost.usd))
@@ -63,5 +66,9 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
       <div><dt>Prompt / Completion / Reasoning</dt><dd>{result.input ?? "—"} / {result.output ?? "—"} / {result.reasoning ?? "—"}</dd></div>
       <div><dt>{t("playground.cost")}</dt><dd data-testid="playground-micros">{cost ?? (costStatus || "—")}</dd></div>
     </dl> : null}
+    {recordedId ? <p className="mt-4 text-sm" data-testid="playground-log-entry">
+      <Link href={`/logs?focusId=${encodeURIComponent(recordedId)}`} data-testid="playground-log-link" className="text-info underline">{t("playground.viewAttempts")}</Link>
+      <span className="ml-2 text-xs text-subtle">{t("playground.traceRecorded", recordedId)}</span>
+    </p> : null}
   </dialog>
 }

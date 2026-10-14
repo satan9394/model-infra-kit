@@ -142,6 +142,11 @@ export interface UsageFilters {
   status?: "ok" | "error"
   limit?: number
   offset?: number
+  /**
+   * Deep-link only (EVO-G143): opens one recorded request detail on mount.
+   * Deliberately excluded from `usageQuery`, so it never becomes a list filter.
+   */
+  focusId?: string
 }
 
 export function readFilters(params: SearchParams): UsageFilters {
@@ -151,11 +156,13 @@ export function readFilters(params: SearchParams): UsageFilters {
   const status = first(params.status)?.trim()
   const limit = Number(first(params.limit))
   const offset = Number(first(params.offset))
+  const focusId = first(params.focusId)?.trim()
   if (provider) filters.provider = provider
   if (model) filters.model = model
   if (status === "ok" || status === "error") filters.status = status
   if (Number.isInteger(limit) && limit > 0 && limit <= 500) filters.limit = limit
   if (Number.isInteger(offset) && offset >= 0) filters.offset = offset
+  if (focusId && focusId.length <= 200) filters.focusId = focusId
   return filters
 }
 

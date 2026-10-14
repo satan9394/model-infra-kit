@@ -225,6 +225,7 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
               </div>
             </div>
             <p className="mt-1 text-xs text-subtle"> {t("s195")} </p>
+            <p className="mt-1 text-[11px] leading-5 text-subtle" data-testid="provider-status-dimensions">{t("provider.statusDimensions")}</p>
           </div>
 
           <button
@@ -290,6 +291,14 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                               ? <StatusIndicator signal={{ kind: "circuit", state: null, unavailable: qos.unavailable }} />
                               : qos.circuits.filter(entry => entry.key === provider.id || entry.key.startsWith(`${provider.id}:`)).map(entry => <StatusIndicator key={entry.key} signal={{ kind: "circuit", state: entry.state, healthKey: entry.key }} />)}
                             <Badge tone="info">{provider.protocol ?? "openai-compatible"}</Badge>
+                            <span
+                              data-testid="provider-source-badge"
+                              title={t("provider.sourceFileDetail")}
+                              aria-label={`${t("provider.sourceLabel")}: ${t("provider.sourceFile")}`}
+                              className="inline-flex items-center rounded border border-border-strong bg-surface-hover px-1.5 py-0.5 text-[11px] leading-4 text-foreground/80"
+                            >
+                              {t("provider.sourceFile")}
+                            </span>
                             <code className="truncate font-mono text-[11px] text-subtle" title={provider.id}>{provider.id}</code>
                           </div>
                           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
