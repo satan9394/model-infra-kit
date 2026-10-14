@@ -397,7 +397,7 @@ export function packageForProtocol(protocol: Protocol): string | undefined  // �
 export const SDK_PROTOCOLS: Record<Protocol, SdkProtocol>          // 稳定：由 PROTOCOLS 派生的视图（勿单独编辑），已公开导出
 export const MODEL_LIST_PROTOCOLS: Record<Protocol, ModelListProtocol>  // 稳定：由 PROTOCOLS 派生的视图（勿单独编辑），已公开导出
 
-// src/ai/protocols.ts — 模块级导出，**未进公共面**（`src/index.ts` 不 re-export，`dist` 导出数仍为 30）
+// src/ai/protocols.ts — 模块级导出，**未进公共面**（`src/index.ts` 不 re-export，也不在文末 `mik-runtime-exports/v1` 的根清单里）
 export const PROTOCOLS: Record<Protocol, ProtocolSpec>             // **唯一源表**（protocol → { sdk, list }），G10a 起
 export interface ProtocolSpec { sdk: SdkProtocol; list: ModelListProtocol }
 export interface DiscoveredModel {
@@ -1858,3 +1858,65 @@ UsageService.costProvenance(query) returns scoped retainedRequests and exactRequ
 GET /api/pricing adds prices: [{ modelId, effective: ModelPricing | null, baseline: ModelPricing | null }], covering known models and manual override keys. Baseline is the price after removing that exact key, including a remaining bare override, cached/live catalogue tiers, catalogue and archive fallback. Missing cards remain null and absent rates remain absent. This preview is a current read, not a locked price promise; later sync/edits may change future pricing. Historical recorded costs never change.
 
 Dashboard charts use recorded daily low/high endpoints, separated from token consumption. The token panel subtracts cache read/write from reported input for the uncached series; reasoning is already included in output. Daily table keeps reported token fields, with output/input ratio undefined for zero input. Revoke is a two-step row interaction; cancellation sends nothing, success refreshes, failure preserves retry and reports the error.
+
+## EVO-G146 / ARCH-011 — 生命周期弹性与规模基准
+
+### 凭据诊断不再泄露文件路径（用户可见的行为变更）
+
+`CredentialStore.resolve()` 的 `file:` 后端在解析失败时，诊断文案从
+
+```
+Credential file not found: <解析后的绝对路径>
+Credential file is empty: <解析后的绝对路径>
+```
+
+改为
+
+```
+Credential file not found for reference "<masked ref>". Create the file the reference points at.
+Credential file is empty for reference "<masked ref>". The file must contain only the key.
+```
+
+`<masked ref>` 复用 `parse()` 的掩码规则（`maskRef`：`≤8` 字符为 `****`，否则首 4 + `****` + 末 2），标识的是**引用**而非解析后的路径。
+
+- 动机（ARCH-011）：解析后的路径会泄露家目录、用户名与机密位置，而契约要求“不暴露文件内容、Token 或机密位置的多余信息”。
+- 不变量（由 `test/lifecycle-resilience.test.ts` 以**外部字面量**断言，不镜像实现）：任何解析失败诊断都**不含**机密值、文件内容或文件系统路径；`env:` 只报变量名，`keychain:` 只报“未实现”。
+- 错误码仍为 `CREDENTIAL`；`init()` 仍不在凭据缺失时抛致命异常（凭据是惰性解析的，首次真正使用时才报错）。
+- **迁移提示**：这是一处**用户可见的文案变更**。依赖旧文案（尤其是其中的路径）做匹配的脚本必须改；路径本来就不该被依赖，故不提供兼容期。
+
+### 断网降级（`onWarn` 契约不变）
+
+上游价格目录或模型目录不可达时，`ModelInfra.init()` 仍返回，`hub.pricing.state().status` 降级为 `stale`/`error`，失败经 `onWarn` 报告；`pricing.refresh()` 永不抛出（返回降级后的状态）。已由 `test/lifecycle-resilience.test.ts` 与既有 `test/hub.test.ts`（挂起/慢失败目录）覆盖。
+
+### 百万级 SQLite 账本基准
+
+- 复现：`node scripts/benchmark-scale.mjs`（`--quick` 或 `MIK_G146_ROWS=<n>` 可缩短）。
+- 写入走**生产路径** `UsageRepository.insert`（含 FTS5 索引与逐行保存点），批量 10,000 行/事务；指标含 TPS 与单行写入延迟分布。
+- **折叠表名字以源码为准**：Schema v8 的真实表名是 **`usage_daily_rollups`**（另见 `usage_tag_rollups` / `usage_trace_rollups`）。`docs/plans/architecture-improvement-plan.md` 里的 `usage_daily_folds` 是规划期称呼，**不是**表名。
+- 门禁：折叠后 detail 行归零；365 天聚合的 `EXPLAIN QUERY PLAN` 命中 `usage_daily_rollups` 且不含 `usage_events`；中位延迟 `< 15 ms`；折叠前后请求数与整数微美元成本**守恒**；混合读写不出现死锁。
+- 实测报告：[`docs/releases/scale-benchmark-v170.md`](releases/scale-benchmark-v170.md)；机器可读结果 `.tmp/g146/benchmark-scale.json`（已 gitignore）。
+
+## EVO-G146 / ARCH-012 — 契约追溯矩阵与自动化校验
+
+`node scripts/verify-contracts.mjs` 是本契约的唯一自动校验入口：
+
+- 对账 4 个入口（`.` / `./auto` / `./cli` / `./server`）的**运行时**导出集合与文末 `mik-runtime-exports/v1` 清单，**精确集合比对、绝不子串匹配**（`PROTOCOLS` 不会被 `SDK_PROTOCOLS` 满足）；
+- 对账该节的 prose 计数（`root/auto/CLI/server`）；
+- 校验 `docs/diagrams/*.json` 内每个 `sources[].path` 存在、在仓库内、且 `line` 落在文件行数内；`meta.repository.revision` 落后于 HEAD 只**告警**（图纸禁止手改，须由生成脚本重跑）；
+- 任一不一致 → 退出码非 0。`--self-test` 以外部字面量期望值证明“门禁能红且不做子串匹配”，`--inject-failure` 以真实进程退出码 1 证明阻断。
+
+**每次改变核心行为，提交须同时带上规范差异、测试、受影响图示与看板文案；图中的代码行号必须由生成脚本以当前提交重校，不得沿用旧行号。**
+
+| 契约主题 | 权威规范 | 实现位置（按当前提交核对） | 自动验证 | UI 消费 |
+|---|---|---|---|---|
+| Retryable 分类 | `docs/SPEC.md` / 本文件 T02 | `src/errors.ts`、`src/ai/failover.ts`（`isRetryableRouteFailure`） | `test/errors.test.ts`、`test/failover-routing.test.ts` | Logs / Routing |
+| Breaker 状态转移 | `docs/decisions.md` + 生命周期契约 | `src/router/circuit-breaker.ts`、`src/ai/failover.ts`（`ProviderCircuitBreaker`） | `test/failover-routing.test.ts`、`test/dashboard-status-readonly.test.ts` | Providers |
+| Request vs Attempt | 本文件「EVO-G141」 | `src/hub.ts`、`src/usage/service.ts`、`src/store/usage-repository.ts` | `test/usage.test.ts`、`test/attribution-tags.test.ts` | Overview / Logs |
+| 成本 microUSD | `docs/SPEC.md` / 本文件「EVO-G89」「EVO-G142」 | `src/store/money.ts`、`src/pricing/service.ts`、`src/store/usage-repository.ts` | `test/cost-certainty.test.ts`、`test/usage-money-precision.test.ts` | 全部成本页 |
+| Provider 配置 | 本文件「配置真相」 | `src/cli/context.ts`、`src/hub.ts`、`src/store/provider-repository.ts` | `test/config-precedence.test.ts`、`test/hot-reload.test.ts` | Providers |
+| 授权与隔离 | 本文件「EVO-G103」 | `src/server/auth.ts`、`src/server/router.ts` | `test/auth-scopes.test.ts`、`test/server.test.ts` | 管理页 |
+| Archive retention | 本文件「EVO-G06」「EVO-G131」 | `src/store/usage-repository.ts`（`rollup` / `rollupAndPrune`）、`src/archive/*` | `test/archive-verify-prune.test.ts`、`test/data-archiving.test.ts` | Traces / Logs |
+| Webhook delivery | 本文件「EVO-G144」 | `src/events/webhook.ts`、`src/store/outbox-repository.ts` | `test/events-webhook.test.ts`、`test/webhook-outbox-worker.test.ts` | Webhooks |
+| 公开运行时导出 | 本文件文末 `mik-runtime-exports/v1` | `src/index.ts`、`src/auto.ts`、`src/cli/index.ts`、`src/server/index.ts` | `scripts/verify-contracts.mjs`（`--self-test` 自证）、`scripts/release/check-release-battery.mjs` | 宿主 / 发版 |
+| 架构图代码引用 | `docs/plans/architecture-improvement-plan.md` §12 | `docs/diagrams/*.json` 的 `sources[]` | `scripts/verify-contracts.mjs` | 文档读者 |
+

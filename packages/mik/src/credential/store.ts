@@ -85,11 +85,27 @@ export class CredentialStore {
       }
       case "file": {
         const path = this.resolveFilePath(parsed.target)
+        /**
+         * ARCH-011: a resolution failure must not disclose the filesystem
+         * path. The resolved path can reveal a home directory, a user name or
+         * any other part of a secret's location, while the *reference* is a
+         * thing the host already wrote down. Identify the failing ref with the
+         * same masking `parse()` uses (`maskRef`), never the expanded path, and
+         * never the file contents.
+         */
         if (!existsSync(path)) {
-          throw new ModelInfraError(`Credential file not found: ${path}`, { code: "CREDENTIAL" })
+          throw new ModelInfraError(
+            `Credential file not found for reference "${maskRef(parsed.raw)}". Create the file the reference points at.`,
+            { code: "CREDENTIAL" },
+          )
         }
         const value = readFileSync(path, "utf8").trim()
-        if (!value) throw new ModelInfraError(`Credential file is empty: ${path}`, { code: "CREDENTIAL" })
+        if (!value) {
+          throw new ModelInfraError(
+            `Credential file is empty for reference "${maskRef(parsed.raw)}". The file must contain only the key.`,
+            { code: "CREDENTIAL" },
+          )
+        }
         return value
       }
       case "keychain":
