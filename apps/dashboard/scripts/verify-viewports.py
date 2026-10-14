@@ -101,27 +101,63 @@ def verify(base_url: str, out_dir: str, routes: list[str]) -> int:
                 for route in routes:
                     page = context.new_page()
                     console_errors: list[str] = []
-                    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-                    page.on("pageerror", lambda exc: console_errors.append(str(exc)))
+                    bad_responses: list[str] = []
+
+                    def _is_icon_noise(text: str) -> bool:
+                        lowered = text.lower()
+                        return "favicon" in lowered or "apple-touch-icon" in lowered
+
+                    def _on_console(msg) -> None:
+                        if msg.type != "error":
+                            return
+                        # A missing favicon surfaces as a generic resource error
+                        # (the URL lives in msg.location, not msg.text).
+                        if "failed to load resource" in msg.text.lower():
+                            return
+                        console_errors.append(msg.text)
+
+                    def _on_response(response) -> None:
+                        if response.status < 400:
+                            return
+                        url = response.url
+                        if _is_icon_noise(url):
+                            return
+                        bad_responses.append(f"{response.status} {url}")
+
+                    page.on("console", _on_console)
+                    page.on("response", _on_response)
+                    page.on("pageerror", lambda exc: console_errors.append(f"pageerror: {exc}"))
                     url = f"{base}{route}"
                     entry: dict = {"viewport": vp_name, "theme": theme, "route": route}
                     try:
-                        response = page.goto(url, wait_until="networkidle", timeout=45_000)
+                        # The dashboard holds a persistent SSE stream open, so
+                        # `networkidle` never settles: wait for `load`, then give
+                        # hydration and the first data fetch a fixed settle window.
+                        response = page.goto(url, wait_until="load", timeout=30_000)
                         entry["status"] = response.status if response else None
+                        page.wait_for_timeout(1500)
                         metrics = page.evaluate(
                             "({sw: document.documentElement.scrollWidth, iw: window.innerWidth,"
                             " bh: document.body ? document.body.scrollHeight : 0})"
                         )
                         entry.update(metrics)
-                        overflow = metrics["sw"] > metrics["iw"] + OVERFLOW_TOLERANCE
-                        entry["horizontal_overflow"] = overflow
-                        if overflow:
+                        entry["horizontal_overflow"] = metrics["sw"] > metrics["iw"] + OVERFLOW_TOLERANCE
+                        entry["title"] = page.title()
+                        entry["body_text_len"] = page.evaluate("document.body ? document.body.innerText.length : 0")
+                        entry["anchors"] = page.evaluate(
+                            "Array.from(new Set(Array.from(document.querySelectorAll('[data-testid]'))"
+                            ".map((node) => node.getAttribute('data-testid')))).sort()"
+                        )
+                        if entry["horizontal_overflow"]:
                             failures.append(f"{vp_name}/{theme}{route}: scrollWidth {metrics['sw']} > viewport {metrics['iw']}")
                         if response is None or response.status >= 400:
                             failures.append(f"{vp_name}/{theme}{route}: HTTP {entry['status']}")
                         if console_errors:
                             entry["console_errors"] = console_errors
                             failures.append(f"{vp_name}/{theme}{route}: console errors {console_errors[:3]}")
+                        if bad_responses:
+                            entry["bad_responses"] = bad_responses
+                            failures.append(f"{vp_name}/{theme}{route}: HTTP failures {bad_responses[:3]}")
                         shot = out / f"{vp_name}-{theme}{route.replace('/', '_') or '_root'}.png"
                         page.screenshot(path=str(shot), full_page=True)
                         entry["screenshot"] = str(shot)
