@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useModalDialog } from "@/lib/use-modal-dialog"
+import { useFocusTrap } from "@/components/focus-trap"
 import { useI18n } from "@/lib/i18n/provider"
 import { apiCall } from "@/lib/client-api"
 import { readPlaygroundStream, usdToMicros, type PlaygroundStreamResult } from "@/lib/playground"
@@ -12,6 +13,7 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
   const { t } = useI18n()
   const router = useRouter()
   const dialog = useModalDialog()
+  const trapRef = useRef<HTMLDivElement>(null)
   const controller = useRef<AbortController | null>(null)
   const [model, setModel] = useState(initialModel)
   const [prompt, setPrompt] = useState(t("playground.promptHi"))
@@ -23,6 +25,8 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
   const [costStatus, setCostStatus] = useState("")
   const [recordedId, setRecordedId] = useState<string | null>(null)
   useEffect(() => () => controller.current?.abort(), [])
+  function close() { controller.current?.abort(); onClose() }
+  useFocusTrap(trapRef, true, close)
   async function send(event: FormEvent) {
     event.preventDefault()
     if (busy || !prompt.trim()) return
@@ -49,8 +53,8 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
       else setError(failure instanceof Error ? failure.message : String(failure))
     } finally { if (controller.current === abort) { controller.current = null; setBusy(false) } }
   }
-  function close() { controller.current?.abort(); onClose() }
-  return <dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="playground-title" onCancel={close} className="ml-auto mr-0 h-full max-h-screen w-full max-w-2xl overflow-y-auto border-l border-border bg-surface p-6 text-foreground backdrop:bg-black/50">
+  return <dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="playground-title" onCancel={close} className="ml-auto mr-0 h-full max-h-screen w-full max-w-2xl overflow-y-auto border-l border-border bg-surface p-6 text-foreground backdrop:bg-black/50 motion-reduce:transition-none motion-reduce:animate-none">
+    <div ref={trapRef} tabIndex={-1} className="focus:outline-none">
     <div className="flex items-center justify-between"><h2 id="playground-title" className="text-xl font-semibold">{t("playground.title")}</h2><button type="button" aria-label={t("s77")} onClick={close} className="filter-action">×</button></div>
     <p className="my-4 text-sm text-subtle">{t("playground.warning")}</p>
     <form onSubmit={(event) => void send(event)} className="space-y-4">
@@ -70,5 +74,6 @@ export function PlaygroundDrawer({ models, initialModel, onClose }: { models: { 
       <Link href={`/logs?focusId=${encodeURIComponent(recordedId)}`} data-testid="playground-log-link" className="text-info underline">{t("playground.viewAttempts")}</Link>
       <span className="ml-2 text-xs text-subtle">{t("playground.traceRecorded", recordedId)}</span>
     </p> : null}
+    </div>
   </dialog>
 }

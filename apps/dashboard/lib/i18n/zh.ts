@@ -716,4 +716,8 @@ export const zh = {
   "playground.viewAttempts": "在日志中查看 Attempt 链路",
   "playground.traceRecorded": "已记录为请求 {0}；打开日志可查看 Attempt 链路。",
   "logs.focusedDetail": "来自深链：正在展示单条请求详情。",
+  "embed.bridgeReady": "已与宿主建立安全通信连接。",
+  "embed.bridgeError": "已拒绝宿主嵌入消息：来源不在允许列表内。",
+  "a11y.liveConnected": "实时事件通道已连接。",
+  "a11y.liveDisconnected": "实时事件通道已断开，正在尝试重新连接。",
 } as const

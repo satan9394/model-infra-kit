@@ -716,4 +716,8 @@ export const en = {
   "playground.viewAttempts": "View attempt chain in Logs",
   "playground.traceRecorded": "Recorded as request {0}; open Logs to inspect the attempt chain.",
   "logs.focusedDetail": "Opened from a deep link: showing one recorded request detail.",
+  "embed.bridgeReady": "Secure bridge with the host is established.",
+  "embed.bridgeError": "Host embed message rejected: the origin is not allowed.",
+  "a11y.liveConnected": "Live event stream connected.",
+  "a11y.liveDisconnected": "Live event stream disconnected; reconnecting.",
 } as const

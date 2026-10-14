@@ -7,9 +7,10 @@ import { TraceSearch } from "@/components/trace-search"
 import { useI18n } from "@/lib/i18n/provider"
 
 import { useModalDialog } from "@/lib/use-modal-dialog"
+import { useFocusTrap } from "@/components/focus-trap"
 import { CacheHitBadge } from "@/components/cache-metrics"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { apiCall } from "@/lib/client-api"
 import { formatDateTime, formatInt, formatMs, formatUsd, tokenTotal } from "@/lib/format"
 import type { UsageEvent } from "@/lib/types"
@@ -20,6 +21,8 @@ const PAGE_SIZES = [25, 50, 100] as const
 function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () => void }) {
   const { t } = useI18n()
   const dialog = useModalDialog()
+  const trapRef = useRef<HTMLElement>(null)
+  useFocusTrap(trapRef, true, onClose)
 
   const [selectedId, setSelectedId] = useState(requestId)
   const [attempts, setAttempts] = useState<UsageEvent[]>([])
@@ -73,7 +76,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
   return (
     <dialog ref={dialog} onCancel={onClose} role="dialog" aria-modal="true" aria-labelledby="request-details-title" className="ml-auto mr-0 h-full max-h-screen w-full max-w-xl bg-surface p-0 text-foreground backdrop:bg-black/50">
 
-      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-border bg-surface p-4 shadow-2xl">
+      <aside ref={trapRef} tabIndex={-1} className="h-full w-full max-w-xl overflow-y-auto border-l border-border bg-surface p-4 shadow-2xl focus:outline-none motion-reduce:transition-none motion-reduce:animate-none">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h2 data-testid="request-details-title" id="request-details-title" className="text-sm font-medium text-foreground"> {t("s78")} </h2>
@@ -256,7 +259,7 @@ export function LogsClient({
                   {logicalId(event) && <div className="mt-1 text-[11px] text-subtle">{t("diagnostics.pageAttempts", group.length)}</div>}
                   {event.cacheHit ? <div className="mt-1"><CacheHitBadge label={t("cache.hitBadge")} /></div> : null}
                 </Td>
-                <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle"><button type="button" aria-label={`${t("s78")}: ${event.requestId}`} onClick={() => setOpenId(event.requestId)} className="underline">{event.requestId}</button></Td>
+                <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle"><button type="button" aria-label={`${t("s78")}: ${event.requestId}`} aria-haspopup="dialog" aria-expanded={openId === event.requestId} onClick={() => setOpenId(event.requestId)} className="underline">{event.requestId}</button></Td>
               </tr>
             )})}
           </tbody>

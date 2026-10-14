@@ -39,6 +39,8 @@ export function LiveRefresh({
   const [refreshes, setRefreshes] = useState(0)
   const [session, setSession] = useState({ requests: 0, costMicros: 0, lastModel: "" })
   const [probe, setProbe] = useState<ProbeState>({ status: "pending", snapshot: null, rttMs: null })
+  const [announcement, setAnnouncement] = useState("")
+  const previousConnected = useRef<boolean | null>(null)
   const probeRef = useRef<ReturnType<typeof createConnectionProbe> | null>(null)
   useEffect(() => {
     if (controlsOnly) return
@@ -85,6 +87,18 @@ export function LiveRefresh({
     },
   }, !controlsOnly)
 
+  // Screen readers get the SSE connection state as a polite announcement; the
+  // visual badge changes colour but colour alone is not an accessible channel.
+  useEffect(() => {
+    if (previousConnected.current === null) {
+      previousConnected.current = state.connected
+      return
+    }
+    if (previousConnected.current === state.connected) return
+    previousConnected.current = state.connected
+    setAnnouncement(state.connected ? t("a11y.liveConnected") : t("a11y.liveDisconnected"))
+  }, [state.connected, t])
+
   useEffect(() => {
     return () => {
       if (timer.current) clearTimeout(timer.current)
@@ -93,6 +107,7 @@ export function LiveRefresh({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <div aria-live="polite" className="sr-only" data-testid="live-announcer">{announcement}</div>
       {!controlsOnly ? <LiveBadge state={state} /> : null}
       {!controlsOnly ? <>
       <button

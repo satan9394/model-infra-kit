@@ -150,6 +150,21 @@
   }
 }
 
+/* UI-203: honour the OS "reduce motion" setting on every animated surface —
+   drawers, loading spinners and expand/collapse transitions. Tailwind's
+   `motion-safe:` variants stop the utilities that opt in; this rule is the
+   belt-and-braces guarantee for the rest. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 
 @layer components {
   .dashboard-shell { min-height: 100vh; }

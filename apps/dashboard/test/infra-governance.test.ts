@@ -66,6 +66,14 @@ const G144_KEYS = [
   "webhooks.outboxUnavailable",
 ] as const
 
+/** EVO-G145 embed bridge and a11y additions; tracked separately so earlier snapshots stay meaningful. */
+const G145_KEYS = [
+  "embed.bridgeReady",
+  "embed.bridgeError",
+  "a11y.liveConnected",
+  "a11y.liveDisconnected",
+] as const
+
 /* ---------------------------------------------- adversarial 1: quota guide */
 
 test("EVO-G143 quota empty state is a structured guide, not a thin blank", () => {
@@ -195,9 +203,10 @@ test("EVO-G143 dictionary additions keep zh/en parity and identical placeholders
   assert.deepEqual(enKeys, Object.keys(zh).sort())
   // Pre-change baseline was 679 keys; additions may only grow the surface.
   assert.ok(enKeys.length >= 679, `expected >= 679 keys, saw ${enKeys.length}`)
-  // G144 appended its own documented keys on top of the G143 set.
-  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length)
-  for (const key of ADDED_KEYS) {
+  // G144 appended its own documented keys on top of the G143 set, and G145 added
+  // the embed bridge + a11y announcements.
+  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length)
+  for (const key of [...ADDED_KEYS, ...G145_KEYS]) {
     assert.ok(enKeys.includes(key), `missing dictionary key: ${key}`)
     assert.ok(en_(key).trim() && zh_(key).trim(), key)
     assert.deepEqual(zh_(key).match(/\{\d+\}/g) ?? [], en_(key).match(/\{\d+\}/g) ?? [], key)
