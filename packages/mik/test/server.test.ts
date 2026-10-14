@@ -1552,6 +1552,8 @@ describe("GET /openapi.json", () => {
     "/api/quotas",
     "/api/webhooks/status",
     "/api/webhooks/test",
+    "/api/webhooks/outbox/stats",
+    "/api/webhooks/outbox/retry-dead",
     "/api/reload",
     "/api/health",
     "/api/connections",

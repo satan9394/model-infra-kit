@@ -552,7 +552,8 @@ describe("EVO-G75 A4 — an old database upgrades without losing data", () => {
 
     expect(columns).toContain("tags_json")
     expect(columns).toContain("trace_id")
-    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7])
+    // EVO-G144 appended v8 (the optional webhook outbox): additive, no column change.
+    expect(applied).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     expect(
       store.driver
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_trace_rollups'")
@@ -603,14 +604,14 @@ describe("EVO-G75 A4 — an old database upgrades without losing data", () => {
     const store = await Store.open({ path })
 
     // v2 must not have tried to add a column that is already there; v3 adds
-    // the pricing cache and v4 adds trace attribution without changing the
-    // legacy usage row.
+    // the pricing cache, v4 adds trace attribution and v8 (EVO-G144) adds the
+    // webhook outbox without changing the legacy usage row.
     expect(
       store.driver
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all()
         .map((row) => Number(row.version)),
-    ).toEqual([1, 2, 3, 4, 5, 6, 7])
+    ).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     expect(
       store.driver
         .prepare("PRAGMA table_info(usage_events)")

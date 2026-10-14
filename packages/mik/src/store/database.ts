@@ -12,6 +12,7 @@ import { PricingRepository, SettingsRepository } from "./pricing-repository.js"
 import { PricingCacheRepository } from "./pricing-cache-repository.js"
 import { ProviderRepository } from "./provider-repository.js"
 import { UsageRepository } from "./usage-repository.js"
+import { OutboxRepository } from "./outbox-repository.js"
 import { defaultDbPath, expandPath } from "../util/paths.js"
 
 export interface StoreOptions {
@@ -276,6 +277,7 @@ export class Store {
   readonly pricingCache: PricingCacheRepository
   readonly usage: UsageRepository
   readonly settings: SettingsRepository
+  readonly webhookOutbox: OutboxRepository
   readonly schemaVersion: number
   readonly path: string
 
@@ -294,6 +296,7 @@ export class Store {
     this.pricingCache = new PricingCacheRepository(driver)
     this.usage = new UsageRepository(driver, onWarn)
     this.settings = new SettingsRepository(driver)
+    this.webhookOutbox = new OutboxRepository(driver)
   }
 
   /** Explicit maintenance; main-file sizes measured after WAL checkpoints. */

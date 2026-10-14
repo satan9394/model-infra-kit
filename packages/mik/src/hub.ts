@@ -444,9 +444,10 @@ export class ModelInfra {
     this.reasoningTimeoutMs = deps.reasoningTimeoutMs
     this.keyCooldownMs = deps.keyCooldownMs
     this.budgetConfig = deps.budgetConfig
-    this.webhooks = new WebhookDispatcher(this.notificationBus, deps.webhooks)
+    this.webhooks = new WebhookDispatcher(this.notificationBus, deps.webhooks, undefined,
+      { repository: this.store.webhookOutbox, onWarn: this.warn })
     if (deps.webhooks?.length) deps.usage.onRecorded(event => {
-      this.notificationBus.defer(() => {
+      const publish = (): void => {
         const row = this.store.driver.prepare(`SELECT CAST(cost_micros AS TEXT) AS cost,
           CAST(cost_low_micros AS TEXT) AS low, CAST(cost_high_micros AS TEXT) AS high,
           CAST(cache_savings_micros AS TEXT) AS savings FROM usage_events WHERE request_id = ?`).get(event.requestId)
@@ -462,7 +463,15 @@ export class ModelInfra {
           const status = this.usage.withAppScope(event.appId, () => this.budgetStatus())
           if ([status.daily, status.monthly].some(period => period?.status === "exceeded")) this.notificationBus.dispatch("BUDGET_EXCEEDED", data)
         }
-      })
+      }
+      // EVO-G144: a durable host persists synchronously, so the outbox row is
+      // committed before `record()` returns to the caller. A crash right after
+      // the ledger commit — the DoD's scenario — can therefore still be resumed.
+      // The default in-memory path keeps its deferred, non-blocking dispatch.
+      // (Residual: this is the same synchronous call as the commit, not the same
+      // SQL transaction; a crash inside that instruction gap is still a loss.)
+      if (this.webhooks.durableMode) publish()
+      else this.notificationBus.defer(publish)
     })
     this.responseCache = deps.cache === false ? undefined : new LruCache(deps.cache, deps.store.driver, deps.appId)
 

@@ -50,6 +50,22 @@ const ADDED_KEYS = [
   "logs.focusedDetail",
 ] as const
 
+/** EVO-G144 durable outbox additions; tracked separately so the G143 snapshot stays meaningful. */
+const G144_KEYS = [
+  "webhooks.semanticsBodyDurable",
+  "webhooks.outboxTitle",
+  "webhooks.outboxModeDurable",
+  "webhooks.outboxModeMemory",
+  "webhooks.outboxPending",
+  "webhooks.outboxProcessing",
+  "webhooks.outboxDelivered",
+  "webhooks.outboxDeadLetters",
+  "webhooks.outboxRetry",
+  "webhooks.outboxRetryShown",
+  "webhooks.outboxRetryMemoryOnly",
+  "webhooks.outboxUnavailable",
+] as const
+
 /* ---------------------------------------------- adversarial 1: quota guide */
 
 test("EVO-G143 quota empty state is a structured guide, not a thin blank", () => {
@@ -179,7 +195,8 @@ test("EVO-G143 dictionary additions keep zh/en parity and identical placeholders
   assert.deepEqual(enKeys, Object.keys(zh).sort())
   // Pre-change baseline was 679 keys; additions may only grow the surface.
   assert.ok(enKeys.length >= 679, `expected >= 679 keys, saw ${enKeys.length}`)
-  assert.equal(enKeys.length, 679 + ADDED_KEYS.length)
+  // G144 appended its own documented keys on top of the G143 set.
+  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length)
   for (const key of ADDED_KEYS) {
     assert.ok(enKeys.includes(key), `missing dictionary key: ${key}`)
     assert.ok(en_(key).trim() && zh_(key).trim(), key)
@@ -244,4 +261,48 @@ test("EVO-G143 focusId deep link opens one request detail and never becomes a li
   // The logs view consumes it and the list client opens on mount.
   assert.match(read("../components/views/logs.tsx"), /initialId=\{filters\.focusId\}/)
   assert.match(read("../components/logs-client.tsx"), /useState<string \| null>\(initialId \?\? null\)/)
+})
+
+/* ------------------------------------------------ EVO-G144 durable outbox */
+
+test("EVO-G144 dictionary additions keep zh/en parity and identical placeholders", () => {
+  const enKeys = Object.keys(en)
+  for (const key of G144_KEYS) {
+    assert.ok(enKeys.includes(key), `missing dictionary key: ${key}`)
+    assert.ok(en_(key).trim() && zh_(key).trim(), key)
+    assert.deepEqual(zh_(key).match(/\{\d+\}/g) ?? [], en_(key).match(/\{\d+\}/g) ?? [], key)
+    assert.doesNotMatch(en_(key), /\p{Script=Han}/u, key)
+  }
+  assert.match(en_("webhooks.outboxRetryShown"), /\{0\}/)
+})
+
+test("EVO-G144 the webhook page states the active delivery mode and offers dead-letter retry", () => {
+  const source = webhooks()
+  // The required anchor, and both mode labels the card must be able to show.
+  assert.match(source, /data-testid="webhook-outbox-status"/)
+  assert.match(source, /t\("webhooks\.outboxModeDurable"\)/)
+  assert.match(source, /t\("webhooks\.outboxModeMemory"\)/)
+  // It reads the real queue endpoints, not a fabricated counter.
+  assert.match(source, /\/webhooks\/outbox\/stats/)
+  assert.match(source, /\/webhooks\/outbox\/retry-dead/)
+  assert.match(source, /t\("webhooks\.outboxRetry"\)/)
+  // Retrying is refused in memory mode instead of pretending to succeed.
+  assert.match(source, /mode !== "durable"/)
+  // The counters are the real queue numbers, explicit keys included.
+  assert.match(source, /\["webhooks\.outboxPending", outbox\.pending\]/)
+  assert.match(source, /\["webhooks\.outboxProcessing", outbox\.processing\]/)
+  assert.match(source, /\["webhooks\.outboxDelivered", outbox\.delivered\]/)
+  assert.match(source, /\["webhooks\.outboxDeadLetters", outbox\.deadLetter\]/)
+  assert.match(source, /\["webhooks\.dropped", outbox\.dropped\]/)
+  // In durable mode the always-zero in-memory counters and the always-empty
+  // in-memory "No failed deliveries." list must both be hidden, or the page
+  // prints contradictory numbers side by side.
+  assert.match(source, /\{!durable \? <dl[^>]*data-testid="webhook-counters">/)
+  assert.match(source, /\{!durable \? <>[\s\S]{0,200}?t\("webhooks\.deadLetters"\)/)
+  // The semantics note states the truth for whichever mode is active.
+  assert.match(source, /t\("webhooks\.semanticsBodyDurable"\)/)
+  assert.match(source, /t\("webhooks\.semanticsBody"\)/)
+  assert.match(en_("webhooks.semanticsBodyDurable"), /at-least-once/)
+  assert.match(en_("webhooks.semanticsBodyDurable"), /X-Mik-Delivery-Id/)
+  assert.doesNotMatch(en_("webhooks.semanticsBodyDurable"), /guarantee/i)
 })

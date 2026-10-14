@@ -12,4 +12,14 @@ export function registerWebhookRoutes(router: Router): void {
     const accepted = ctx.hub.webhooks.test()
     sendJson(ctx.res, accepted ? 202 : 503, { accepted })
   })
+  // EVO-G144: durable outbox visibility. Reads are non-mutating; the retry
+  // endpoint only re-arms rows an operator explicitly asked to retry.
+  router.add("GET", "/api/webhooks/outbox/stats", ctx => {
+    requireScope("admin")(ctx)
+    sendJson(ctx.res, 200, ctx.hub.webhooks.outboxStats())
+  })
+  router.add("POST", "/api/webhooks/outbox/retry-dead", ctx => {
+    requireScope("admin")(ctx)
+    sendJson(ctx.res, 200, ctx.hub.webhooks.retryDeadOutbox())
+  })
 }

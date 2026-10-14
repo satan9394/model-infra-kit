@@ -31,7 +31,12 @@ export class NotificationBus {
     return this.defer(() => this.dispatch(type, data))
   }
 
-  /** @internal Call only from deferred work; listener failures are isolated. */
+  /**
+   * @internal Normally called from deferred work; the durable webhook path
+   * (`ModelInfra`'s committed-write observer) also calls it **synchronously** so
+   * an enabled outbox row is committed before `record()` returns. Safe either
+   * way: it never touches `pending`/`immediate`, and each listener is isolated.
+   */
   dispatch(type: NotificationType, data: Record<string, unknown>): void {
     if (this.closed) return
     const event = { id: randomUUID(), type, timestamp: Date.now(), data: redactDeep(data) }

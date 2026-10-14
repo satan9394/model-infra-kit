@@ -262,6 +262,40 @@ MIGRATIONS.push({ version: 7, statements: [driver => {
   }
 }] })
 
+/**
+ * EVO-G144 / ARCH-010 — optional durable webhook outbox.
+ *
+ * Purely additive: a new table plus its indexes. No existing table changes and
+ * no row is rewritten, so a database created by any earlier version upgrades in
+ * place. The ledger's v6 integer-cost authority is untouched, and a host that
+ * never enables `webhook.durable` simply never writes to this table.
+ *
+ * `payload` holds the *already redacted* wire body (the dispatcher redacts with
+ * `redactDeep` before it reaches this table), so no plaintext credential is ever
+ * persisted. Secrets live only in the process-local `WebhookConfig`, never here.
+ */
+MIGRATIONS.push({ version: 8, statements: [
+  `CREATE TABLE IF NOT EXISTS webhook_outbox (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    destination_id TEXT NOT NULL,
+    target_url TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'PROCESSING', 'DELIVERED', 'DEAD_LETTER')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 5,
+    next_retry_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_error TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_webhook_outbox_due ON webhook_outbox(status, next_retry_at)`,
+  // At-least-once enqueues of the same event to the same destination collapse to
+  // one row; the delivery id stays the first one written. Its leftmost column
+  // (`event_id`) also serves the per-event lookup, so no separate index.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_outbox_event_dest ON webhook_outbox(event_id, destination_id)`,
+] })
+
 export function migrate(driver: SqlDriver): number {
   const adapter = isStorageAdapter(driver) ? driver : adaptSqlDriver(driver)
   driver.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (

@@ -1062,6 +1062,14 @@ export function buildOpenApiDocument(options: OpenApiOptions): Record<string, un
         post: { tags: ["events"], summary: "Admin-only enqueue a synthetic usage notification to configured subscribers; no request-supplied destination.",
           responses: { "202": ok("Queued, not delivered.", { type: "object" }), "503": error("Queue full or closed."), "403": error("Requires admin.") } },
       },
+      "/api/webhooks/outbox/stats": {
+        get: { tags: ["events"], summary: "Admin-only webhook queue depth for the active mode (durable outbox or memory best-effort); no secrets or destinations.",
+          responses: { "200": ok("`mode` is `durable` or `memory`; counts are integers and `oldestPendingAt` is epoch ms or null.", { type: "object" }), "403": error("Requires admin.") } },
+      },
+      "/api/webhooks/outbox/retry-dead": {
+        post: { tags: ["events"], summary: "Admin-only re-arm dead-lettered durable deliveries; reports how many were requeued (0 in memory mode).",
+          responses: { "200": ok("`requeued` is the number of rows moved back to PENDING.", { type: "object" }), "403": error("Requires admin.") } },
+      },
       "/api/events": {
         get: {
           tags: ["events"],
