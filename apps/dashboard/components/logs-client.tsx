@@ -1,5 +1,8 @@
 "use client"
 
+import { ExecutionDiagnostics, ErrorClassBadge } from "@/components/execution-diagnostics"
+import { attemptNumber, logicalGroups, logicalId } from "@/lib/diagnostics"
+import type { LogsPayload } from "@/lib/types"
 import { TraceSearch } from "@/components/trace-search"
 import { useI18n } from "@/lib/i18n/provider"
 
@@ -18,21 +21,54 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
   const { t } = useI18n()
   const dialog = useModalDialog()
 
+  const [selectedId, setSelectedId] = useState(requestId)
+  const [attempts, setAttempts] = useState<UsageEvent[]>([])
+  const [partial, setPartial] = useState(false)
   const [state, setState] = useState<{ loading: boolean; event?: UsageEvent; error?: string }>({ loading: true })
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
+    setSelectedId(requestId)
+    setState({ loading: true })
+    setAttempts([])
+    setPartial(false)
     void (async () => {
-      const result = await apiCall<{ event: UsageEvent }>(`/usage/logs/${encodeURIComponent(requestId)}`)
+      const result = await apiCall<{ event: UsageEvent }>(`/usage/logs/${encodeURIComponent(requestId)}`, { signal: controller.signal })
       if (cancelled) return
-      setState(result.ok ? { loading: false, event: result.data.event } : { loading: false, error: result.error })
+      setState(result.ok ? { loading: false, event: result.data.event } : { loading: false, error: "diagnostics.loadFailed" })
+      if (!result.ok) return
+      const event = result.data.event
+      setAttempts([event])
+      const id = logicalId(event)
+      setPartial(!!id)
+      if (!id || !event.traceId) return
+      const retained: UsageEvent[] = []
+      let complete = false
+      // Bounded scan of retained trace rows; filters on the list must not hide earlier attempts.
+      for (let offset = 0; offset < 2000; offset += 200) {
+        const query = new URLSearchParams({ traceId: event.traceId, limit: "200", offset: String(offset) })
+        const page = await apiCall<LogsPayload>(`/usage/logs?${query}`, { signal: controller.signal })
+        if (cancelled) return
+        if (!page.ok) break
+        retained.push(...page.data.events.filter(row => row.appId === event.appId && logicalId(row) === id))
+        if (offset + page.data.events.length >= page.data.total) { complete = true; break }
+        if (!page.data.events.length) break
+      }
+      if (cancelled) return
+      const unique = new Map(retained.map(row => [row.requestId, row]))
+      unique.set(event.requestId, event)
+      const sequence = logicalGroups([...unique.values()])[0]!
+      setAttempts(sequence)
+      setPartial(!complete || sequence.some((row, index) => attemptNumber(row) !== index + 1))
     })()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [requestId])
 
-  const event = state.event
+  const event = attempts.find(row => row.requestId === selectedId) ?? state.event
 
   return (
     <dialog ref={dialog} onCancel={onClose} role="dialog" aria-modal="true" aria-labelledby="request-details-title" className="ml-auto mr-0 h-full max-h-screen w-full max-w-xl bg-surface p-0 text-foreground backdrop:bg-black/50">
@@ -40,8 +76,8 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
       <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-border bg-surface p-4 shadow-2xl">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 id="request-details-title" className="text-sm font-medium text-foreground"> {t("s78")} </h2>
-            <p className="mt-0.5 break-all font-mono text-xs text-subtle">{requestId}</p>
+            <h2 data-testid="request-details-title" id="request-details-title" className="text-sm font-medium text-foreground"> {t("s78")} </h2>
+            <p className="mt-0.5 break-all font-mono text-xs text-subtle">{event?.requestId ?? requestId}</p>
           </div>
           <button
             type="button"
@@ -55,6 +91,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
 
         {event ? (
           <div className="space-y-4">
+            <ExecutionDiagnostics events={attempts.length ? attempts : [event]} selectedId={event.requestId} partial={partial} onSelect={setSelectedId} />
             <section>
               <h3 className="mb-1 text-xs font-medium text-muted-foreground"> {t("s80")} </h3>
               <KeyValue label={t("s81")}>{formatDateTime(event.ts)}</KeyValue>
@@ -62,7 +99,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
               <KeyValue label={t("s82")}>{event.source}</KeyValue>
               <KeyValue label={t("s83")}>
                 <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
-                {event.errorCode ? <span className="ml-2 text-danger">{event.errorCode}</span> : null}
+                <ErrorClassBadge event={event} />
                 {event.cacheHit ? <span className="ml-2"><CacheHitBadge label={t("cache.hitBadge")} /></span> : null}
               </KeyValue>
               <KeyValue label={t("s84")}>{event.isStreaming ? t("s85") : t("s86")}</KeyValue>
@@ -100,16 +137,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
               <KeyValue label="first token">{formatMs(event.firstTokenMs)}</KeyValue>
             </section>
 
-            {event.tags && Object.keys(event.tags).length > 0 ? (
-              <section>
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">tags</h3>
-                {Object.entries(event.tags).map(([key, value]) => (
-                  <KeyValue key={key} label={key}>
-                    {value}
-                  </KeyValue>
-                ))}
-              </section>
-            ) : null}
+
           </div>
         ) : null}
       </aside>
@@ -146,6 +174,7 @@ export function LogsClient({
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-subtle">{t("diagnostics.listPolicy")}</p>
       <TraceSearch baseQuery={baseQuery} onOpen={setOpenId} />
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span> {t("s93")} <span className="font-mono text-foreground">{formatInt(total)}</span> {t("s94")} {page} / {pages} {t("s95")} {PAGE_SIZES.map((size) => (
@@ -199,7 +228,9 @@ export function LogsClient({
             </tr>
           </thead>
           <tbody>
-            {events.map((event) => (
+            {logicalGroups(events).map((group) => {
+              const event = group[group.length - 1]!
+              return (
               <tr
                 key={event.requestId}
                 onClick={(click) => {
@@ -218,12 +249,13 @@ export function LogsClient({
                 <Td className="text-right font-mono tabular-nums text-xs">{formatMs(event.latencyMs)}</Td>
                 <Td>
                   <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
-                  {event.errorCode ? <div className="mt-1 text-[11px] text-danger">{event.errorCode}</div> : null}
+                  <div className="mt-1"><ErrorClassBadge event={event} /></div>
+                  {logicalId(event) && <div className="mt-1 text-[11px] text-subtle">{t("diagnostics.pageAttempts", group.length)}</div>}
                   {event.cacheHit ? <div className="mt-1"><CacheHitBadge label={t("cache.hitBadge")} /></div> : null}
                 </Td>
                 <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle"><button type="button" aria-label={`${t("s78")}: ${event.requestId}`} onClick={() => setOpenId(event.requestId)} className="underline">{event.requestId}</button></Td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </TableWrap>
       )}

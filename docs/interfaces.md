@@ -1808,3 +1808,31 @@ POST body envelope: { id, type, timestamp (epoch ms), data }. X-Mik-Timestamp is
 GET /api/webhooks/status and POST /api/webhooks/test require admin (or*), not read:usage. Status omits destination URLs, signing secrets and payloads; only counts, subscription settings and generic failed delivery metadata. Test ignores request-supplied destinations/payloads and queues a synthetic zero-micro USAGE_RECORDED event to configured usage subscribers;202 means queued, not delivered. Dashboard /webhooks polls through the authenticated proxy and displays subscriptions, counters and bounded failures; secrets/destinations are configured by the trusted host, not edited in-browser.
 
 Performance acceptance: user explicitly accepted no awaited webhook/network work on generate/stream/HTTP paths plus hanging-peer proof and measured scheduling overhead. Scheduling consumes nonzero CPU; no absolute0ms or real-time latency guarantee.
+
+
+## EVO-G141 retained execution diagnostics
+
+`generate` and `stream` usage rows may contain runtime-owned reserved tags:
+`_mik_logical_request_id` (fresh per invocation; never derived from caller trace IDs),
+`_mik_attempt_number` (positive one-based recorded execution number),
+`_mik_attempt_duration_ms` (measured elapsed time for that execution),
+`_mik_attempt_started_at` (execution start epoch milliseconds, for timeline placement),
+`_mik_failure_class` (rate_limit / timeout / connection / provider_5xx /
+terminal_4xx / budget_exceeded / cancelled / other), and optional
+`_mik_fallback_reason` (preceding structured error code or CIRCUIT_OPEN), and
+`_mik_fallback_class` (known category of that preceding error).
+Caller tags cannot overwrite these reserved fields. Local cache replay is a single
+record with duration zero, not an upstream attempt. SDK-internal retries/tool steps
+remain inside one recorded execution. No schema or public export change.
+
+`requestId` remains the usage idempotency key. `traceId` can span logical invocations;
+legacy, fetch and externally reported rows have no authoritative logical association.
+Dashboard grouping is page-local; counts/pagination remain usage-record counts.
+Drawer lookup scans retained trace rows without list filters, at most 2,000 rows,
+and reports partial lookup failures/truncation/gaps. No logical final outcome is
+inferred from retained attempt outcomes. Legacy latency is cumulative and must not
+be presented as measured per-attempt duration. Raw credential/header/tag values
+are not included in the diagnostic projection. 408/504 classify as timeout;
+other 4xx classify as terminal_4xx; diagnostic classification does not change routing.
+Trace trees require a complete retained graph with one real root and valid,
+unique, acyclic parent edges; otherwise render Call Sequence without inferred parents.

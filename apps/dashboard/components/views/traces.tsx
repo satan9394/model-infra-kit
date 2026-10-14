@@ -1,3 +1,4 @@
+import { canRenderTraceTree } from "@/lib/diagnostics"
 import { TraceTreeView } from "@/components/trace-tree"
 import { TraceSearch } from "@/components/trace-search"
 import { CacheStatus } from "@/components/cache-metrics"
@@ -161,7 +162,12 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                 <span> {t("s350")} {formatMs(traceTimeline(events)[0]?.spanMs)} {t("s351")} {events.length} / {formatInt(active.requests)} {t("s341")} </span>
                 {active.archivedRequests > 0 ? <span>{formatInt(active.archivedRequests)} {t("s352")} </span> : null}
               </div>
-              {tree?.ok && <TraceTreeView key={selectedId} tree={tree.data} />}
+              {tree?.ok && canRenderTraceTree(events, tree.data) && logs?.ok && events.length === logs.data.total && active.archivedRequests === 0
+                ? <TraceTreeView key={selectedId} tree={tree.data} />
+                : <section data-testid="trace-call-sequence" className="mb-3 rounded border border-border p-3">
+                    <h3 className="text-sm font-medium">{t("diagnostics.callSequence")}</h3>
+                    <p className="mt-1 text-xs text-subtle">{t("diagnostics.noTopology")}</p>
+                  </section>}
               <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
               <ul aria-label={t("cache.status")} className="my-3 space-y-1">
                 {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} localHit={event.cacheHit} localHitLabel={t("cache.hitBadge")} />)}

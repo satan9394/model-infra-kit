@@ -47,6 +47,29 @@ import { evaluateComplexity, readCascadingConfig, type CascadingConfig, type Com
 import { LoadBalancer, readRoutingMode } from "./router/load-balancer.js"
 import type { EndpointQoSStats } from "./router/qos-tracker.js"
 
+import { classifyFailure, type FailureClass } from "./util/error-classification.js"
+
+// Runtime-owned identity survives request spreads, never accepted from caller tags.
+const execution = Symbol("mik.execution")
+type ExecutionRequest = ModelRequest & { [execution]?: { id: string; attempt: number; started: number; startedAt: number; reason?: string; reasonClass?: FailureClass } }
+function logicalRequest(request: ModelRequest): ExecutionRequest {
+  return { ...request, traceId: request.traceId ?? randomUUID(), [execution]: { id: randomUUID(), attempt: 0, started: performance.now(), startedAt: Date.now() } }
+}
+function startAttempt(request: ModelRequest, reason?: string, reasonClass?: FailureClass): void {
+  const context = (request as ExecutionRequest)[execution]!
+  context.attempt += 1
+  context.started = performance.now()
+  context.startedAt = Date.now()
+  context.reason = reason
+  context.reasonClass = reasonClass
+}
+
+function diagnosticClass(error?: ModelInfraError, code: string | undefined = error?.code): FailureClass {
+  const cause = error?.cause
+  const detail = cause && typeof cause === "object" ? cause as { code?: unknown; type?: unknown } : undefined
+  return classifyFailure(code, error?.status, detail?.code === "server_error" || detail?.type === "server_error" ? "server_error" : undefined)
+}
+
 const DEFAULT_APP_ID = "default"
 /** Placeholder until the HTTP server (T07) knows the real port. */
 const DEFAULT_BASE_URL = "http://127.0.0.1:0/v1"
@@ -837,7 +860,7 @@ export class ModelInfra {
   async generate(request: ModelRequest): Promise<ModelResponse> {
     this.assertOpen("generate()")
     validateMultimodalUsage(request.media)
-    request = { ...request, traceId: request.traceId ?? randomUUID() }
+    request = logicalRequest(request)
     const primary = this.resolveRequestModel(request, true)
     if (primary.routingTags) request = { ...request, tags: { ...sanitizeTags(request.tags), ...primary.routingTags } }
     const cacheKey = this.cacheKey(request, primary)
@@ -858,6 +881,7 @@ export class ModelInfra {
         const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
           request = { ...request, tags: { ...sanitizeTags(request.tags), ...this.cascadingTags(primary, candidate.modelRef) } }
+          startAttempt(request, lastError?.code ?? (candidateIndex > 0 ? "CIRCUIT_OPEN" : undefined), lastError ? diagnosticClass(lastError) : undefined)
           const requestId = randomUUID()
           const attemptStarted = performance.now()
           let replayUnsafe = false
@@ -958,7 +982,7 @@ export class ModelInfra {
               isStreaming: false,
               tool_calls: toolTrace.finish(0, ZERO_USAGE()),
               request,
-              diagnosticTags: candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : undefined,
+              diagnosticTags: { ...(candidateIndex > 0 || keyAttempt > 0 ? { is_fallback: "true" } : {}), _mik_failure_class: request.signal?.aborted ? "cancelled" : diagnosticClass(mapped) },
             })
             if (!replayUnsafe && !request.signal?.aborted && isRetryableRouteFailure(mapped) && mapped.code === "RATE_LIMIT" && keyAttempt + 1 < keyAttempts) {
               this.providers.coolCurrentKey(candidate.resolved.providerId, this.keyCooldownMs)
@@ -1029,7 +1053,7 @@ export class ModelInfra {
   notifyBudgetExceeded(appId: string): void { this.notificationBus.emit("BUDGET_EXCEEDED", { appId, reason: "Hard budget limit reached" }) }
 
   private async *runStream(request: ModelRequest): AsyncGenerator<StreamEvent> {
-    request = { ...request, traceId: request.traceId ?? randomUUID() }
+    request = logicalRequest(request)
     const startedAt = Date.now()
     let primary: ResolvedModelRef
     let candidates: Array<{ resolved: ResolvedModelRef; modelRef: string }>
@@ -1061,6 +1085,7 @@ export class ModelInfra {
     }
 
     let lastFailure: Extract<StreamEvent, { type: "error" }> | undefined
+    let lastFailureClass: FailureClass | undefined
     for (const [candidateIndex, candidate] of candidates.entries()) {
       let release: (() => void) | undefined
       let acquired = false
@@ -1071,6 +1096,7 @@ export class ModelInfra {
         acquired = true
         const keyAttempts = Math.max(1, this.providers.keyCount(candidate.resolved.providerId))
         for (let keyAttempt = 0; keyAttempt < keyAttempts; keyAttempt += 1) {
+          startAttempt(request, lastFailure?.error.code ?? (candidateIndex > 0 ? "CIRCUIT_OPEN" : undefined), lastFailureClass)
           const attemptRequest = { ...request, model: candidate.modelRef, tags: { ...sanitizeTags(request.tags), ...this.cascadingTags(primary, candidate.modelRef),
             ...(lastFailure ? { failover_reason: lastFailure.error.code } : candidateIndex > 0 ? { failover_reason: "CIRCUIT_OPEN" } : {}) } }
           let mappedFailure: ModelInfraError | undefined
@@ -1081,7 +1107,7 @@ export class ModelInfra {
             randomUUID(),
             candidateIndex > 0 || keyAttempt > 0,
             reasoningTimeoutMs,
-            (error) => { mappedFailure = error },
+            (error) => { mappedFailure = error; lastFailureClass = diagnosticClass(error) },
             candidate.resolved.providerId !== primary.providerId ? primary.providerId : undefined,
           )
           const buffered: StreamEvent[] = []
@@ -1168,7 +1194,7 @@ export class ModelInfra {
         errorCode: mapped.code,
         isStreaming: true,
         request,
-        diagnosticTags: fallbackTags,
+        diagnosticTags: { ...fallbackTags, _mik_failure_class: request.signal?.aborted ? "cancelled" : diagnosticClass(mapped) },
       })
       onFailure(mapped)
       yield { type: "error", error: { code: mapped.code, message: mapped.message } }
@@ -1208,7 +1234,7 @@ export class ModelInfra {
       if (!request.signal?.aborted && input.errorCode !== "ABORTED" && input.errorCode !== "ABANDONED") {
         this.observeQoS(resolved, performance.now() - attemptStarted, input.status === "ok", qosTtftMs)
       }
-      this.record({ ...input, diagnosticTags: { ...input.diagnosticTags, ...fallbackTags }, tool_calls: toolTrace.finish(requestCostMicros(input.cost.usd), input.usage) })
+      this.record({ ...input, diagnosticTags: { ...input.diagnosticTags, ...fallbackTags, ...(input.status !== "ok" ? { _mik_failure_class: request.signal?.aborted ? "cancelled" : diagnosticClass(failure, input.errorCode) } : {}) }, tool_calls: toolTrace.finish(requestCostMicros(input.cost.usd), input.usage) })
     }
 
     const timeoutController = new AbortController()
@@ -1397,6 +1423,7 @@ export class ModelInfra {
       yield { type: "finish", response }
     } catch (error) {
       const mapped = toProviderError(error, { providerId: resolved.providerId, model: resolved.modelId })
+      failure = mapped
       recordOnce({
         requestId,
         at: startedAt,
@@ -1566,7 +1593,13 @@ export class ModelInfra {
       model: input.actual, providerId: input.resolved.providerId, at: input.at, usage: input.usage,
       batch: input.request?.batch ?? (input.diagnosticTags?._mik_batch === "true" ? true : undefined),
     }) : 0
+    const context = (input.request as ExecutionRequest | undefined)?.[execution]
     const diagnostic = { ...input.diagnosticTags,
+      ...(context ? { _mik_logical_request_id: context.id, _mik_attempt_number: String(Math.max(1, context.attempt)),
+        _mik_attempt_started_at: String(context.startedAt),
+        _mik_attempt_duration_ms: String(context.attempt ? Math.max(0, performance.now() - context.started) : 0),
+        ...(context.reason ? { _mik_fallback_reason: context.reason } : {}),
+        ...(context.reasonClass ? { _mik_fallback_class: context.reasonClass } : {}) } : {}),
       ...(savings > 0 ? { _mik_cache_savings_micros: String(savings) } : {}),
       ...(input.request?.media ? Object.fromEntries(Object.entries(input.request.media).map(([key, value]) => [`_mik_${key}`, String(value)])) : {}),
     }
@@ -1586,6 +1619,7 @@ export class ModelInfra {
      * same `'{}'` default it always did.
      */
     const hostTags = sanitizeTags(input.request?.tags)
+    if (hostTags) for (const key of Object.keys(hostTags)) if (key.startsWith("_mik_attempt_") || key === "_mik_logical_request_id" || key === "_mik_failure_class" || key === "_mik_fallback_reason" || key === "_mik_fallback_class") Reflect.deleteProperty(hostTags, key)
     if (hostTags) { Reflect.deleteProperty(hostTags, "_mik_cache_savings_micros"); Reflect.deleteProperty(hostTags, "_mik_local_cache_hit") }
     const merged = diagnostic && Object.keys(diagnostic).length > 0 ? { ...hostTags, ...diagnostic } : hostTags
     const event: Omit<UsageEvent, "appId"> = {

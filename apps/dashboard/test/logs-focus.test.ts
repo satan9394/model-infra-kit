@@ -4,6 +4,7 @@ import { createRequire } from "node:module"
 import { runInNewContext } from "node:vm"
 import test from "node:test"
 import ts from "typescript"
+import * as diagnostics from "../lib/diagnostics.ts"
 
 test("row-cell drawer opening focuses its request button before mounting the dialog", () => {
   const calls: string[] = []
@@ -15,6 +16,7 @@ test("row-cell drawer opening focuses its request button before mounting the dia
     if (id === "react") return { useState: () => [null, (id: string) => calls.push(`open:${id}`)] }
     if (id === "@/lib/i18n/provider") return { useI18n: () => ({ t: (key: string) => key }) }
     if (id === "@/lib/format") return new Proxy({}, { get: () => (value: unknown) => String(value) })
+    if (id === "@/lib/diagnostics") return diagnostics
     if (id.startsWith("@/")) return new Proxy({}, { get: (_, name) => String(name) })
     return require(id)
   } })

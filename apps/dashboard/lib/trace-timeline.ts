@@ -1,8 +1,16 @@
+import { attemptDuration, attemptStart } from "./diagnostics.ts"
 import type { UsageEvent } from "./types.ts"
 import { usdToMicros } from "./playground.ts"
 
 export function traceTimeline(events: UsageEvent[]) {
-  const sorted = [...events].sort((a, b) => a.ts - b.ts)
+  const sorted = events.map(event => {
+    const start = attemptStart(event) ?? event.ts
+    const shift = Math.max(0, start - event.ts)
+    return { ...event, ts: start, latencyMs: attemptDuration(event) ?? event.latencyMs,
+      firstTokenMs: event.isStreaming && event.firstTokenMs !== undefined ? Math.max(0, event.firstTokenMs - shift) : event.firstTokenMs,
+      tool_calls: event.tool_calls?.map(call => ({ ...call, start_offset_ms: Math.max(0, call.start_offset_ms - shift) })),
+    }
+  }).sort((a, b) => a.ts - b.ts)
   const start = sorted[0]?.ts ?? 0
   const end = Math.max(start + 1, ...sorted.map((event) => event.ts + Math.max(0, event.latencyMs ?? 0)))
   return sorted.map((event) => {

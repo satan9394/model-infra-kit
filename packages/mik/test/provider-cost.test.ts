@@ -359,9 +359,9 @@ describe("A2 — no reported amount: the pre-G73 path, unchanged", () => {
 
     const event = onlyEvent(hub)
     expect(event.cost).toEqual(control)
-    expect(event.tags).toEqual({ route: "test" })
+    expect(withoutExecutionTags(event.tags)).toEqual({ route: "test" })
     expect(event.tags?.[PROVIDER_COST_RAW_TAG]).toBeUndefined()
-    expect(Object.keys(event.tags ?? {})).toEqual(["route"])
+    expect(Object.keys(withoutExecutionTags(event.tags))).toEqual(["route"])
   })
 
   it("returns the same readOpenAiUsage shape when the body reports no amount", async () => {
@@ -383,7 +383,7 @@ describe("A2 — no reported amount: the pre-G73 path, unchanged", () => {
     expect(final!.type === "usage" && final!.cost.source).toBe("manual")
     const event = onlyEvent(hub)
     expect(event.cost).toEqual(control)
-    expect(event.tags).toEqual({})
+    expect(withoutExecutionTags(event.tags)).toEqual({})
   })
 })
 
@@ -517,3 +517,9 @@ describe("A4 — the contract documents the new value and the two meanings", () 
     expect(doc).toContain("猜错就是 10^6 倍的静默错账")
   })
 })
+
+// G141 adds execution facts; retain exact checks for all pre-existing tag semantics.
+function withoutExecutionTags(tags?: Record<string, string>): Record<string, string> {
+  const executionKeys = ["_mik_logical_request_id", "_mik_attempt_number", "_mik_attempt_duration_ms", "_mik_attempt_started_at"]
+  return Object.fromEntries(Object.entries(tags ?? {}).filter(([key]) => !executionKeys.includes(key)))
+}

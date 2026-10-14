@@ -1,5 +1,11 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G141 (2026-10-13)
+
+- Separate recorded logical calls from Attempts with runtime-owned identity, ordinal, timing and structured error/fallback categories; preserve existing usage counts and accounting.
+- Group associated log rows and add an execution diagnostics drawer with Attempt navigation, measured duration distribution and explicit legacy/partial-history boundaries.
+- Render trace trees only for complete matching parent-span graphs; otherwise show Call Sequence. Keep credentials out of diagnostic views and preserve bilingual labels, modal focus and existing DOM anchors.
+
 ## Local candidate — EVO-G140 (2026-10-13)
 
 - Add a shared topbar with authenticated app scope, page title, independent gateway/SSE status, connection snapshot freshness and global controls.

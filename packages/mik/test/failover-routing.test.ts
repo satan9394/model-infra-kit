@@ -22,6 +22,46 @@ let holdPrimary = false
 let emitThenError = false
 let toolThenError = false
 const messages: ModelRequest["messages"] = [{ role: "user", content: "ping" }]
+
+describe("G141 execution diagnostics", () => {
+  it.each([false, true])("separates invocations sharing trace and rejects spoofed metadata (stream=%s)", async (stream) => {
+    const mik = await hub()
+    for (let invocation = 0; invocation < 2; invocation++) {
+      clock += 101
+      statuses.set("primary", 429)
+      const request = { model: "primary:shared-model", messages, traceId: "reused-trace", tags: {
+        _mik_logical_request_id: "spoofed", _mik_attempt_number: "999", _mik_attempt_duration_ms: "-1",
+        _mik_failure_class: "provider_5xx", _mik_fallback_reason: "Authorization: Basic private", authorization: "Bearer sk-secret-g141",
+      } }
+      if (stream) await collect(mik.stream(request))
+      else await mik.generate(request)
+    }
+    const rows = mik.usage.query().events
+    expect(rows).toHaveLength(4)
+    const ids = new Set(rows.map(row => row.tags?._mik_logical_request_id))
+    expect(ids.size).toBe(2)
+    expect(ids.has("spoofed")).toBe(false)
+    for (const id of ids) {
+      const attempts = rows.filter(row => row.tags?._mik_logical_request_id === id).sort((a, b) => Number(a.tags?._mik_attempt_number) - Number(b.tags?._mik_attempt_number))
+      expect(attempts.map(row => row.tags?._mik_attempt_number)).toEqual(["1", "2"])
+      expect(attempts[0]?.tags?._mik_failure_class).toBe("rate_limit")
+      expect(attempts[1]?.tags?._mik_fallback_reason).toBe("RATE_LIMIT")
+      for (const row of attempts) {
+        expect(Number(row.tags?._mik_attempt_duration_ms)).toBeGreaterThanOrEqual(0)
+        expect(Number(row.tags?._mik_attempt_started_at)).toBeGreaterThanOrEqual(row.ts)
+      }
+    }
+    expect(JSON.stringify(rows)).not.toMatch(/sk-secret-g141|Basic private/)
+  })
+  it.each([false, true])("retains structured HTTP 503 classification (stream=%s)", async (stream) => {
+    statuses.set("primary", 503)
+    const mik = await hub()
+    if (stream) await collect(mik.stream({ model: "primary:shared-model", messages }))
+    else await mik.generate({ model: "primary:shared-model", messages })
+    expect(mik.usage.query().events.find(row => row.status === "error")?.tags?._mik_failure_class).toBe("provider_5xx")
+    expect(mik.usage.query().events.find(row => row.status === "ok")?.tags?._mik_fallback_class).toBe("provider_5xx")
+  })
+})
 function completion(stream: boolean): string {
   const common = { id: "g109", object: stream ? "chat.completion.chunk" : "chat.completion", created: 1, model: "shared-model" }
   const usage = { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, cost: 0.000123 }
@@ -164,6 +204,7 @@ describe("G109 passive provider failover", () => {
     expect(events.some((event) => event.type === "text_delta")).toBe(true)
     expect(events.at(-1)?.type).toBe("error")
     expect(calls.has("backup")).toBe(false)
+    expect(mik.usage.query().events[0]?.tags?._mik_failure_class).toBe("provider_5xx")
   })
   it("does not replay generation after a completed tool step has caused a side effect", async () => {
     const mik = await hub()
@@ -220,6 +261,7 @@ describe("G109 passive provider failover", () => {
     while (!heldResponse) await new Promise((resolve) => setTimeout(resolve, 1))
     controller.abort()
     await expect(pending).rejects.toBeInstanceOf(ModelInfraError)
+    expect(mik.usage.query().events.find(row => row.status === "error" && row.providerId === "primary" && row.tags?._mik_failure_class === "cancelled")).toBeDefined()
     heldResponse.end(); heldResponse = undefined
     expect(calls.get("backup")).toBe(1)
     expect(mik.providerHealth.state("primary")).toBe("OPEN")

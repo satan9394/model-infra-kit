@@ -347,9 +347,9 @@ describe("EVO-G75 A1 — a tagged call can be queried back and shows up in the C
 
     const page = hub.usage.query()
     expect(page.total).toBe(1)
-    expect(page.events[0]?.tags).toEqual({ feature: "quant-backtest", sessionId: "s-1" })
+    expect(withoutExecutionTags(page.events[0]?.tags)).toEqual({ feature: "quant-backtest", sessionId: "s-1" })
     // Same value through a direct lookup, i.e. the row on disk, not a cache.
-    expect(hub.usage.get(page.events[0]!.requestId)?.tags).toEqual({
+    expect(withoutExecutionTags(hub.usage.get(page.events[0]!.requestId)?.tags)).toEqual({
       feature: "quant-backtest",
       sessionId: "s-1",
     })
@@ -1203,3 +1203,9 @@ describe("EVO-G82 A2 — an unmeasured TTFT/latency renders as `-`, never `0 ms`
     store.close()
   })
 })
+
+// G141 adds execution facts; retain exact checks for all pre-existing tag semantics.
+function withoutExecutionTags(tags?: Record<string, string>): Record<string, string> {
+  const executionKeys = ["_mik_logical_request_id", "_mik_attempt_number", "_mik_attempt_duration_ms", "_mik_attempt_started_at"]
+  return Object.fromEntries(Object.entries(tags ?? {}).filter(([key]) => !executionKeys.includes(key)))
+}
