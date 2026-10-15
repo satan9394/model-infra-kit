@@ -2,32 +2,33 @@
 
 @theme {
   --font-sans: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", sans-serif;
-  --color-background: #f4f5f9;
+  --color-background: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-muted: #f0f1f6;
+  --color-surface-sunken: #f7f8fa;
+  --color-surface-muted: #f7f8fa;
   --color-surface-control: #ffffff;
-  --color-surface-hover: #f0f1f6;
-  --color-surface-active: #e3e5ed;
-  --color-foreground: #202635;
-  --color-muted-foreground: #546176;
-  --color-subtle: #626e83;
-  --color-border: #e3e5ed;
-  --color-border-strong: #cbd0df;
-  --color-primary: #6254c7;
-  --color-primary-soft: #eeedfa;
+  --color-surface-hover: #f5f6f8;
+  --color-surface-active: #eceef2;
+  --color-foreground: #171a21;
+  --color-muted-foreground: #5c6474;
+  --color-subtle: #68707f;
+  --color-border: #e6e8ec;
+  --color-border-strong: #d5d9e0;
+  --color-primary: #4f46e5;
+  --color-primary-soft: #eeeffd;
   --color-positive: #15803d;
-  --color-warning: #b45309;
-  --color-danger: #be123c;
+  --color-warning: #a16207;
+  --color-danger: #c81e4a;
   --color-info: #0369a1;
-  --color-chart-grid: #e3e5ed;
-  --color-chart-axis: #6b768b;
-  --color-chart-cost: #7968d8;
-  --color-chart-input: #7968d8;
-  --color-chart-output: #7c3aed;
+  --color-chart-grid: #e6e8ec;
+  --color-chart-axis: #68707f;
+  --color-chart-cost: #4f46e5;
+  --color-chart-input: #4f46e5;
+  --color-chart-output: #0ea5e9;
   --color-chart-cache-read: #15803d;
-  --color-chart-cache-write: #b45309;
+  --color-chart-cache-write: #a16207;
   --color-tooltip: #ffffff;
-  --color-shadow: rgb(15 23 42 / 0.1);
+  --color-shadow: rgb(15 23 42 / 0.06);
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -46,63 +47,65 @@
 
 :root.dark {
   color-scheme: dark;
-  --color-background: #10121c;
-  --color-surface: #191c2b;
-  --color-surface-muted: #222639;
-  --color-surface-control: #141724;
-  --color-surface-hover: #2b3046;
-  --color-surface-active: #343952;
-  --color-foreground: #e7edf6;
-  --color-muted-foreground: #b0bdce;
-  --color-subtle: #8998ad;
-  --color-border: #30354b;
-  --color-border-strong: #49516b;
-  --color-primary: #b7abff;
-  --color-primary-soft: #302a50;
-  --color-positive: #86d6aa;
-  --color-warning: #f2c477;
-  --color-danger: #ff9aaa;
-  --color-info: #83c9f1;
-  --color-chart-grid: #29384c;
-  --color-chart-axis: #9baac0;
-  --color-chart-cost: #b5a5ff;
-  --color-chart-input: #b5a5ff;
-  --color-chart-output: #c4b5fd;
-  --color-chart-cache-read: #86efac;
-  --color-chart-cache-write: #fcd34d;
-  --color-tooltip: #1c2032;
-  --color-shadow: rgb(0 0 0 / 0.32);
+  --color-background: #0f1115;
+  --color-surface: #161920;
+  --color-surface-sunken: #12141a;
+  --color-surface-muted: #1c2027;
+  --color-surface-control: #161920;
+  --color-surface-hover: #1c2027;
+  --color-surface-active: #242933;
+  --color-foreground: #e7eaf0;
+  --color-muted-foreground: #9aa3b2;
+  --color-subtle: #8690a1;
+  --color-border: #262b35;
+  --color-border-strong: #39404d;
+  --color-primary: #8b87ff;
+  --color-primary-soft: #262a4a;
+  --color-positive: #5fd08a;
+  --color-warning: #e0b055;
+  --color-danger: #ff7a94;
+  --color-info: #4fc3f7;
+  --color-chart-grid: #262b35;
+  --color-chart-axis: #8690a1;
+  --color-chart-cost: #8b87ff;
+  --color-chart-input: #8b87ff;
+  --color-chart-output: #4fc3f7;
+  --color-chart-cache-read: #5fd08a;
+  --color-chart-cache-write: #e0b055;
+  --color-tooltip: #1c2027;
+  --color-shadow: rgb(0 0 0 / 0.4);
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"]:not(.dark) {
     color-scheme: dark;
-    --color-background: #10121c;
-    --color-surface: #191c2b;
-    --color-surface-muted: #222639;
-    --color-surface-control: #141724;
-    --color-surface-hover: #2b3046;
-    --color-surface-active: #343952;
-    --color-foreground: #e7edf6;
-    --color-muted-foreground: #b0bdce;
-    --color-subtle: #8998ad;
-    --color-border: #30354b;
-    --color-border-strong: #49516b;
-    --color-primary: #b7abff;
-    --color-primary-soft: #302a50;
-    --color-positive: #86d6aa;
-    --color-warning: #f2c477;
-    --color-danger: #ff9aaa;
-    --color-info: #83c9f1;
-    --color-chart-grid: #29384c;
-    --color-chart-axis: #9baac0;
-    --color-chart-cost: #b5a5ff;
-    --color-chart-input: #b5a5ff;
-    --color-chart-output: #c4b5fd;
-    --color-chart-cache-read: #86efac;
-    --color-chart-cache-write: #fcd34d;
-    --color-tooltip: #1c2032;
-    --color-shadow: rgb(0 0 0 / 0.32);
+    --color-background: #0f1115;
+    --color-surface: #161920;
+    --color-surface-sunken: #12141a;
+    --color-surface-muted: #1c2027;
+    --color-surface-control: #161920;
+    --color-surface-hover: #1c2027;
+    --color-surface-active: #242933;
+    --color-foreground: #e7eaf0;
+    --color-muted-foreground: #9aa3b2;
+    --color-subtle: #8690a1;
+    --color-border: #262b35;
+    --color-border-strong: #39404d;
+    --color-primary: #8b87ff;
+    --color-primary-soft: #262a4a;
+    --color-positive: #5fd08a;
+    --color-warning: #e0b055;
+    --color-danger: #ff7a94;
+    --color-info: #4fc3f7;
+    --color-chart-grid: #262b35;
+    --color-chart-axis: #8690a1;
+    --color-chart-cost: #8b87ff;
+    --color-chart-input: #8b87ff;
+    --color-chart-output: #4fc3f7;
+    --color-chart-cache-read: #5fd08a;
+    --color-chart-cache-write: #e0b055;
+    --color-tooltip: #1c2027;
+    --color-shadow: rgb(0 0 0 / 0.4);
   }
 }
 
@@ -169,9 +172,9 @@
 @layer components {
   .dashboard-shell { min-height: 100vh; }
   .dashboard-nav {
-    position: fixed; inset: 0 auto 0 0; z-index: 30; width: 224px;
+    position: fixed; inset: 0 auto 0 0; z-index: 30; width: 250px;
     display: flex; flex-direction: column; padding: 30px 18px 20px; overflow-y: auto;
-    border-right: 1px solid var(--color-border); background: var(--color-surface);
+    border-right: 1px solid var(--color-border); background: var(--color-surface-sunken);
   }
   .dashboard-brand { display: flex; align-items: center; gap: 12px; padding: 0 10px; }
   .brand-mark {
@@ -189,7 +192,7 @@
     color: var(--color-muted-foreground); transition: background-color 120ms ease;
   }
   .nav-link:hover { background: var(--color-surface-hover); color: var(--color-foreground); }
-  .nav-link-active, .nav-link-active:hover { background: var(--color-primary-soft); color: var(--color-primary); font-weight: 600; }
+  .nav-link-active, .nav-link-active:hover { background: var(--color-surface-active); color: var(--color-foreground); font-weight: 600; }
   .nav-active-dot { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: currentColor; }
   .nav-footer { margin-top: auto; padding-top: 30px; }
   .nav-product-note { padding: 16px 10px 22px; font-size: 11px; line-height: 1.8; color: var(--color-subtle); }
@@ -198,13 +201,13 @@
   .theme-option svg { width: 14px; height: 14px; }
   .theme-option:hover { color: var(--color-foreground); }
   .theme-option-active { background: var(--color-surface); color: var(--color-foreground); box-shadow: 0 1px 4px var(--color-shadow); }
-  .dashboard-workspace { margin-left: 224px; min-width: 0; }
+  .dashboard-workspace { margin-left: 250px; min-width: 0; }
   .dashboard-content { max-width: 1600px; margin: 0 auto; padding: 36px 36px 44px; }
   .dashboard-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; max-width: 1600px; margin: 0 auto; padding: 0 36px 24px; font-size: 11px; color: var(--color-subtle); overflow-wrap: anywhere; }
-  .skip-link { position: fixed; z-index: 60; top: 8px; left: 240px; transform: translateY(-160%); padding: 10px 16px; border-radius: 8px; background: var(--color-primary); color: var(--color-surface); }
+  .skip-link { position: fixed; z-index: 60; top: 8px; left: 266px; transform: translateY(-160%); padding: 10px 16px; border-radius: 8px; background: var(--color-primary); color: var(--color-surface); }
   .skip-link:focus { transform: translateY(0); }
-  .stat-card { min-width: 0; padding: 22px 24px; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); }
-  .stat-card-featured { background: var(--color-primary-soft); border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-border)); }
+  .stat-card { min-width: 0; padding: 22px 24px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
+  .stat-card-featured { border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-border)); }
   .stat-value { overflow-wrap: anywhere; }
   .filter-panel { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 24px; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
   .range-presets { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: var(--color-surface-muted); }

@@ -15,3 +15,10 @@ coverage/
 
 .agent-state/
 RUN_STATE.md
+
+# Archify working directory and intermediate artifacts (generated, not versioned)
+.archify/
+
+# Design direction prototypes and improve-ui audit plans (local artifacts, not versioned)
+design-prototypes/
+design-plans/

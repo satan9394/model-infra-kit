@@ -208,3 +208,42 @@
 | D9.2 | **动态阶梯计费与缓存折扣（G94）**：引入 tiers.ts 与价格缓存表，支持 90% 缓存折扣与独立 reasoning 费率 | 前沿模型（GPT-6 等）普遍采用多维计费，缓存读取（10%）与长上下文倍率显著影响成本；整数微美元阶梯核算杜绝浮点累加误差，后台增量同步绝不阻塞 `init()`。 |
 | D9.3 | **内存态 KeyPool 与自愈路由（G95）**：支持多 Key 轮换与 429 30 秒自动冷却，超长 TTFT SSE 保活 | 避免凭据在数据库明文存储；429 限流时对单个 Key 临时冷却；针对 GPT-6 Luna max 思考等长首字场景（TTFT > 120s），每 15s 发送 `: thinking` 心跳防中断。 |
 | D9.4 | **Trace 观测解耦（G96）**：Schema v4 增加 `trace_id` 与 `usage_trace_rollups`，转发前剥离内部协议头 | 统一关联多轮对话与 Agent 链路成本；向宿主上游转发请求时自动清理 `x-mik-*` 专有请求头，杜绝私有信息泄漏。 |
+
+---
+
+## D10 — 看板视觉方向与框架收敛（2026-10-14）
+
+**状态**：已生效（设计探索已收敛，**尚未接入 `apps/dashboard` 源码**）
+
+| 编号 | 取舍与决策 | 理由与落地 |
+|---|---|---|
+| D10.1 | **保留 B 的暗色玻璃语言身份，淘汰 A（Notion 极简灰白）与 C（工业粗野主义）** | A/C 被判定为「只换配色、骨架未变」；B 的紫/青微光与圆润控件更贴合本产品既有的开发者工具基调。A/C 原型仅留档 |
+| D10.2 | **框架收敛为左侧栏**：分组导航保留完整文字标签与计数，可一键收成 64px 图标 rail | 直接对比三套骨架（顶部命令台 / 便当网格 / 工作台分栏）后选定；左栏文字标签保证「一眼看清」，收起态吸收图标 rail 的简洁 |
+| D10.3 | **皮肤极简化**：去掉玻璃拟态、辉光、渐变与彩色阴影；单一强调色（浅 `#4f46e5` / 深 `#8b87ff`）、1px 边框、11px 圆角、扁平表面 | 与 [`plans/ui-ux-improvement-plan.md`](plans/ui-ux-improvement-plan.md) §0.2「克制的视觉语言」一致；身份感靠强调色与等宽数据承载，不靠装饰 |
+| D10.4 | **主题三档「跟随系统 / 浅色 / 深色」，默认跟随系统** | 原看板只区分明暗两态；新增 `prefers-color-scheme` 跟随并记忆用户选择（`localStorage`），避免每次手动切换，且系统切换时实时响应 |
+| D10.5 | **探索产物不入库**：`design-prototypes/`、`design-plans/` 进 `.gitignore`，在项目内保留且只保留一份 | 与「技能只在当前项目下存一份」同口径；产品改动落地后这些中间稿不构成仓库负担 |
+
+**影响与边界**：
+
+- 本轮只产出设计原型与截图证据（`design-prototypes/prototype-sidebar.html`、`final.html`、`frameworks.html`、`page-variants.html`），**未改动 `apps/dashboard` 任何源码**。
+- 实际接入前需经 `improve-ui` 只读审计并出实施方案，确认后再改产品源码。
+- 原型字体在本机回退到 Segoe UI（未装 Geist / Plus Jakarta Sans），落地时需引入 webfont。
+
+---
+
+## D11 — 项目技能库范围与分类（2026-10-14）
+
+**状态**：已生效
+
+| 编号 | 取舍与决策 | 理由与落地 |
+|---|---|---|
+| D11.1 | **按最大范围拉取**：星标库 `design-creative` 整类 107 条 + 本地 `skills-manager` 设计技能全拉，合计新增 103 个（10 条重名跳过），项目技能库达 131 个 | 用户明确选择「整类全拉 + 全拉入」，接受其中约 40 条（三维/CAD、小说/游戏创作、演示文稿）与本产品无关 |
+| D11.2 | **按用途分 14 类**：`design/{style,system,review,motion,a11y,impl,assets,diagram,slides,dashboard,platform,threed,content,misc}` | 用途维度比星标库的 `design-creative` 单类更可检索；分类口径写在 `.agents/skills/README.md` |
+| D11.3 | **去重按目录名**；重名 `prototype` 以 `prototype` / `prototype-emilkowalski` 区分，`n8n:content-design` 冒号改连字符 | Windows 路径不允许冒号；`apply` 幂等，已存在即跳过，不覆盖 |
+| D11.4 | **`personal-dev-workflow` 留在 `.agents/skills/` 顶层不移动** | 仓库 `AGENTS.md` 明文引用该路径；挪动会破坏引用 |
+
+**影响与边界**：OpenCode 递归读取，已实测识别全部 131 个；但**按本机规则 Claude 只认直系子目录**，嵌套分类对 cc 不可见（cc 亦不读 `.agents/skills`）。Codex / DSH / Antigravity 是否递归未实测。131 个技能的 `name`+`description` 会随会话注入，属已知上下文成本；`platform/`、`content/`、`threed/` 多为仓库专属技能，独立复制后能力不完整，仅作索引保留。整套技能库位于 gitignore 的 `.agents/` 下，不进版本库。
+
+| D11.5 | **按「是否服务网页 UI」收敛到 43 个**：130 个候选中移出 87 个（三维/CAD 15、内容创作 12、视觉资产生成 11、平台专属 10、落地页与品牌 10、演示文稿 7、非 Web 平台 UI 5、图表白板 4、视频与特定库动效 4、其它 9） | D11.2 的「全拉」经复核后判定过宽：约 40 条与本产品的看板 UI 无关，且会随会话注入 `name`+`description`。判据与最终清单见 `.agents/skills/README.md`；移出全部走回收站，非彻底删除 |
+
+**收敛后的技能库**：44 个（`design/` 43 + `personal-dev-workflow`），分 9 类——`style` 5、`system` 10、`review` 7、`motion` 10、`a11y` 2、`impl` 4、`dashboard` 3、`diagram` 1、`slides` 1。判据为「面向 Web/HTML 界面 + 适用于数据密集型看板 + 不与其它项重复」。

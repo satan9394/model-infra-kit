@@ -44,7 +44,7 @@ export function Card({
   padded?: boolean
 }) {
   return (
-    <section className={`min-w-0 rounded-2xl border border-border bg-surface ${className}`}>
+    <section className={`min-w-0 rounded-xl border border-border bg-surface ${className}`}>
       {title || actions ? (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
           <div>
@@ -147,7 +147,7 @@ export function ErrorBanner({ message, hint }: { message: string; hint?: ReactNo
 
 export function TableWrap({ children }: { children: ReactNode }) {
   return (
-    <div className="max-w-full overflow-x-auto rounded-b-2xl">
+    <div className="max-w-full overflow-x-auto rounded-b-xl">
       <table className="dashboard-table w-full min-w-full border-collapse text-sm">{children}</table>
     </div>
   )
@@ -164,7 +164,7 @@ export function Th({ children, className = "" }: { children?: ReactNode; classNa
 }
 
 export function Td({ children, className = "" }: { children?: ReactNode; className?: string }) {
-  return <td className={`border-b border-border/60 px-5 py-3.5 align-top text-foreground/80 ${className}`}>{children}</td>
+  return <td className={`border-b border-border/60 px-5 py-3 align-top text-foreground/80 ${className}`}>{children}</td>
 }
 
 export function KeyValue({ label, children }: { label: string; children: ReactNode }) {

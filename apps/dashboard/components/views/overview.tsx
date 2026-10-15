@@ -143,7 +143,7 @@ export default async function OverviewView({ params, embedded }: ViewProps) {
         </div>
       ) : null}
 
-      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
         <Card
           title={t("s301", t(range.label))}
           subtitle={t("cost.bandNote")}
