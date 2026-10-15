@@ -32,10 +32,12 @@ export function createConnectionProbe(
       const current = new AbortController()
       controller = current
       const request = ++sequence
-      const started = now()
       const timeout = setTimeout(() => current.abort(), 10_000)
       publish({ status: "pending", snapshot: null, rttMs: null })
       try {
+        // The clock starts after the pending state is published: reading it first billed
+        // our own state update to the round trip, which the regression test now guards.
+        const started = now()
         const response = await fetcher("/api/mik/connections", { cache: "no-store", signal: current.signal })
         if (!response.ok) throw new Error("Connection probe failed")
         const snapshot: ConnectionSnapshot = await response.json()

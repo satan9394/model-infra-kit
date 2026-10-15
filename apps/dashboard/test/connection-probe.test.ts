@@ -3,6 +3,20 @@ import test from "node:test"
 import { createConnectionProbe, type ProbeState } from "../lib/connection-probe.ts"
 
 const snapshot = { active: 1, requests: 1, events: 0, connections: [{ id: "r", kind: "chat", startedAt: 1, model: "p:model" }] }
+test("the round-trip clock starts after the pending state is published, never before it", async () => {
+  const events: string[] = []
+  let time = 100
+  const probe = createConnectionProbe(
+    (state) => { events.push(`publish:${state.status}`) },
+    async () => { events.push("fetch"); time += 37; return Response.json(snapshot) },
+    () => { events.push("now"); return time },
+  )
+  await probe.run()
+  // Regression: the clock used to be read before `publish({ status: "pending" })`, so the
+  // state update was billed to the network round trip it does not belong to.
+  assert.deepEqual(events, ["publish:pending", "now", "fetch", "now", "publish:ready"])
+  probe.dispose()
+})
 test("connection probe measures HTTP roundtrip and uses the authenticated dashboard proxy", async () => {
   const states: ProbeState[] = []
   let time = 100
