@@ -72,7 +72,7 @@ export function EditProviderModal({
     <dialog role="dialog" aria-modal="true"
       ref={dialogRef}
       aria-labelledby="edit-provider-title"
-      className="m-auto max-h-[min(92vh,48rem)] w-[min(100%-2rem,42rem)] overflow-y-auto rounded-xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-slate-950/55"
+      className="m-auto max-h-[min(92vh,48rem)] w-[min(100%-2rem,42rem)] overflow-y-auto rounded-xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-scrim"
       onCancel={(event) => {
         event.preventDefault()
         if (!saving) onClose()

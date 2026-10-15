@@ -27,8 +27,18 @@
   --color-chart-output: #0ea5e9;
   --color-chart-cache-read: #15803d;
   --color-chart-cache-write: #a16207;
+  --color-trace-root: #68707f;
+  --color-trace-reasoning: #7c3aed;
+  --color-trace-tool: #2563eb;
+  --color-trace-generation: #15803d;
+  --color-trace-ttft: #94a3b8;
+  --color-latency-fast: #15803d;
+  --color-latency-ok: #a16207;
+  --color-latency-slow: #c2410c;
+  --color-latency-bad: #c81e4a;
   --color-tooltip: #ffffff;
   --color-shadow: rgb(15 23 42 / 0.06);
+  --color-scrim: rgb(15 23 42 / 0.6);
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -72,6 +82,15 @@
   --color-chart-output: #4fc3f7;
   --color-chart-cache-read: #5fd08a;
   --color-chart-cache-write: #e0b055;
+  --color-trace-root: #8690a1;
+  --color-trace-reasoning: #a78bfa;
+  --color-trace-tool: #60a5fa;
+  --color-trace-generation: #5fd08a;
+  --color-trace-ttft: #94a3b8;
+  --color-latency-fast: #5fd08a;
+  --color-latency-ok: #e0b055;
+  --color-latency-slow: #fb923c;
+  --color-latency-bad: #ff7a94;
   --color-tooltip: #1c2027;
   --color-shadow: rgb(0 0 0 / 0.4);
 }
@@ -104,6 +123,15 @@
     --color-chart-output: #4fc3f7;
     --color-chart-cache-read: #5fd08a;
     --color-chart-cache-write: #e0b055;
+  --color-trace-root: #8690a1;
+  --color-trace-reasoning: #a78bfa;
+  --color-trace-tool: #60a5fa;
+  --color-trace-generation: #5fd08a;
+  --color-trace-ttft: #94a3b8;
+  --color-latency-fast: #5fd08a;
+  --color-latency-ok: #e0b055;
+  --color-latency-slow: #fb923c;
+  --color-latency-bad: #ff7a94;
     --color-tooltip: #1c2027;
     --color-shadow: rgb(0 0 0 / 0.4);
   }

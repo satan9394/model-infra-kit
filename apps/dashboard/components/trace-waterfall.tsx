@@ -41,9 +41,9 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
             </span>
             <span className="relative block h-5 rounded bg-surface-muted">
               <span className="absolute flex h-full overflow-hidden rounded" style={{ left: `${left}%`, width: `${width}%` }}>
-                <span className="bg-slate-400/80" style={{ width: `${ttft}%` }} />
-                <span className="bg-indigo-500/80" style={{ width: `${reasoning}%` }} />
-                <span className="bg-emerald-500/80" style={{ width: `${output}%` }} />
+                <span className="bg-trace-ttft/80" style={{ width: `${ttft}%` }} />
+                <span className="bg-trace-reasoning/80" style={{ width: `${reasoning}%` }} />
+                <span className="bg-trace-generation/80" style={{ width: `${output}%` }} />
               </span>
             </span>
           </summary>
@@ -58,7 +58,7 @@ export function TraceWaterfall({ events, query }: { events: UsageEvent[]; query:
               <span className="truncate pl-3 font-mono" title={call.tool_name}>{call.tool_name}</span>
               <details className="relative rounded bg-surface-muted">
                 <summary className="relative h-5 cursor-pointer" title={`${call.tool_name} · ${formatMs(call.duration_ms)} · ${t("trace.tools.tokens")} ${call.input_tokens} / ${call.output_tokens} · ${t("trace.tools.share")} ${call.cost_micros} µUSD (${sharePercent}) · SHA-256 ${call.input_hash}`} aria-label={`${t("trace.tools.detail")}: ${call.tool_name}`}>
-                  <span className="absolute h-full rounded bg-amber-500/90" style={{ left: `${toolLeft}%`, width: `${toolWidth}%` }} />
+                  <span className="absolute h-full rounded bg-trace-tool/90" style={{ left: `${toolLeft}%`, width: `${toolWidth}%` }} />
                 </summary>
                 <p className="break-all p-2">{t("trace.tools.detail")}: {formatMs(call.duration_ms)} · {t("trace.tools.tokens")} {formatInt(call.input_tokens)} / {formatInt(call.output_tokens)} · {t("trace.tools.share")} {formatInt(call.cost_micros)} µUSD ({sharePercent}) · SHA-256 {call.input_hash}</p>
               </details>

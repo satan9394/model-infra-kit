@@ -334,12 +334,12 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                           <span
                             className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[11px] tabular-nums ${
                               row.status.latencyMs < 300
-                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                ? "border-latency-fast/30 bg-latency-fast/10 text-latency-fast"
                                 : row.status.latencyMs < 500
-                                  ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                  ? "border-latency-ok/30 bg-latency-ok/10 text-latency-ok"
                                   : row.status.latencyMs < 800
-                                    ? "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                                    : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+                                    ? "border-latency-slow/30 bg-latency-slow/10 text-latency-slow"
+                                    : "border-latency-bad/30 bg-latency-bad/10 text-latency-bad"
                             }`}
                             aria-label={t("s207")}
                           >

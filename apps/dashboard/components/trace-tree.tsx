@@ -5,7 +5,7 @@ import { useI18n } from "@/lib/i18n/provider"
 import { formatInt, formatMs } from "@/lib/format"
 import type { TraceTreeNode } from "@/lib/types"
 
-const colors = { root: "text-slate-500", reasoning: "text-purple-500", tool_call: "text-blue-500", generation: "text-emerald-500" }
+const colors = { root: "text-trace-root", reasoning: "text-trace-reasoning", tool_call: "text-trace-tool", generation: "text-trace-generation" }
 
 export function StepCostInspector({ node, onClose }: { node: TraceTreeNode; onClose: () => void }) {
   const { t } = useI18n()
@@ -41,7 +41,7 @@ export function TraceTreeView({ tree }: { tree: TraceTreeNode }) {
         <summary className={`cursor-pointer text-xs ${colors[node.spanType]}`}>
           {t(`tree.${node.spanType}`)} · <span className="break-all font-mono">{label}</span> · {formatMs(node.durationMs)} · {formatInt(node.stepCostMicros)} µUSD
         </summary>
-        <div className="relative my-2 h-2 rounded bg-surface-muted" aria-hidden="true"><span className="absolute h-full rounded bg-current" style={{ left: `${left}%`, width: `${width}%`, color: node.spanType === "tool_call" ? "#3b82f6" : node.spanType === "reasoning" ? "#a855f7" : node.spanType === "generation" ? "#10b981" : "#64748b" }} /></div>
+        <div className="relative my-2 h-2 rounded bg-surface-muted" aria-hidden="true"><span className="absolute h-full rounded bg-current" style={{ left: `${left}%`, width: `${width}%`, color: node.spanType === "tool_call" ? "var(--color-trace-tool)" : node.spanType === "reasoning" ? "var(--color-trace-reasoning)" : node.spanType === "generation" ? "var(--color-trace-generation)" : "var(--color-trace-root)" }} /></div>
         <button className="rounded border border-border px-2 py-1 text-xs" aria-label={`${t("tree.inspect")}: ${label}`} onClick={event => { trigger.current = event.currentTarget; setSelected(node) }}>{t("tree.inspect")}</button>
         {node.children.length > 0 && <ul className="ml-3 border-l border-border pl-2">{node.children.map((child, i) => renderNode(child, `${key}-${i}`))}</ul>}
       </details>

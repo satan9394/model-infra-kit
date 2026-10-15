@@ -30,7 +30,7 @@ export function ModelCard({ model, providerName, firstTokenMs, isDefault, busy, 
   const { t } = useI18n()
 
   const providerTone = PROVIDER_TONES[[...model.providerId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % PROVIDER_TONES.length]
-  return <article className="group min-w-0 rounded-2xl border border-border bg-surface p-4 transition-colors hover:border-primary/50" data-testid="model-card" data-model-ref={model.ref}>
+  return <article className="group min-w-0 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-primary/50" data-testid="model-card" data-model-ref={model.ref}>
     <div className="flex items-start justify-between gap-2">
       <span className={`rounded-md border px-2 py-1 text-[10px] ${providerTone}`} title={model.providerId}>{providerName}</span>
       <div className="model-actions flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

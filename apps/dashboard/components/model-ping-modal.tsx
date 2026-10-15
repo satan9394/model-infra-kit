@@ -29,7 +29,7 @@ export function ModelPingModal({ refName, onClose, onResult }: { refName: string
     if (response.ok) { setResult(response.data); onResult(response.data) }
     else setError(response.error)
   }
-  return <dialog role="dialog" aria-modal="true" ref={dialog} onCancel={onClose} aria-labelledby="model-ping-title" className="m-auto w-[min(92vw,460px)] rounded-2xl border border-border bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/50">
+  return <dialog role="dialog" aria-modal="true" ref={dialog} onCancel={onClose} aria-labelledby="model-ping-title" className="m-auto w-[min(92vw,460px)] rounded-xl border border-border bg-surface p-5 text-foreground shadow-xl backdrop:bg-scrim">
     <div className="flex items-start justify-between gap-3"><div><h2 id="model-ping-title" className="font-semibold"> {t("s112")} </h2><p className="mt-1 break-all font-mono text-xs text-subtle">{refName}</p></div><button aria-label={t("s113")} onClick={onClose} className="rounded p-1 focus-visible:outline-2 focus-visible:outline-primary">×</button></div>
     <p className="my-4 text-xs text-subtle"> {t("s114")} </p>
     <button onClick={() => void ping()} disabled={busy} className="rounded-lg bg-primary px-4 py-2 text-sm text-white dark:text-background disabled:opacity-50">{busy ? t("s115") : t("s116")}</button>

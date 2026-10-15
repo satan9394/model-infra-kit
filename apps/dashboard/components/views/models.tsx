@@ -115,7 +115,7 @@ export function ModelsClient({
           <p>{item.estimatedSavingsMicros === null ? t("cascade.unpriced") : t("cascade.savings", formatInt(item.estimatedSavingsMicros))}</p>
         </div>)}
       </Card>}
-      <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="rounded-xl border border-border bg-surface p-4">
         <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label={t("s259")}>
           {CAPABILITY_FILTERS.map(({ key, label }) => <button key={key} type="button" aria-pressed={tags.includes(key)} onClick={() => setTags((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} className={`rounded-full border px-3 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-primary ${tags.includes(key) ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"}`}>{t(label)}</button>)}
           {tags.length > 0 ? <button onClick={() => setTags([])} className="px-2 text-xs text-subtle"> {t("s260")} </button> : null}

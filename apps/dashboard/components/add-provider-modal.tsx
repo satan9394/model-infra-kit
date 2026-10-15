@@ -130,7 +130,7 @@ export function AddProviderModal({
     <dialog role="dialog" aria-modal="true"
       ref={dialogRef}
       aria-labelledby="add-provider-title"
-      className="m-auto max-h-[min(92vh,52rem)] w-[min(100%-2rem,46rem)] overflow-y-auto rounded-2xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm"
+      className="m-auto max-h-[min(92vh,52rem)] w-[min(100%-2rem,46rem)] overflow-y-auto rounded-xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-scrim backdrop:backdrop-blur-sm"
       onCancel={(event) => {
         event.preventDefault()
         if (!saving) close()

@@ -10,7 +10,7 @@ export function QoSStatus({ channels, unavailable = false, now = Date.now() }: {
     {channels.map(s => {
       const stale = !s.sampleCount || now - s.lastUpdated > 30_000
       const status = stale ? "waiting" : s.qosScore >= 75 ? "healthy" : s.qosScore >= 50 ? "variable" : "degraded"
-      const tone = stale ? "text-subtle bg-surface-muted" : status === "healthy" ? "text-positive bg-positive/10" : status === "variable" ? "text-warning bg-warning/10" : "text-orange-600 dark:text-orange-400 bg-orange-500/10"
+      const tone = stale ? "text-subtle bg-surface-muted" : status === "healthy" ? "text-positive bg-positive/10" : status === "variable" ? "text-warning bg-warning/10" : "text-latency-slow bg-latency-slow/10"
       return <span key={`${s.providerId}:${s.modelId}`} className={`max-w-full break-all rounded-lg px-2 py-1 text-[10px] ${tone}`}>
         <span className="font-mono">{s.modelId}</span> · {t(`qos.${status}`)}
         {!stale && <><span className="ml-1 font-mono">{t("qos.rtt")} {Math.round(s.ewmaRttMs)} ms · {t("qos.weight")} {s.effectiveWeight}</span>
