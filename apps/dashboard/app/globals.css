@@ -263,6 +263,12 @@
 }
 
 @media (max-width: 767px) {
+  /* Wide tables used to compress instead of scrolling: `w-full` fits the table
+     into the container, so cells wrapped to one character per line (visible on
+     /pricing and /logs at 390px). Sizing the table to its content lets the
+     existing `overflow-x-auto` wrapper do the scrolling. Scoped to mobile so
+     desktop keeps its current wrapping behaviour. */
+  .dashboard-table { width: max-content; min-width: 100%; }
   .dashboard-nav { position: sticky; top: 0; width: 100%; padding: 14px 16px 0; display: grid; grid-template-columns: 1fr auto; gap: 12px; border-right: 0; border-bottom: 1px solid var(--color-border); }
   .dashboard-brand { padding: 0; gap: 9px; }
   .brand-mark { width: 34px; height: 34px; border-radius: 10px; }

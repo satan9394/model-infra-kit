@@ -26,7 +26,14 @@ from pathlib import Path
 
 VIEWPORTS = [("desktop-1440", 1440, 900), ("mobile-390", 390, 844)]
 THEMES = ["light", "dark"]
-DEFAULT_ROUTES = ["/", "/trends", "/models", "/providers", "/quotas", "/webhooks", "/connect", "/logs"]
+# All 14 dashboard routes: the 10 console pages plus the 4 embeddable ones.
+# /pricing, /traces and every /embed/* were missing here until 2026-10-15, so
+# they had never been captured by this tool at all.
+DEFAULT_ROUTES = [
+    "/", "/trends", "/logs", "/traces", "/providers", "/models", "/pricing",
+    "/quotas", "/webhooks", "/connect",
+    "/embed/overview", "/embed/trends", "/embed/logs", "/embed/pricing",
+]
 OVERFLOW_TOLERANCE = 1  # px；滚动条取整误差
 
 
