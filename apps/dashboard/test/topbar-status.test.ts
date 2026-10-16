@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import test from "node:test"
 import { runInNewContext } from "node:vm"
@@ -103,12 +103,11 @@ test("scope uses authenticated identity; unauthenticated and old diagnostic resp
 
 test("Topbar renders nested-route titles, authenticated scope and one set of controls", () => {
   for (const [path, key] of [["/", "s125"], ["/logs/detail", "s131"], ["/providers", "s87"]]) {
-    let stateIndex = 0
     const StatusIndicator = load("status-indicator", "en").StatusIndicator!
     const Topbar = load("topbar", "en", {
-      react: { ...require("react"), useState: (initial: unknown) => [[{ status: "ready", snapshot: { appId: "tenant" }, rttMs: 8 }, "tenant", 100, 100][stateIndex++] ?? initial, () => {}], useEffect: () => {}, useRef: (current: unknown) => ({ current }) },
+      react: { ...require("react"), useEffect: () => {} },
       "next/navigation": { usePathname: () => path },
-      "@/lib/connection-probe": {},
+      "@/components/connection-probe-provider": { useConnectionProbe: () => ({ state: { status: "ready", snapshot: { appId: "tenant" }, rttMs: 8 }, appId: "tenant", refreshedAt: 100, nextReadAt: { current: 100 }, run: () => {} }) },
       "@/lib/use-events": { useHubEvents: () => ({ connected: false, error: "retry", lastEventAt: null }) },
       "@/components/status-indicator": { StatusIndicator },
       "@/components/budget-pill": { BudgetPill: () => createElement("span", { "data-testid": "budget-pill" }, "budget") },
@@ -125,17 +124,69 @@ test("Topbar renders nested-route titles, authenticated scope and one set of con
   }
 })
 
-test("button-only LiveRefresh does not probe or subscribe", () => {
+test("button-only LiveRefresh renders no probe control, subscribes to nothing and reads the shared probe", () => {
+  let reads = 0
   const LiveRefresh = load("live-refresh", "en", {
     react: { ...require("react"), useState: (initial: unknown) => [initial, () => {}], useEffect: (effect: () => void) => effect(), useRef: (current: unknown) => ({ current }) },
     "next/navigation": { useRouter: () => ({ refresh: () => {} }) },
     "@/lib/use-events": { useHubEvents: (_handlers: unknown, enabled: boolean) => { assert.equal(enabled, false); return { connected: false, error: null } }, LiveBadge: () => { assert.fail("unexpected badge") } },
-    "@/lib/connection-probe": { createConnectionProbe: () => { assert.fail("unexpected probe") } },
+    "@/components/connection-probe-provider": { useConnectionProbe: () => { reads++; return { state: { status: "pending", snapshot: null, rttMs: null }, run: () => {} } } },
     "@/lib/format": {},
   }).LiveRefresh!
   const html = renderToStaticMarkup(createElement(LiveRefresh, { topics: [], controlsOnly: true }))
+  assert.equal(reads, 1, "the reading must come from the provider, never from a probe of our own")
   assert.equal((html.match(/<button/g) ?? []).length, 1)
   assert.doesNotMatch(html, /connection-probe/)
+})
+
+test("only the shared provider may create a connection probe", () => {
+  // A second probe would double the 15s cadence and let the two readouts disagree.
+  const owners = ["../components/", "../app/"].flatMap(root => readdirSync(new URL(root, import.meta.url), { recursive: true })
+    .map(file => String(file).replace(/\\/g, "/"))
+    .filter(file => file.endsWith(".tsx"))
+    .filter(file => readFileSync(new URL(file, new URL(root, import.meta.url)), "utf8").includes("createConnectionProbe")))
+  assert.deepEqual(owners, ["connection-probe-provider.tsx"])
+})
+
+test("one provider drives the header and the page controls from a single probe", () => {
+  let created = 0
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  // The provider arms a 15s cadence; this test only needs to count probes, not fire timers.
+  globalThis.setInterval = (() => 0) as unknown as typeof setInterval
+  globalThis.clearInterval = (() => {}) as unknown as typeof clearInterval
+  try {
+    const probeModule = {
+      connectionAppScope,
+      createConnectionProbe: (publish: Parameters<typeof createConnectionProbe>[0]) => { created++; return createConnectionProbe(publish, async () => Response.json({ active: 0, requests: 0, events: 0, connections: [] })) },
+    }
+    const reactStub = { ...require("react"), useEffect: (effect: () => void) => { effect() }, useState: (initial: unknown) => [initial, () => {}], useRef: (current: unknown) => ({ current }) }
+    const provider = load("connection-probe-provider", "en", { react: reactStub, "@/lib/connection-probe": probeModule })
+    const shared = { useConnectionProbe: provider.useConnectionProbe }
+    const StatusIndicator = load("status-indicator", "en").StatusIndicator!
+    const Topbar = load("topbar", "en", {
+      react: reactStub,
+      "next/navigation": { usePathname: () => "/" },
+      "@/components/connection-probe-provider": shared,
+      "@/lib/use-events": { useHubEvents: () => ({ connected: true, error: null, lastEventAt: null }) },
+      "@/components/status-indicator": { StatusIndicator },
+      "@/components/budget-pill": { BudgetPill: () => null },
+      "@/components/live-refresh": { LiveRefresh: () => null },
+      "@/components/lang-toggle": { LangToggle: () => null },
+    }).Topbar!
+    const LiveRefresh = load("live-refresh", "en", {
+      react: reactStub,
+      "next/navigation": { useRouter: () => ({ refresh: () => {} }) },
+      "@/components/connection-probe-provider": shared,
+      "@/lib/use-events": { useHubEvents: () => ({ connected: true, error: null, lastEventAt: null }), LiveBadge: () => null },
+      "@/lib/format": {},
+    }).LiveRefresh!
+    renderToStaticMarkup(createElement(provider.ConnectionProbeProvider!, null, createElement(Topbar), createElement(LiveRefresh, { topics: [] })))
+    assert.equal(created, 1, "the header and the page control must share one probe")
+  } finally {
+    globalThis.setInterval = realSetInterval
+    globalThis.clearInterval = realClearInterval
+  }
 })
 
 test("SSE recreates terminally closed sources, preserves native retries and cancels on unmount", () => {

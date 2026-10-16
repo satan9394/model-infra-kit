@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 import { useI18n } from "@/lib/i18n/provider"
-import { connectionAppScope, createConnectionProbe, type ProbeState } from "@/lib/connection-probe"
+import { useConnectionProbe } from "@/components/connection-probe-provider"
 import { useHubEvents } from "@/lib/use-events"
 import { BudgetPill } from "@/components/budget-pill"
 import { LiveRefresh } from "@/components/live-refresh"
@@ -19,28 +19,14 @@ const TITLES: Record<string, string> = {
 export function Topbar() {
   const { t } = useI18n()
   const pathname = usePathname()
-  const [probe, setProbe] = useState<ProbeState>({ status: "pending", snapshot: null, rttMs: null })
-  const [appId, setAppId] = useState("default")
-  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
+  const { state: probe, appId, refreshedAt, nextReadAt, run } = useConnectionProbe()
   const [now, setNow] = useState(0)
-  const nextReadAt = useRef(0)
-  const connection = useRef<ReturnType<typeof createConnectionProbe> | null>(null)
   const events = useHubEvents({})
   useEffect(() => {
-    const reader = createConnectionProbe(state => {
-      setProbe(state)
-      if (state.status === "ready") {
-        setAppId(connectionAppScope(state.snapshot!))
-        setRefreshedAt(Date.now())
-      }
-      setNow(Date.now())
-    })
-    connection.current = reader
-    nextReadAt.current = Date.now() + 15_000
-    void reader.run()
-    const poll = setInterval(() => { nextReadAt.current = Date.now() + 15_000; if (!document.hidden) void reader.run() }, 15_000)
+    // Only the countdown needs a per-second tick; it stays local so the shared probe
+    // does not re-render every consumer once a second.
     const clock = setInterval(() => setNow(Date.now()), 1_000)
-    return () => { clearInterval(poll); clearInterval(clock); reader.dispose(); connection.current = null }
+    return () => clearInterval(clock)
   }, [])
   return <header data-testid="dashboard-topbar" className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-8">
     <div className="min-w-0">
@@ -52,7 +38,7 @@ export function Topbar() {
       <StatusIndicator signal={{ kind: "sse", ...events }} />
       <StatusIndicator signal={{ kind: "freshness", refreshedAt, now, retryInSeconds: Math.max(0, Math.ceil((nextReadAt.current - now) / 1000)) }} />
       <BudgetPill />
-      <LiveRefresh topics={[]} controlsOnly onRefresh={() => { void connection.current?.run() }} />
+      <LiveRefresh topics={[]} controlsOnly onRefresh={run} />
       <LangToggle />
     </div>
   </header>

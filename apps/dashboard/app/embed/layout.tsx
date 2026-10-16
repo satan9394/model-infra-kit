@@ -1,5 +1,6 @@
 import { getI18n } from "@/lib/i18n/server"
 import { EmbedShell } from "@/components/embed-shell"
+import { ConnectionProbeProvider } from "@/components/connection-probe-provider"
 import { parseAllowedOrigins } from "@/lib/embed-bridge"
 import type { ReactNode } from "react"
 
@@ -10,6 +11,8 @@ import type { ReactNode } from "react"
  * The shell adds the security-checked postMessage bridge and auto-resize.
  * Cross-origin hosts must be listed in MIK_EMBED_ALLOWED_ORIGINS; same-origin
  * hosts are always accepted.
+ *
+ * 嵌入视图同样带有实时刷新控件，所以这里也提供共享探测器：一个页面仍然只有一个。
  */
 export default async function EmbedLayout({ children }: { children: ReactNode }) {
   const { t } = await getI18n()
@@ -18,7 +21,7 @@ export default async function EmbedLayout({ children }: { children: ReactNode })
   return (
     <EmbedShell allowedOrigins={allowedOrigins}>
       <main className="mx-auto w-full max-w-5xl px-4 pb-8 pt-4">
-        {children}
+        <ConnectionProbeProvider>{children}</ConnectionProbeProvider>
         <p className="mt-8 border-t border-border pt-3 text-right text-[11px] text-subtle/85"> {t("s374")} <a className="underline" href="/"> {t("s375")} </a>
         </p>
       </main>
