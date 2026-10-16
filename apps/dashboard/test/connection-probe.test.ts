@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { createConnectionProbe, type ProbeState } from "../lib/connection-probe.ts"
+import { createConnectionProbe, pickResourceDuration, type ProbeState } from "../lib/connection-probe.ts"
 
 const snapshot = { active: 1, requests: 1, events: 0, connections: [{ id: "r", kind: "chat", startedAt: 1, model: "p:model" }] }
 test("the round-trip clock starts after the pending state is published, never before it", async () => {
@@ -31,6 +31,40 @@ test("connection probe measures HTTP roundtrip and uses the authenticated dashbo
   assert.equal(states.at(-1)?.rttMs, 37)
   assert.equal(states.at(-1)?.snapshot?.requests, 1)
   probe.dispose()
+})
+test("a stalled main thread cannot inflate the reported round trip", async () => {
+  const states: ProbeState[] = []
+  let time = 100
+  const probe = createConnectionProbe(
+    state => states.push(state),
+    // The wall clock loses 1300ms to main-thread work; the request itself took 54ms.
+    async () => { time += 1300; return Response.json(snapshot) },
+    () => time,
+    (url, since) => { assert.equal(url, "/api/mik/connections"); assert.equal(since, 100); return 54 },
+  )
+  await probe.run()
+  assert.equal(states.at(-1)?.rttMs, 54)
+  assert.equal(states.at(-1)?.status, "ready")
+  probe.dispose()
+})
+test("the wall clock is only a fallback when the browser reports no timing entry", async () => {
+  const states: ProbeState[] = []
+  let time = 100
+  const probe = createConnectionProbe(state => states.push(state), async () => { time += 37; return Response.json(snapshot) }, () => time, () => null)
+  await probe.run()
+  assert.equal(states.at(-1)?.rttMs, 37)
+  probe.dispose()
+})
+test("resource timing picks this request and never an earlier probe's entry", () => {
+  const entries = [
+    { startTime: 100, duration: 999 },
+    { startTime: 5000, duration: 54 },
+    { startTime: 4999, duration: 777 },
+  ]
+  assert.equal(pickResourceDuration(entries, 5000), 54)
+  assert.equal(pickResourceDuration(entries, 20000), null, "no entry at or after the dispatch mark")
+  assert.equal(pickResourceDuration([], 0), null)
+  assert.equal(pickResourceDuration([{ startTime: 1, duration: Number.NaN }], 0), null, "an entry without a duration is not a measurement")
 })
 test("network and invalid snapshot failures clear counts and RTT instead of faking zero", async () => {
   for (const fetcher of [async () => { throw new Error("offline") }, async () => Response.json({ ...snapshot, requests: -1 }), async () => new Response("denied", { status: 403 })]) {
