@@ -1,0 +1,340 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "一次生成请求的主流程 — /v1/chat/completions → 计价 → 落账",
+    "subtitle": "以 HTTP 面为例；嵌入式与 mik.fetch 复用同一门面与记账路径",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/sequence-generate-request.html",
+    "viewBox": [
+      1080,
+      680
+    ],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/satan9394/model-infra-kit",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "267628ee741b44d5e9e188b833d6f643dd5864ce"
+    }
+  },
+  "participants": [
+    {
+      "id": "host",
+      "type": "external",
+      "label": "宿主",
+      "sublabel": "OpenAI SDK"
+    },
+    {
+      "id": "http",
+      "type": "frontend",
+      "label": "HTTP 服务",
+      "sublabel": "/v1 处理器",
+      "sources": [
+        {
+          "path": "packages/mik/src/server/openai.ts",
+          "line": 388,
+          "label": "handleChatCompletions"
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "鉴权",
+      "sublabel": "scope 校验",
+      "sources": [
+        {
+          "path": "packages/mik/src/server/auth.ts",
+          "line": 68,
+          "label": "endpointScope"
+        }
+      ]
+    },
+    {
+      "id": "hub",
+      "type": "backend",
+      "label": "ModelInfra",
+      "sublabel": "generate()",
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 837,
+          "label": "generate"
+        }
+      ]
+    },
+    {
+      "id": "sdk",
+      "type": "external",
+      "label": "AI SDK",
+      "sublabel": "generateText",
+      "sources": [
+        {
+          "path": "packages/mik/src/ai/protocols.ts",
+          "line": 1,
+          "label": "PROTOCOLS"
+        },
+        {
+          "path": "packages/mik/src/ai/bridge.ts",
+          "line": 105,
+          "label": "createAiBridge"
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "cloud",
+      "label": "供应商",
+      "sublabel": "上游端点"
+    },
+    {
+      "id": "pricing",
+      "type": "backend",
+      "label": "Pricing",
+      "sublabel": "estimate()",
+      "sources": [
+        {
+          "path": "packages/mik/src/pricing/service.ts",
+          "line": 265,
+          "label": "estimate"
+        }
+      ]
+    },
+    {
+      "id": "usage",
+      "type": "backend",
+      "label": "Usage",
+      "sublabel": "record()",
+      "sources": [
+        {
+          "path": "packages/mik/src/usage/service.ts",
+          "line": 339,
+          "label": "record"
+        },
+        {
+          "path": "packages/mik/src/store/usage-repository.ts",
+          "line": 397,
+          "label": "insert"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 265,
+      "label": "接入 / 鉴权 / 路由"
+    },
+    {
+      "from": 270,
+      "to": 365,
+      "label": "调用上游"
+    },
+    {
+      "from": 370,
+      "to": 485,
+      "label": "计价 / 落账"
+    },
+    {
+      "from": 490,
+      "to": 574,
+      "label": "返回"
+    }
+  ],
+  "messages": [
+    {
+      "id": "post-chat",
+      "from": "host",
+      "to": "http",
+      "y": 170,
+      "label": "POST /v1/chat/completions",
+      "variant": "emphasis"
+    },
+    {
+      "id": "authenticate",
+      "from": "http",
+      "to": "auth",
+      "y": 200,
+      "label": "authenticate()",
+      "variant": "security"
+    },
+    {
+      "id": "scopes-ok",
+      "from": "auth",
+      "to": "http",
+      "y": 230,
+      "label": "scope 允许",
+      "variant": "return"
+    },
+    {
+      "id": "hub-generate",
+      "from": "http",
+      "to": "hub",
+      "y": 260,
+      "label": "generate(request)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "generate-text",
+      "from": "hub",
+      "to": "sdk",
+      "y": 290,
+      "label": "languageModel() → generateText()",
+      "variant": "emphasis"
+    },
+    {
+      "id": "https-call",
+      "from": "sdk",
+      "to": "provider",
+      "y": 320,
+      "label": "HTTPS chat"
+    },
+    {
+      "id": "upstream-result",
+      "from": "provider",
+      "to": "sdk",
+      "y": 350,
+      "label": "text + usage",
+      "variant": "return"
+    },
+    {
+      "id": "sdk-result",
+      "from": "sdk",
+      "to": "hub",
+      "y": 380,
+      "label": "result + usage.raw",
+      "variant": "return"
+    },
+    {
+      "id": "estimate-cost",
+      "from": "hub",
+      "to": "pricing",
+      "y": 410,
+      "label": "estimate()"
+    },
+    {
+      "id": "cost-info",
+      "from": "pricing",
+      "to": "hub",
+      "y": 440,
+      "label": "CostInfo",
+      "variant": "return"
+    },
+    {
+      "id": "record-usage",
+      "from": "hub",
+      "to": "usage",
+      "y": 470,
+      "label": "record(event)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "insert-event",
+      "from": "usage",
+      "to": "hub",
+      "y": 500,
+      "label": "INSERT usage_events = 1 行",
+      "variant": "return"
+    },
+    {
+      "id": "response",
+      "from": "hub",
+      "to": "http",
+      "y": 530,
+      "label": "ModelResponse",
+      "variant": "return"
+    },
+    {
+      "id": "http-response",
+      "from": "http",
+      "to": "host",
+      "y": 560,
+      "label": "200 / SSE",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "http",
+      "from": 165,
+      "to": 566,
+      "type": "frontend"
+    },
+    {
+      "participant": "auth",
+      "from": 195,
+      "to": 236,
+      "type": "security"
+    },
+    {
+      "participant": "hub",
+      "from": 255,
+      "to": 536,
+      "type": "backend"
+    },
+    {
+      "participant": "sdk",
+      "from": 285,
+      "to": 386,
+      "type": "external"
+    },
+    {
+      "participant": "provider",
+      "from": 315,
+      "to": 356,
+      "type": "cloud"
+    },
+    {
+      "participant": "pricing",
+      "from": 405,
+      "to": 446,
+      "type": "backend"
+    },
+    {
+      "participant": "usage",
+      "from": 465,
+      "to": 506,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "计量只发生一次（SPEC §1 / D1）",
+      "items": [
+        "三条接入面（嵌入式 / mik.fetch / HTTP /v1）最终都走 hub.generate 或 hub.stream",
+        "协议差异由 PROTOCOLS 源表数据映射决定，没有 providerId 分支",
+        "usage 归一与长上下文、思考模式分档交给 AI SDK + llm-pricing"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "价格优先级与固化（SPEC §4）",
+      "items": [
+        "优先级：pricing_overrides（手动）> llm-pricing overrides > 上游目录 > 内置 archive",
+        "字段缺失一律降级为 undefined，绝不当作 0",
+        "事件落库即固化 cost / pricing_source / pricing_basis，历史永不重算"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失败与重试路径（EVO-G95）",
+      "items": [
+        "仅 429 / 超时 / 连接 / 上游 5xx 触发模型降级；流式仅在尚未输出前切换",
+        "429 后该凭据内存冷却（默认 30s），数据库仍只存 api_key_ref",
+        "失败尝试同样落一行 usage（status=error、缺失成本）"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "传输细节",
+      "items": [
+        "流式先写 text/event-stream，再逐事件下发；超长首字时发心跳注释保活",
+        "X-ModelHub-Provider 只在 /v1/chat/completions 生效，且不是凭据通道",
+        "看板不直连 SQLite，只读这里的 HTTP API"
+      ]
+    }
+  ]
+}

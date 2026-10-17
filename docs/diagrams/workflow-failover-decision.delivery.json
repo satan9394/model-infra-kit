@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "189ac6a0-1c83-4a2c-b53b-e2d8af946095",
+  "status": "current",
+  "command": "deliver",
+  "type": "workflow",
+  "input": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\workflow-failover-20261011\\candidate.json",
+  "output": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\workflow-failover-decision.html",
+  "specification": {
+    "sha256": "0f389637e14a4094d70d277f62d7cefc910bf87aab2c2eb9797617921fb93b8e",
+    "bytes": 7334
+  },
+  "artifact": {
+    "sha256": "1d72bdef5c1090be95af9354256890ba6ea4e9b5f530109721edacba17624444",
+    "bytes": 760874
+  }
+}

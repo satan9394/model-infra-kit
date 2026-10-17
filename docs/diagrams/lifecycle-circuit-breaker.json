@@ -1,0 +1,62 @@
+{
+  "schema_version": 2,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "供应商熔断器生命周期（EVO-G95）",
+    "subtitle": "每个供应商/模型的被动健康状态：CLOSED → OPEN → HALF_OPEN",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/lifecycle-circuit-breaker.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/satan9394/model-infra-kit",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "267628ee741b44d5e9e188b833d6f643dd5864ce"
+    }
+  },
+  "lanes": [
+    { "id": "main", "label": "健康路径" },
+    { "id": "degraded", "label": "降级与冷却" },
+    { "id": "terminal", "label": "终局" }
+  ],
+  "states": [
+    { "id": "fresh", "type": "start", "label": "无健康记录", "sublabel": "首次调用即视为 CLOSED", "lane": "main", "col": 0, "step": "01", "tag": "脱管",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 30, "label": "state() 默认 CLOSED" }] },
+    { "id": "closed", "type": "success", "label": "CLOSED", "sublabel": "正常放行全部请求", "lane": "main", "col": 1, "step": "02", "tag": "健康",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 40, "label": "acquire 放行" }] },
+    { "id": "tracking", "type": "active", "label": "累计失败", "sublabel": "记录 retryable 失败次数", "lane": "degraded", "col": 1, "step": "03", "tag": "计数",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 49, "label": "failure()" }] },
+    { "id": "open", "type": "failure", "label": "OPEN", "sublabel": "冷却期内不再发请求", "lane": "degraded", "col": 2, "step": "04", "tag": "隔离",
+      "sources": [
+        { "path": "packages/mik/src/router/circuit-breaker.ts", "line": 56, "label": "达到阈值转 OPEN" },
+        { "path": "packages/mik/src/router/circuit-breaker.ts", "line": 33, "label": "available() 拒绝" }
+      ] },
+    { "id": "cooldown", "type": "waiting", "label": "冷却等待", "sublabel": "默认 30s，可注入时钟", "lane": "degraded", "col": 3, "step": "05", "tag": "等待",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 24, "label": "cooldownMs 默认 30_000" }] },
+    { "id": "probing", "type": "decision", "label": "HALF_OPEN", "sublabel": "只放行一个探测请求", "lane": "degraded", "col": 4, "step": "06", "tag": "单探针",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 37, "label": "acquire 同步占位" }] },
+    { "id": "probe_fail", "type": "failure", "label": "探测失败", "sublabel": "立即回 OPEN 并重置冷却", "lane": "terminal", "col": 3, "step": "07", "tag": "回退",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 56, "label": "HALF_OPEN 失败直接 OPEN" }] },
+    { "id": "cancelled", "type": "neutral", "label": "调用方取消", "sublabel": "release 后回 OPEN，不算成败", "lane": "terminal", "col": 4, "step": "08", "tag": "中性",
+      "sources": [{ "path": "packages/mik/src/router/circuit-breaker.ts", "line": 63, "label": "release()" }] }
+  ],
+  "transitions": [
+    { "from": "fresh", "to": "closed", "label": "首次调用" },
+    { "from": "closed", "to": "tracking", "label": "retryable 失败", "variant": "security" },
+    { "from": "tracking", "to": "closed", "label": "成功即清除", "variant": "emphasis" },
+    { "from": "tracking", "to": "open", "label": "连续 3 次", "variant": "security" },
+    { "from": "open", "to": "cooldown", "label": "开始计时", "variant": "dashed" },
+    { "from": "cooldown", "to": "probing", "label": "冷却到期", "variant": "emphasis" },
+    { "from": "probing", "to": "closed", "label": "探测成功", "variant": "emphasis" },
+    { "from": "probing", "to": "probe_fail", "label": "探测失败", "variant": "security" },
+    { "from": "probe_fail", "to": "open", "label": "重置冷却", "variant": "security" },
+    { "from": "probing", "to": "cancelled", "label": "请求被取消", "variant": "dashed" },
+    { "from": "cancelled", "to": "open", "label": "释放探针", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "为什么是「被动健康」", "items": ["没有定时器、没有主动探测、没有跨实例全局状态", "只根据真实调用的结果积累，实例级内存 Map", "健康键在 adaptive_qos 模式按模型粒度，其余按供应商粒度"] },
+    { "dot": "amber", "title": "阈值的默认与可注入性", "items": ["failureThreshold 默认 3，cooldownMs 默认 30_000", "两者必须是正整数安全整数，否则构造即抛错", "now 可注入，测试用假时钟验证冷却与半开，不依赖真实等待"] },
+    { "dot": "rose", "title": "只有 retryable 才计入失败", "items": ["HTTP 状态优先：429 与 5xx 计入；4xx 不计入且视为成功（清除记录）", "无状态时按错误码判定：RATE_LIMIT / TIMEOUT / CONNECTION / PROVIDER", "非 retryable 的错误维持原状态，不会误伤健康供应商"] },
+    { "dot": "cyan", "title": "单探针不变量", "items": ["acquire 同步占位，先于任何网络等待，避免并发探测风暴", "取消（release）既不宣告成功也不宣告失败，直接回 OPEN", "成功的探测删除整条健康记录，回到无记录即 CLOSED"] }
+  ]
+}

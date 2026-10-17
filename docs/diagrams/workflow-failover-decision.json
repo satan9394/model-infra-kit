@@ -1,0 +1,316 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "生成请求的降级与轮换裁决（EVO-G95）",
+    "subtitle": "哪几类失败会换 Key、换候选，哪几类直接判终局",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/workflow-failover-decision.html",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      690
+    ],
+    "repository": {
+      "url": "https://github.com/satan9394/model-infra-kit",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "267628ee741b44d5e9e188b833d6f643dd5864ce"
+    }
+  },
+  "lanes": [
+    {
+      "id": "intake",
+      "label": "接入"
+    },
+    {
+      "id": "decide",
+      "label": "路由裁决"
+    },
+    {
+      "id": "execute",
+      "label": "上游执行"
+    },
+    {
+      "id": "recover",
+      "label": "轮换与终局",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "intake_phase",
+      "label": "解析",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "select_phase",
+      "label": "选道",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "run_phase",
+      "label": "执行与恢复",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "request",
+    "resolve",
+    "cascade",
+    "channels",
+    "attempt",
+    "success"
+  ],
+  "nodes": [
+    {
+      "id": "request",
+      "lane": "intake",
+      "col": 0,
+      "type": "external",
+      "label": "生成请求",
+      "sublabel": "generate / stream",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 837,
+          "label": "generate"
+        }
+      ]
+    },
+    {
+      "id": "resolve",
+      "lane": "decide",
+      "col": 1,
+      "type": "backend",
+      "label": "解析模型引用",
+      "sublabel": "provider:model",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 695,
+          "label": "resolveModel"
+        }
+      ]
+    },
+    {
+      "id": "cascade",
+      "lane": "decide",
+      "col": 2,
+      "type": "backend",
+      "label": "级联评估",
+      "sublabel": "复杂度 → tier",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/router/cascading.ts",
+          "line": 30,
+          "label": "evaluateComplexity"
+        }
+      ]
+    },
+    {
+      "id": "channels",
+      "lane": "decide",
+      "col": 3,
+      "type": "backend",
+      "label": "候选通道",
+      "sublabel": "熔断过滤 + 权重",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 739,
+          "label": "候选按 available 过滤"
+        },
+        {
+          "path": "packages/mik/src/router/load-balancer.ts",
+          "line": 48,
+          "label": "LoadBalancer"
+        }
+      ]
+    },
+    {
+      "id": "attempt",
+      "lane": "execute",
+      "col": 4,
+      "type": "backend",
+      "label": "调用上游",
+      "sublabel": "AI SDK 单次尝试",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 872,
+          "label": "generateText"
+        }
+      ]
+    },
+    {
+      "id": "success",
+      "lane": "execute",
+      "col": 5,
+      "type": "backend",
+      "label": "成功落账",
+      "sublabel": "计价 + record()",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 914,
+          "label": "this.record"
+        }
+      ]
+    },
+    {
+      "id": "rotate",
+      "lane": "recover",
+      "col": 4,
+      "type": "security",
+      "label": "轮换裁决",
+      "sublabel": "先换 Key，再换候选",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/router/circuit-breaker.ts",
+          "line": 11,
+          "label": "isRetryableRouteFailure"
+        },
+        {
+          "path": "packages/mik/src/router/key-pool.ts",
+          "line": 16,
+          "label": "KeyPool"
+        },
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 963,
+          "label": "冷却并换 Key"
+        }
+      ]
+    },
+    {
+      "id": "terminal",
+      "lane": "recover",
+      "col": 5,
+      "type": "security",
+      "label": "抛出末次错误",
+      "sublabel": "候选耗尽 / 不可重试",
+      "width": 118,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 974,
+          "label": "throw lastError"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "request-resolve",
+      "from": "request",
+      "to": "resolve",
+      "label": "进入",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "resolve-cascade",
+      "from": "resolve",
+      "to": "cascade",
+      "role": "main"
+    },
+    {
+      "id": "cascade-channels",
+      "from": "cascade",
+      "to": "channels",
+      "role": "main"
+    },
+    {
+      "id": "channels-attempt",
+      "from": "channels",
+      "to": "attempt",
+      "label": "放行首选",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "attempt-success",
+      "from": "attempt",
+      "to": "success",
+      "label": "ok",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "attempt-rotate",
+      "from": "attempt",
+      "to": "rotate",
+      "label": "429 / 超时 / 5xx",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "rotate-channels",
+      "from": "rotate",
+      "to": "channels",
+      "label": "仍有候补",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "rotate-terminal",
+      "from": "rotate",
+      "to": "terminal",
+      "label": "候选耗尽",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "只有这四类失败会轮换",
+      "items": [
+        "429、超时、连接失败、上游 5xx",
+        "HTTP 状态优先于 SDK 文案分类，避免 5xx 被归类成 UNKNOWN",
+        "4xx（除 429）判终局；流式一旦已输出文本或工具调用则禁止重放"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "两级轮换的顺序",
+      "items": [
+        "先在同一候选内按 KeyPool 轮换凭据，429 使该 Key 内存冷却（默认 30s）",
+        "Key 用尽才切到下一个候选模型或供应商",
+        "熔断按供应商粒度计数，连续 3 次 retryable 失败进入 OPEN"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "HALF_OPEN 的单探针不变量",
+      "items": [
+        "冷却到期后仅允许一次探测：acquire 同步占位，先于网络等待",
+        "探测成功即清除健康记录，回到 CLOSED",
+        "调用方取消（release）既不算成功也不算失败，直接回 OPEN"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "记账口径",
+      "items": [
+        "每次实际尝试各落一行 usage；失败行 status=error 且成本缺失",
+        "通过模型或 Key 轮换成功的行打 is_fallback=true",
+        "凭据只存 api_key_ref；池状态只在内存，不进库、不进日志"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "sequence",
+  "quality": "showcase",
+  "specification": {
+    "path": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\sequence-generate-20261011\\candidate.json",
+    "sha256": "4df46868844c73b0e13de6aa96f259019d0846457b6fe0f7aad7782eb4781431",
+    "bytes": 7649
+  },
+  "artifact": {
+    "path": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\sequence-generate-request.html",
+    "sha256": "60ed01c0a7e761eaaa6f9c83b661248d79b88a738ff6e71544af3157d86426be",
+    "bytes": 765878
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\sequence-generate-request.finalize.json",
+    "summaryReceipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\sequence-generate-request.finalize-summary.json",
+    "browserCheckReceipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\sequence-generate-request.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "disabled"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 6220
+}

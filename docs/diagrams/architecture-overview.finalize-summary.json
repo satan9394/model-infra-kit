@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\architecture-overview-20261011\\candidate.json",
+    "sha256": "e335f98d1fa02089504adcfdc20694b1d29e51aa460f4f7f4b516f1293df29f8",
+    "bytes": 13911
+  },
+  "artifact": {
+    "path": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\architecture-overview.html",
+    "sha256": "1981649feaa4cd0c72cefc04da20719250acfddc295924500787cabd048d7b00",
+    "bytes": 796158
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\architecture-overview.finalize.json",
+    "summaryReceipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\architecture-overview.finalize-summary.json",
+    "browserCheckReceipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\architecture-overview.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "disabled"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 7555,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "resolvedCrossovers": 4,
+      "routesOverSuggestedBends": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [
+        {
+          "left": {
+            "id": "server-hub",
+            "from": "servercore",
+            "to": "hub",
+            "label": "调用门面",
+            "collectionIndex": 7,
+            "artifactIndex": 8
+          },
+          "right": {
+            "id": "hub-notify",
+            "from": "hub",
+            "to": "notify",
+            "label": "事件",
+            "collectionIndex": 13,
+            "artifactIndex": 14
+          },
+          "point": [
+            1060,
+            287.94999999999993
+          ],
+          "sharedNode": "hub"
+        },
+        {
+          "left": {
+            "id": "hub-registry",
+            "from": "hub",
+            "to": "registry",
+            "label": "供应商",
+            "collectionIndex": 8,
+            "artifactIndex": 9
+          },
+          "right": {
+            "id": "hub-router",
+            "from": "hub",
+            "to": "router",
+            "label": "候选路由",
+            "collectionIndex": 10,
+            "artifactIndex": 11
+          },
+          "point": [
+            768,
+            440
+          ],
+          "sharedNode": "hub"
+        },
+        {
+          "left": {
+            "id": "hub-bridge",
+            "from": "hub",
+            "to": "bridge",
+            "label": "语言模型",
+            "collectionIndex": 9,
+            "artifactIndex": 10
+          },
+          "right": {
+            "id": "hub-router",
+            "from": "hub",
+            "to": "router",
+            "label": "候选路由",
+            "collectionIndex": 10,
+            "artifactIndex": 11
+          },
+          "point": [
+            545,
+            536
+          ],
+          "sharedNode": "hub"
+        },
+        {
+          "left": {
+            "id": "hub-usage",
+            "from": "hub",
+            "to": "usage",
+            "label": "记账",
+            "collectionIndex": 12,
+            "artifactIndex": 13
+          },
+          "right": {
+            "id": "pricing-store",
+            "from": "pricing",
+            "to": "store",
+            "label": "价格缓存",
+            "collectionIndex": 17,
+            "artifactIndex": 18
+          },
+          "point": [
+            1074.9999999999998,
+            536
+          ]
+        }
+      ],
+      "detours": [
+        {
+          "relationship": {
+            "id": "http-server",
+            "from": "httpserver",
+            "to": "servercore",
+            "label": "挂载 /v1 + /api",
+            "collectionIndex": 4,
+            "artifactIndex": 5
+          },
+          "bends": 3,
+          "stretch": 1
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "servercore → hub and hub → notify cross next to hub: move node servercore or notify so the two reach hub from different sides (for example one level with it, one directly above or below it).",
+      "hub → registry and hub → router cross next to hub: move node registry or router so the two reach hub from different sides (for example one level with it, one directly above or below it).",
+      "hub → bridge and hub → router cross next to hub: move node bridge or router so the two reach hub from different sides (for example one level with it, one directly above or below it).",
+      "hub → usage crosses pricing → store: move the node of whichever is a branch, return, or second entrance to the other side of the main path, so that relationship runs through an empty corridor.",
+      "httpserver → servercore needs 3 bends: move node httpserver or servercore so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

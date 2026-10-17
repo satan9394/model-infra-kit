@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "a1b0c77a-b4b1-4767-87b4-a1b628cc8584",
+  "status": "current",
+  "command": "deliver",
+  "type": "dataflow",
+  "input": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\dataflow-usage-20261011\\candidate.json",
+  "output": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\dataflow-usage-pipeline.html",
+  "specification": {
+    "sha256": "270b181a38585d93f847af8fcf435df19dd15d49dff5dd78c2654d02b762fd7c",
+    "bytes": 7314
+  },
+  "artifact": {
+    "sha256": "a47846ce9ba2e812fc1d677389a07ee2f96e429c0132601d838793e59b6fb60e",
+    "bytes": 760337
+  }
+}

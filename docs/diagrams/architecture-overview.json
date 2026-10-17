@@ -1,0 +1,652 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "model-infra-kit — 整体逻辑架构（v1.7.0 @ 267628e）",
+    "subtitle": "可嵌入宿主项目的模型层：接入面 → ModelInfra 门面 → 能力服务 → 持久化与出网",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/architecture-overview.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/satan9394/model-infra-kit",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "267628ee741b44d5e9e188b833d6f643dd5864ce"
+    },
+    "legend": {
+      "mode": "auto"
+    }
+  },
+  "components": [
+    {
+      "id": "host",
+      "type": "external",
+      "label": "宿主项目",
+      "sublabel": "CLI Agent / AI 应用",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        150,
+        66
+      ]
+    },
+    {
+      "id": "embed",
+      "type": "backend",
+      "label": "嵌入式 API",
+      "sublabel": "generate / stream",
+      "pos": [
+        230,
+        40
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "tag": "主路径",
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 532,
+          "label": "ModelInfra.init"
+        },
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 837,
+          "label": "generate"
+        },
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 982,
+          "label": "stream"
+        }
+      ]
+    },
+    {
+      "id": "fetchshim",
+      "type": "backend",
+      "label": "mik.fetch",
+      "sublabel": "OpenAI 客户端适配",
+      "pos": [
+        400,
+        290
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "零改动计量",
+      "sources": [
+        {
+          "path": "packages/mik/src/fetch.ts",
+          "line": 99,
+          "label": "createMikFetch"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "mik CLI",
+      "sublabel": "init / serve / usage",
+      "pos": [
+        430,
+        40
+      ],
+      "size": [
+        150,
+        66
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/cli/dispatch.ts",
+          "line": 48,
+          "label": "dispatch"
+        }
+      ]
+    },
+    {
+      "id": "httpserver",
+      "type": "frontend",
+      "label": "本地 HTTP 服务",
+      "sublabel": ":3211  /v1 + /api",
+      "pos": [
+        620,
+        40
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/server/server.ts",
+          "line": 142,
+          "label": "createServer"
+        }
+      ]
+    },
+    {
+      "id": "dashboard",
+      "type": "frontend",
+      "label": "Next.js 看板",
+      "sublabel": ":3210 只读 HTTP",
+      "pos": [
+        830,
+        40
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "不直连 SQLite",
+      "sources": [
+        {
+          "path": "apps/dashboard/README.md",
+          "line": 6,
+          "end_line": 7,
+          "label": "数据源约定"
+        }
+      ]
+    },
+    {
+      "id": "hub",
+      "type": "backend",
+      "label": "ModelInfra 门面",
+      "sublabel": "组合根 · 生命周期 · 计量一次",
+      "pos": [
+        700,
+        250
+      ],
+      "size": [
+        220,
+        120
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 341,
+          "label": "class ModelInfra"
+        }
+      ]
+    },
+    {
+      "id": "servercore",
+      "type": "backend",
+      "label": "服务内核",
+      "sublabel": "路由 / SSE / 热重载",
+      "pos": [
+        1200,
+        180
+      ],
+      "size": [
+        180,
+        70
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/server/router.ts",
+          "line": 27,
+          "label": "Router.add"
+        },
+        {
+          "path": "packages/mik/src/server/reload.ts",
+          "line": 1,
+          "label": "HotReloadManager"
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "网关鉴权",
+      "sublabel": "作用域 Bearer Token",
+      "pos": [
+        1490,
+        180
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/server/auth.ts",
+          "line": 5,
+          "label": "GatewayScope"
+        },
+        {
+          "path": "packages/mik/src/server/auth.ts",
+          "line": 68,
+          "label": "endpointScope"
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "backend",
+      "label": "ProviderRegistry",
+      "sublabel": "预设 + 凭据引用解析",
+      "pos": [
+        40,
+        560
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/registry/registry.ts",
+          "line": 60,
+          "label": "class ProviderRegistry"
+        }
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "AiBridge",
+      "sublabel": "协议 → AI SDK 模型",
+      "pos": [
+        250,
+        560
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/ai/bridge.ts",
+          "line": 105,
+          "label": "createAiBridge"
+        }
+      ]
+    },
+    {
+      "id": "router",
+      "type": "backend",
+      "label": "路由与熔断",
+      "sublabel": "级联 / 分流 / KeyPool",
+      "pos": [
+        460,
+        560
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/router/cascading.ts",
+          "line": 30,
+          "label": "evaluateComplexity"
+        },
+        {
+          "path": "packages/mik/src/router/load-balancer.ts",
+          "line": 48,
+          "label": "LoadBalancer"
+        },
+        {
+          "path": "packages/mik/src/router/circuit-breaker.ts",
+          "line": 17,
+          "label": "CircuitBreaker"
+        }
+      ]
+    },
+    {
+      "id": "pricing",
+      "type": "backend",
+      "label": "PricingService",
+      "sublabel": "阶梯 + 人工价覆盖",
+      "pos": [
+        990,
+        320
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/pricing/service.ts",
+          "line": 114,
+          "label": "class PricingService"
+        }
+      ]
+    },
+    {
+      "id": "usage",
+      "type": "backend",
+      "label": "UsageService",
+      "sublabel": "记账 / 汇总 / 成本界",
+      "pos": [
+        1120,
+        560
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/usage/service.ts",
+          "line": 184,
+          "label": "class UsageService"
+        },
+        {
+          "path": "packages/mik/src/usage/service.ts",
+          "line": 149,
+          "label": "costBound"
+        }
+      ]
+    },
+    {
+      "id": "notify",
+      "type": "messagebus",
+      "label": "通知与 Webhook",
+      "sublabel": "有界派发 + HMAC 签名",
+      "pos": [
+        1340,
+        560
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/events/bus.ts",
+          "line": 9,
+          "label": "class NotificationBus"
+        },
+        {
+          "path": "packages/mik/src/events/webhook.ts",
+          "line": 65,
+          "label": "WebhookDispatcher"
+        }
+      ]
+    },
+    {
+      "id": "credentials",
+      "type": "database",
+      "label": "CredentialStore",
+      "sublabel": "env: / file: / keychain:",
+      "pos": [
+        40,
+        820
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "tag": "只存引用",
+      "sources": [
+        {
+          "path": "packages/mik/src/credential/store.ts",
+          "line": 44,
+          "label": "class CredentialStore"
+        }
+      ]
+    },
+    {
+      "id": "aisdk",
+      "type": "external",
+      "label": "Vercel AI SDK v7",
+      "sublabel": "@ai-sdk/* 可选 peer",
+      "pos": [
+        250,
+        820
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/ai/protocols.ts",
+          "line": 1,
+          "label": "PROTOCOLS 源表"
+        },
+        {
+          "path": "packages/mik/src/registry/presets.ts",
+          "line": 10,
+          "label": "PROTOCOL_PACKAGES"
+        }
+      ]
+    },
+    {
+      "id": "upstream",
+      "type": "cloud",
+      "label": "模型供应商",
+      "sublabel": "OpenAI / Anthropic / …",
+      "pos": [
+        490,
+        820
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "SQLite 账本",
+      "sublabel": "node:sqlite · schema v7 · WAL",
+      "pos": [
+        900,
+        820
+      ],
+      "size": [
+        180,
+        66
+      ],
+      "tag": "整数微美元",
+      "sources": [
+        {
+          "path": "packages/mik/src/store/database.ts",
+          "line": 272,
+          "label": "class Store"
+        },
+        {
+          "path": "packages/mik/src/store/schema.ts",
+          "line": 17,
+          "label": "MIGRATIONS"
+        }
+      ]
+    },
+    {
+      "id": "webhook",
+      "type": "cloud",
+      "label": "Webhook 接收端",
+      "sublabel": "签名 POST 到宿主",
+      "pos": [
+        1340,
+        820
+      ],
+      "size": [
+        180,
+        66
+      ],
+      "sources": [
+        {
+          "path": "packages/mik/src/events/webhook.ts",
+          "line": 47,
+          "label": "webhookSignature"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "host-embed",
+      "from": "host",
+      "to": "embed",
+      "label": "init()",
+      "variant": "emphasis"
+    },
+    {
+      "id": "embed-hub",
+      "from": "embed",
+      "to": "hub",
+      "label": "generate / stream",
+      "variant": "emphasis"
+    },
+    {
+      "id": "fetch-hub",
+      "from": "fetchshim",
+      "to": "hub",
+      "label": "转发并计量"
+    },
+    {
+      "id": "cli-hub",
+      "from": "cli",
+      "to": "hub",
+      "label": "命令"
+    },
+    {
+      "id": "http-server",
+      "from": "httpserver",
+      "to": "servercore",
+      "label": "挂载 /v1 + /api",
+      "variant": "emphasis"
+    },
+    {
+      "id": "dash-server",
+      "from": "dashboard",
+      "to": "servercore",
+      "label": "GET /api/*"
+    },
+    {
+      "id": "server-auth",
+      "from": "servercore",
+      "to": "auth",
+      "label": "作用域校验"
+    },
+    {
+      "id": "server-hub",
+      "from": "servercore",
+      "to": "hub",
+      "label": "调用门面",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hub-registry",
+      "from": "hub",
+      "to": "registry",
+      "label": "供应商"
+    },
+    {
+      "id": "hub-bridge",
+      "from": "hub",
+      "to": "bridge",
+      "label": "语言模型"
+    },
+    {
+      "id": "hub-router",
+      "from": "hub",
+      "to": "router",
+      "label": "候选路由"
+    },
+    {
+      "id": "hub-pricing",
+      "from": "hub",
+      "to": "pricing",
+      "label": "估价"
+    },
+    {
+      "id": "hub-usage",
+      "from": "hub",
+      "to": "usage",
+      "label": "记账",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hub-notify",
+      "from": "hub",
+      "to": "notify",
+      "label": "事件"
+    },
+    {
+      "id": "registry-creds",
+      "from": "registry",
+      "to": "credentials",
+      "label": "解析引用"
+    },
+    {
+      "id": "bridge-sdk",
+      "from": "bridge",
+      "to": "aisdk",
+      "label": "loadProviderFactory"
+    },
+    {
+      "id": "sdk-upstream",
+      "from": "aisdk",
+      "to": "upstream",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pricing-store",
+      "from": "pricing",
+      "to": "store",
+      "label": "价格缓存"
+    },
+    {
+      "id": "usage-store",
+      "from": "usage",
+      "to": "store",
+      "label": "usage_events / rollups",
+      "variant": "emphasis"
+    },
+    {
+      "id": "notify-webhook",
+      "from": "notify",
+      "to": "webhook",
+      "label": "签名投递",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "三种接入面（SPEC §2）",
+      "items": [
+        "嵌入式库：ModelInfra.init() → generate / stream / usage.summary",
+        "fetch 适配器：new OpenAI({ baseURL: mik.baseUrl, fetch: mik.fetch })",
+        "本地服务：mik serve → /v1 兼容端点，跨语言项目改 base_url 即接入"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "薄核与自研边界（D1 / D2 / SPEC §1）",
+      "items": [
+        "协议与 usage 归一交给 Vercel AI SDK；自研只有 Registry / CredentialStore / UsageRecorder / UsageRepository",
+        "模型名归一与成本计算交给 llm-pricing；本项目只编排价格优先级",
+        "协议是一等公民：PROTOCOLS 源表按数据映射，禁止 providerId 分支"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "金额与密钥口径（D3 / 硬性规则 4）",
+      "items": [
+        "落库与聚合全程整数微美元，禁止 SUM(CAST(cost AS REAL))",
+        "providers 表只存 api_key_ref；密钥永不落库、永不出现在日志",
+        "历史成本永不重算：事件落库即固化 cost / pricing_source / pricing_basis"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "可靠性与边界（D4 / D8 / 规则 6）",
+      "items": [
+        "init() 不因目录或价格上游失败而抛错，只降级 + onWarn",
+        "node:sqlite 默认驱动（WAL + busy_timeout），驱动接口可替换",
+        "看板只走 mik serve 的 HTTP API，不直接打开 SQLite"
+      ]
+    }
+  ]
+}

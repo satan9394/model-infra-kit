@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>model-infra-kit — 架构可视化索引</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --border: #e3e6ea;
+    --text: #14181d;
+    --muted: #5d6672;
+    --faint: #8b95a1;
+    --accent: #2563eb;
+    --c-arch: #2563eb;
+    --c-seq: #7c3aed;
+    --c-flow: #0d9488;
+    --c-data: #c2410c;
+    --c-life: #be123c;
+    --shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px -12px rgba(16,24,40,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --surface: #171b21;
+      --border: #262d36;
+      --text: #e8ebef;
+      --muted: #a2acb9;
+      --faint: #7b8694;
+      --accent: #60a5fa;
+      --c-arch: #60a5fa;
+      --c-seq: #a78bfa;
+      --c-flow: #2dd4bf;
+      --c-data: #fb923c;
+      --c-life: #fb7185;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    padding: 40px 24px 64px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  header.page { margin-bottom: 28px; }
+  h1 { font-size: 26px; line-height: 1.3; margin: 0 0 8px; letter-spacing: -.01em; }
+  .lede { color: var(--muted); margin: 0 0 18px; max-width: 74ch; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--muted); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Cascadia Mono", monospace;
+    font-size: .92em; background: color-mix(in srgb, var(--faint) 16%, transparent);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  .meta > span {
+    border: 1px solid var(--border); background: var(--surface);
+    border-radius: 999px; padding: 3px 11px;
+  }
+  .ok { color: #15803d; }
+  @media (prefers-color-scheme: dark) { .ok { color: #4ade80; } }
+
+  ul.grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; }
+
+  .card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 900px) {
+    body { padding: 24px 14px 48px; }
+    .card { grid-template-columns: 1fr; }
+  }
+
+  /* Thumbnail: the artifact is embedded at its own intrinsic viewBox so nothing
+     is cropped, then uniformly scaled down by --k. --vw/--vh come from the
+     artifact's viewBox; --k is the same for every card so text reads at a
+     consistent size across the gallery. */
+  .thumb {
+    --k: 0.34;
+    position: relative;
+    width: calc(var(--vw) * var(--k) * 1px);
+    height: calc(var(--vh) * var(--k) * 1px);
+    max-width: 100%;
+    overflow: hidden;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  .thumb iframe {
+    position: absolute; top: 0; left: 0;
+    width: calc(var(--vw) * 1px);
+    height: calc(var(--vh) * 1px);
+    border: 0; background: transparent;
+    transform: scale(var(--k));
+    transform-origin: 0 0;
+    pointer-events: none;
+  }
+  .thumb .hit {
+    position: absolute; inset: 0; z-index: 2;
+    text-decoration: none;
+  }
+  .thumb .hit span {
+    position: absolute; right: 10px; bottom: 10px;
+    font-size: 12px; line-height: 1; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 11px; box-shadow: var(--shadow);
+    opacity: .92;
+  }
+  .thumb .hit:hover span { border-color: var(--accent); color: var(--accent); opacity: 1; }
+  @media (max-width: 900px) {
+    .thumb {
+      width: 100%; height: auto;
+      aspect-ratio: var(--vw) / var(--vh);
+      border-right: 0; border-bottom: 1px solid var(--border);
+    }
+    .thumb iframe { width: 100%; height: 100%; transform: none; }
+  }
+
+  .body { padding: 18px 20px 16px; min-width: 0; display: flex; flex-direction: column; }
+  .chip {
+    align-self: flex-start;
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    border-radius: 999px; padding: 3px 10px; margin-bottom: 10px;
+    border: 1px solid currentColor;
+  }
+  .chip.architecture { color: var(--c-arch); }
+  .chip.sequence { color: var(--c-seq); }
+  .chip.workflow { color: var(--c-flow); }
+  .chip.dataflow { color: var(--c-data); }
+  .chip.lifecycle { color: var(--c-life); }
+
+  .card h2 { font-size: 17px; margin: 0 0 8px; line-height: 1.4; }
+  .card h2 a { color: inherit; text-decoration: none; }
+  .card h2 a:hover { color: var(--accent); }
+  .card p.about { margin: 0 0 12px; color: var(--muted); }
+  .card .files { margin-top: auto; font-size: 12.5px; color: var(--faint); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .card .files a { color: var(--accent); text-decoration: none; }
+  .card .files a:hover { text-decoration: underline; }
+
+  footer.page {
+    margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 13.5px;
+  }
+  footer.page h3 { font-size: 14px; color: var(--text); margin: 0 0 8px; }
+  footer.page p { margin: 0 0 10px; }
+  footer.page pre {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; overflow-x: auto; margin: 0 0 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Cascadia Mono", monospace;
+    font-size: 12.5px; line-height: 1.6;
+  }
+  footer.page a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>model-infra-kit — 架构可视化索引</h1>
+    <p class="lede">
+      五张分层图，覆盖整体架构、一次请求的主流程、降级裁决、成本数据管线与熔断状态机。
+      每张图都内联 SVG、自包含、可离线打开，并可导出 PNG / SVG 等格式；节点带源码出处，
+      全部钉在下面这个提交上。
+    </p>
+    <div class="meta">
+      <span>版本 <strong>1.7.0</strong></span>
+      <span>提交 <code>267628e</code></span>
+      <span>图 5 张</span>
+      <span class="ok">四门全绿：validate / deliver / check / browser-check</span>
+      <span>由 Archify v3.0.1 生成</span>
+    </div>
+  </header>
+
+  <ul class="grid">
+
+    <li class="card">
+      <div class="thumb" style="--vw: 1700; --vh: 954;">
+        <iframe src="architecture-overview.html?embed=1" title="整体逻辑架构（缩略图）" loading="lazy" scrolling="no"></iframe>
+        <a class="hit" href="architecture-overview.html" target="_blank" rel="noopener" aria-label="打开《整体逻辑架构》定稿"><span>打开 ↗</span></a>
+      </div>
+      <div class="body">
+        <span class="chip architecture">architecture</span>
+        <h2><a href="architecture-overview.html" target="_blank" rel="noopener">整体逻辑架构</a></h2>
+        <p class="about">
+          宿主项目的三种接入面（嵌入式库 / <code>mik.fetch</code> / 本地 HTTP 服务）如何汇聚到
+          <code>ModelInfra</code> 门面，门面之下有哪些能力服务（注册表、AI SDK 桥、路由、计价、用量、
+          配额与通知），以及它们与 SQLite 账本、上游供应商之间的边界与依赖方向。
+        </p>
+        <div class="files">
+          <a href="architecture-overview.html" target="_blank" rel="noopener">定稿 HTML</a>
+          <a href="architecture-overview.json" target="_blank" rel="noopener">可编辑源 JSON</a>
+          <a href="architecture-overview.finalize.json" target="_blank" rel="noopener">验证回执</a>
+          <a href="png/architecture-overview.png" target="_blank" rel="noopener">PNG 图片</a>
+          <span>796 KB</span>
+        </div>
+      </div>
+    </li>
+
+    <li class="card">
+      <div class="thumb" style="--vw: 1080; --vh: 680;">
+        <iframe src="sequence-generate-request.html?embed=1" title="一次生成请求的主流程（缩略图）" loading="lazy" scrolling="no"></iframe>
+        <a class="hit" href="sequence-generate-request.html" target="_blank" rel="noopener" aria-label="打开《一次生成请求的主流程》定稿"><span>打开 ↗</span></a>
+      </div>
+      <div class="body">
+        <span class="chip sequence">sequence</span>
+        <h2><a href="sequence-generate-request.html" target="_blank" rel="noopener">一次生成请求的主流程</a></h2>
+        <p class="about">
+          <code>POST /v1/chat/completions</code> 的完整往返：网关鉴权与作用域校验 → 解析
+          <code>provider:model</code> → 通过 AI SDK 调用上游 → 拿 usage 计价 → 写入账本。
+          同一条路径也被嵌入式调用与 <code>mik.fetch</code> 复用，所以计量只发生一次。
+        </p>
+        <div class="files">
+          <a href="sequence-generate-request.html" target="_blank" rel="noopener">定稿 HTML</a>
+          <a href="sequence-generate-request.json" target="_blank" rel="noopener">可编辑源 JSON</a>
+          <a href="sequence-generate-request.finalize.json" target="_blank" rel="noopener">验证回执</a>
+          <a href="png/sequence-generate-request.png" target="_blank" rel="noopener">PNG 图片</a>
+          <span>766 KB</span>
+        </div>
+      </div>
+    </li>
+
+    <li class="card">
+      <div class="thumb" style="--vw: 1080; --vh: 690;">
+        <iframe src="workflow-failover-decision.html?embed=1" title="降级与轮换裁决（缩略图）" loading="lazy" scrolling="no"></iframe>
+        <a class="hit" href="workflow-failover-decision.html" target="_blank" rel="noopener" aria-label="打开《降级与轮换裁决》定稿"><span>打开 ↗</span></a>
+      </div>
+      <div class="body">
+        <span class="chip workflow">workflow</span>
+        <h2><a href="workflow-failover-decision.html" target="_blank" rel="noopener">降级与轮换裁决</a></h2>
+        <p class="about">
+          哪些失败会触发换 Key、哪些会换候选模型或供应商，哪些直接判终局：
+          只有 429、超时、连接失败与上游 5xx 属于可重试；先在同一候选内轮换凭据，
+          Key 用尽才切候选。4xx（除 429）判终局，流式一旦已输出则禁止重放。
+        </p>
+        <div class="files">
+          <a href="workflow-failover-decision.html" target="_blank" rel="noopener">定稿 HTML</a>
+          <a href="workflow-failover-decision.json" target="_blank" rel="noopener">可编辑源 JSON</a>
+          <a href="workflow-failover-decision.finalize.json" target="_blank" rel="noopener">验证回执</a>
+          <a href="png/workflow-failover-decision.png" target="_blank" rel="noopener">PNG 图片</a>
+          <span>761 KB</span>
+        </div>
+      </div>
+    </li>
+
+    <li class="card">
+      <div class="thumb" style="--vw: 1080; --vh: 620;">
+        <iframe src="dataflow-usage-pipeline.html?embed=1" title="用量与成本数据管线（缩略图）" loading="lazy" scrolling="no"></iframe>
+        <a class="hit" href="dataflow-usage-pipeline.html" target="_blank" rel="noopener" aria-label="打开《用量与成本数据管线》定稿"><span>打开 ↗</span></a>
+      </div>
+      <div class="body">
+        <span class="chip dataflow">dataflow</span>
+        <h2><a href="dataflow-usage-pipeline.html" target="_blank" rel="noopener">用量与成本数据管线</a></h2>
+        <p class="about">
+          从一次调用到账本、再到折叠表与出口的数据流向：三条采集面（生成、转发、宿主上报）
+          归一后计价，以整数微美元落进 <code>usage_events</code>，再按日 / 标签 / trace 三层折叠，
+          最后由 HTTP 只读出口供 CLI 与看板消费。
+        </p>
+        <div class="files">
+          <a href="dataflow-usage-pipeline.html" target="_blank" rel="noopener">定稿 HTML</a>
+          <a href="dataflow-usage-pipeline.json" target="_blank" rel="noopener">可编辑源 JSON</a>
+          <a href="dataflow-usage-pipeline.finalize.json" target="_blank" rel="noopener">验证回执</a>
+          <a href="png/dataflow-usage-pipeline.png" target="_blank" rel="noopener">PNG 图片</a>
+          <span>760 KB</span>
+        </div>
+      </div>
+    </li>
+
+    <li class="card">
+      <div class="thumb" style="--vw: 1129; --vh: 584;">
+        <iframe src="lifecycle-circuit-breaker.html?embed=1" title="供应商熔断器生命周期（缩略图）" loading="lazy" scrolling="no"></iframe>
+        <a class="hit" href="lifecycle-circuit-breaker.html" target="_blank" rel="noopener" aria-label="打开《供应商熔断器生命周期》定稿"><span>打开 ↗</span></a>
+      </div>
+      <div class="body">
+        <span class="chip lifecycle">lifecycle</span>
+        <h2><a href="lifecycle-circuit-breaker.html" target="_blank" rel="noopener">供应商熔断器生命周期</a></h2>
+        <p class="about">
+          被动健康状态机 <code>CLOSED → OPEN → HALF_OPEN</code>：无定时器、无主动探测、无跨实例共享状态；
+          连续可重试失败达到阈值即隔离，冷却到期只放行一个探测请求，取消探针既不算成功也不算失败。
+        </p>
+        <div class="files">
+          <a href="lifecycle-circuit-breaker.html" target="_blank" rel="noopener">定稿 HTML</a>
+          <a href="lifecycle-circuit-breaker.json" target="_blank" rel="noopener">可编辑源 JSON</a>
+          <a href="lifecycle-circuit-breaker.finalize.json" target="_blank" rel="noopener">验证回执</a>
+          <a href="png/lifecycle-circuit-breaker.png" target="_blank" rel="noopener">PNG 图片</a>
+          <span>769 KB</span>
+        </div>
+      </div>
+    </li>
+
+  </ul>
+
+  <footer class="page">
+    <h3>如何重新生成</h3>
+    <p>每张图都是同一条命令的产物，<code>exit 0</code> 才算通过；改 <code>packages/mik/src/**</code> 后若行号漂移，按诊断改回真实行号即可。</p>
+    <pre>ARCHIFY_UPDATE_CHECK_DISABLED=1 node .agents/skills/archify/bin/archify.mjs finalize &lt;type&gt; \
+  .archify/&lt;workdir&gt;/candidate.json docs/diagrams/&lt;name&gt;.html \
+  --repo-root . --quality showcase --json</pre>
+    <p>权威依据是仓库内已批准的文档：<code>docs/SPEC.md</code>（定位与口径）、<code>docs/interfaces.md</code>（接口契约）、<code>docs/decisions.md</code>（D1–D9 取舍）。</p>
+    <p>做图过程中发现、但未擅自改动的文档漂移已登记在 <a href="README.md">README.md</a>（每处附取证命令）。</p>
+    <p>缩略图用 <code>?embed=1</code> 内嵌各图（隐藏其工具栏与页头），整张图按自身比例缩放显示，不裁切。</p>
+    <p>每张图另有 <code>png/&lt;name&gt;.png</code> 位图版（含标题与图例的图表卡样式，3.6k–4.9k 像素宽），由产物自身的「导出 → PNG」在同一 Chrome 中生成（见 <code>.archify/export-png.mjs</code>）。</p>
+  </footer>
+
+</div>
+</body>
+</html>

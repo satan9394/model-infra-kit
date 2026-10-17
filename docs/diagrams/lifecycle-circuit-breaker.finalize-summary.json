@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "lifecycle",
+  "quality": "showcase",
+  "specification": {
+    "path": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\lifecycle-breaker-20261011\\candidate.json",
+    "sha256": "0f7f7760320f854f8d1fffe69a026e4ade16b58339877a27b3234673064c38df",
+    "bytes": 5409
+  },
+  "artifact": {
+    "path": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\lifecycle-circuit-breaker.html",
+    "sha256": "436ba3cb9682caa11a32b91629aa315005e80abb763c18c336826705ffafcdad",
+    "bytes": 768577
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\lifecycle-circuit-breaker.finalize.json",
+    "summaryReceipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\lifecycle-circuit-breaker.finalize-summary.json",
+    "browserCheckReceipt": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\lifecycle-circuit-breaker.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "disabled"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 7975,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "resolvedCrossovers": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [
+        {
+          "left": {
+            "from": "probing",
+            "to": "probe_fail",
+            "label": "探测失败",
+            "collectionIndex": 7,
+            "artifactIndex": 8
+          },
+          "right": {
+            "from": "cancelled",
+            "to": "open",
+            "label": "释放探针",
+            "collectionIndex": 10,
+            "artifactIndex": 11
+          },
+          "point": [
+            798,
+            364
+          ]
+        }
+      ],
+      "detours": [],
+      "truncated": false
+    },
+    "hints": [
+      "probing → probe_fail crosses cancelled → open: move the node of whichever is a branch, return, or second entrance to the other side of the main path, so that relationship runs through an empty corridor."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

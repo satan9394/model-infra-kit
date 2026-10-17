@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "用量与成本数据管线 — 从一次调用到账本、折叠与出口",
+    "subtitle": "整数微美元落库、按维度折叠、只读出口（Webhook 为记账后的尽力而为旁路，见卡片）",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/dataflow-usage-pipeline.html",
+    "viewBox": [
+      1080,
+      620
+    ],
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/satan9394/model-infra-kit",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "267628ee741b44d5e9e188b833d6f643dd5864ce"
+    }
+  },
+  "stages": [
+    {
+      "label": "采集"
+    },
+    {
+      "label": "归一与计价"
+    },
+    {
+      "label": "落账"
+    },
+    {
+      "label": "折叠 / 归档"
+    },
+    {
+      "label": "出口与消费"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "sources",
+      "type": "backend",
+      "label": "三条采集面",
+      "sublabel": "generate · fetch · 上报",
+      "stage": 0,
+      "row": 1,
+      "tag": "计量一次",
+      "width": 120,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 837,
+          "label": "generate"
+        },
+        {
+          "path": "packages/mik/src/fetch.ts",
+          "line": 99,
+          "label": "createMikFetch"
+        },
+        {
+          "path": "packages/mik/src/server/api.ts",
+          "line": 636,
+          "label": "usage/events 端点"
+        }
+      ]
+    },
+    {
+      "id": "pricing",
+      "type": "backend",
+      "label": "归一 + 计价",
+      "sublabel": "阶梯 / 账单",
+      "stage": 1,
+      "row": 1,
+      "tag": "整数微美元",
+      "width": 120,
+      "sources": [
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 201,
+          "label": "normalizeUsage"
+        },
+        {
+          "path": "packages/mik/src/pricing/service.ts",
+          "line": 265,
+          "label": "estimate"
+        },
+        {
+          "path": "packages/mik/src/hub.ts",
+          "line": 178,
+          "label": "costFor（账单优先）"
+        }
+      ]
+    },
+    {
+      "id": "events",
+      "type": "database",
+      "label": "usage_events",
+      "sublabel": "幂等 · tags_json",
+      "stage": 2,
+      "row": 1,
+      "tag": "cost_micros",
+      "width": 120,
+      "sources": [
+        {
+          "path": "packages/mik/src/store/usage-repository.ts",
+          "line": 397,
+          "label": "insert"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "type": "cloud",
+      "label": "归档分片",
+      "sublabel": "gzip + SHA-256",
+      "stage": 3,
+      "row": 0,
+      "tag": "修剪前校验",
+      "width": 120,
+      "sources": [
+        {
+          "path": "packages/mik/src/archive/verify-prune.ts",
+          "line": 1,
+          "label": "verify + prune"
+        }
+      ]
+    },
+    {
+      "id": "rollups",
+      "type": "database",
+      "label": "三类折叠表",
+      "sublabel": "daily / tag / trace",
+      "stage": 3,
+      "row": 1,
+      "tag": "可对账",
+      "width": 120,
+      "sources": [
+        {
+          "path": "packages/mik/src/store/usage-repository.ts",
+          "line": 1256,
+          "label": "日汇总写入"
+        },
+        {
+          "path": "packages/mik/src/usage/service.ts",
+          "line": 454,
+          "label": "byTag"
+        },
+        {
+          "path": "packages/mik/src/usage/service.ts",
+          "line": 458,
+          "label": "traces"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "/api/usage/*",
+      "sublabel": "summary / traces",
+      "stage": 4,
+      "row": 1,
+      "tag": "costBound()",
+      "width": 120,
+      "sources": [
+        {
+          "path": "packages/mik/src/server/api.ts",
+          "line": 560,
+          "label": "usage/summary"
+        }
+      ]
+    },
+    {
+      "id": "dash",
+      "type": "frontend",
+      "label": "Next.js 看板",
+      "sublabel": ":3210 · 只读",
+      "stage": 4,
+      "row": 2,
+      "tag": "不直连库",
+      "width": 120,
+      "sources": [
+        {
+          "path": "apps/dashboard/README.md",
+          "line": 7,
+          "label": "只走 HTTP API"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "sources-pricing",
+      "from": "sources",
+      "to": "pricing",
+      "label": "归一",
+      "classification": "usage 事实",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pricing-events",
+      "from": "pricing",
+      "to": "events",
+      "label": "落库",
+      "classification": "固化成本",
+      "variant": "emphasis"
+    },
+    {
+      "id": "events-archive",
+      "from": "events",
+      "to": "archive",
+      "label": "归档",
+      "classification": "离线校验",
+      "variant": "security",
+      "labelSegment": 1,
+      "labelAt": [
+        637,
+        200
+      ]
+    },
+    {
+      "id": "events-rollups",
+      "from": "events",
+      "to": "rollups",
+      "label": "折叠",
+      "classification": "整数求和",
+      "variant": "emphasis",
+      "labelSegment": 1,
+      "labelAt": [
+        637,
+        296
+      ]
+    },
+    {
+      "id": "rollups-api",
+      "from": "rollups",
+      "to": "api",
+      "label": "读模型",
+      "classification": "按天 / 标签 / trace",
+      "variant": "emphasis",
+      "labelAt": [
+        853,
+        315
+      ]
+    },
+    {
+      "id": "api-dash",
+      "from": "api",
+      "to": "dash",
+      "label": "只读",
+      "classification": "GET /api/*",
+      "variant": "emphasis",
+      "labelAt": [
+        960,
+        315
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "整数微美元贯穿全链（D3）",
+      "items": [
+        "落库列是 INTEGER：cost_micros / cost_low_micros / cost_high_micros / cache_savings_micros",
+        "SQL 聚合统一 CAST(ROUND(x*1000000) AS INTEGER)，禁止浮点求和",
+        "明细 → 按日 → 按标签三层折叠满足结合律，明细加总等于汇总"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "价格来源与固化（SPEC §4 / EVO-G73）",
+      "items": [
+        "优先级：pricing_overrides（手动）> llm-pricing overrides > 上游目录 > 内置 archive",
+        "供应商回传账单（source=provider）覆盖目录估算：low=high=usd、basis=exact",
+        "原始回传值与状态写进保留标签键（provider_cost_raw / provider_cost_status）供对账"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "折叠与归档的诚实边界",
+      "items": [
+        "折叠表不保存 pricing_source，故未定价占比只能覆盖仍保留的明细行",
+        "归档修剪前在 IMMEDIATE 事务内比对摘要与两套账本，差 1 微美元即拒绝",
+        "聚合无法重建单步细节；接口与看板显式说明保留范围"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "出口的可靠性分级",
+      "items": [
+        "HTTP /api/usage/* 由服务层统一推导 costBound()，CLI 与看板共用同一口径",
+        "看板不直连 SQLite，只读 HTTP API",
+        "Webhook 是记账提交后的尽力而为旁路（HMAC 签名、有界重试、重启丢队列），不替代账本"
+      ]
+    }
+  ]
+}

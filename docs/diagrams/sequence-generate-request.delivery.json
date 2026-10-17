@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "971a3ddf-8044-4dd0-a294-49f0c2c06b61",
+  "status": "current",
+  "command": "deliver",
+  "type": "sequence",
+  "input": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\sequence-generate-20261011\\candidate.json",
+  "output": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\sequence-generate-request.html",
+  "specification": {
+    "sha256": "4df46868844c73b0e13de6aa96f259019d0846457b6fe0f7aad7782eb4781431",
+    "bytes": 7649
+  },
+  "artifact": {
+    "sha256": "60ed01c0a7e761eaaa6f9c83b661248d79b88a738ff6e71544af3157d86426be",
+    "bytes": 765878
+  }
+}

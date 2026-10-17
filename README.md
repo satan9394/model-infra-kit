@@ -46,6 +46,21 @@ Database migration is additive; preserve backups before archive maintenance.
 The dashboard remains repository-only. Push, remote CI and npm publication
 await human approval. Evidence: [v1.7.0 report](docs/releases/v1.7.0-candidate.md).
 
+## 架构可视化
+
+`docs/diagrams/` 有五张带源码出处的分层图（整体架构、一次生成请求的主流程、降级裁决、
+成本数据管线、熔断状态机），每张都是自包含 HTML，可离线打开并导出 PNG / SVG；
+入口是画廊页 **[docs/diagrams/index.html](docs/diagrams/index.html)**，位图版在
+`docs/diagrams/png/`（索引与重生成方式见 [docs/diagrams/README.md](docs/diagrams/README.md)；
+基于架构图与代码分析形成的系统性整改方案见 [docs/plans/architecture-improvement-plan.md](docs/plans/architecture-improvement-plan.md)）。
+
+## 看板界面
+
+`apps/dashboard` 的界面截图在 **[docs/screenshots/](docs/screenshots/)**：完整 console 十个页面
+（概览、趋势、供应商、模型目录、价格表、请求日志、任务链路、配额、Webhook、快速接入），
+以及四个**可嵌入宿主网页的可视化路由**（`/embed/overview|trends|logs|pricing`）；含浅色与移动端各一张
+（基于截图与走查形成的产品体验升级方案见 [docs/plans/ui-ux-improvement-plan.md](docs/plans/ui-ux-improvement-plan.md)）。
+
 ## 环境要求
 
 - **Node ≥ 22.13**（`node:sqlite` 自 22.13.0 起不再需要 `--experimental-sqlite`，仍会打一行实验特性告警；本机 24.14）

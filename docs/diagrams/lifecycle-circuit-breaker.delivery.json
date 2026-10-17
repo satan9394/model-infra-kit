@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "75408731-88f2-40cf-9f09-b93a41660316",
+  "status": "current",
+  "command": "deliver",
+  "type": "lifecycle",
+  "input": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\lifecycle-breaker-20261011\\candidate.json",
+  "output": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\lifecycle-circuit-breaker.html",
+  "specification": {
+    "sha256": "0f7f7760320f854f8d1fffe69a026e4ade16b58339877a27b3234673064c38df",
+    "bytes": 5409
+  },
+  "artifact": {
+    "sha256": "436ba3cb9682caa11a32b91629aa315005e80abb763c18c336826705ffafcdad",
+    "bytes": 768577
+  }
+}

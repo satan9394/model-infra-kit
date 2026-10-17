@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "b729573b-1cb3-4b00-8d52-c7c300f2883f",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\.archify\\architecture-overview-20261011\\candidate.json",
+  "output": "E:\\DeepSeek_Harness\\workspace\\2026_09_08\\model-infra-kit\\docs\\diagrams\\architecture-overview.html",
+  "specification": {
+    "sha256": "e335f98d1fa02089504adcfdc20694b1d29e51aa460f4f7f4b516f1293df29f8",
+    "bytes": 13911
+  },
+  "artifact": {
+    "sha256": "1981649feaa4cd0c72cefc04da20719250acfddc295924500787cabd048d7b00",
+    "bytes": 796158
+  }
+}
