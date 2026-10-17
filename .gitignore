@@ -13,6 +13,7 @@ coverage/
 *.db-shm
 *.db-wal
 
+# Legacy PDW 1.0.0 state controller (superseded by .pdw/ on 2026-10-16; kept as local history)
 .agent-state/
 RUN_STATE.md
 
@@ -22,3 +23,6 @@ RUN_STATE.md
 # Design direction prototypes and improve-ui audit plans (local artifacts, not versioned)
 design-prototypes/
 design-plans/
+
+# PDW 1.3.1 runtime (task state, evidence, locks; local only)
+.pdw/
