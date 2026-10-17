@@ -248,3 +248,40 @@
 | D11.5 | **按「是否服务网页 UI」收敛到 43 个**：130 个候选中移出 87 个（三维/CAD 15、内容创作 12、视觉资产生成 11、平台专属 10、落地页与品牌 10、演示文稿 7、非 Web 平台 UI 5、图表白板 4、视频与特定库动效 4、其它 9） | D11.2 的「全拉」经复核后判定过宽：约 40 条与本产品的看板 UI 无关，且会随会话注入 `name`+`description`。判据与最终清单见 `.agents/skills/README.md`；移出全部走回收站，非彻底删除 |
 
 **收敛后的技能库**：44 个（`design/` 43 + `personal-dev-workflow`），分 9 类——`style` 5、`system` 10、`review` 7、`motion` 10、`a11y` 2、`impl` 4、`dashboard` 3、`diagram` 1、`slides` 1。判据为「面向 Web/HTML 界面 + 适用于数据密集型看板 + 不与其它项重复」。
+
+---
+
+## D12 — 项目工作流迁移到 PDW 1.3.1-local（2026-10-16）
+
+**状态**：已生效
+
+| 编号 | 取舍与决策 | 理由与落地 |
+|---|---|---|
+| D12.1 | **用 1.3.1-local 替换 1.0.0**，走新版自带 `install`（拒绝覆盖同名 Skill），先备份后安装 | 1.3.1 用完整 Skill 目录 + Node 运行器（`scripts/pdw.mjs`）+ 项目级 `.pdw/config.json` 替代 1.0.0 的 Markdown 模式与 `.agent-state` 控制器；安装包 SHA-256 与包内 7 个文件哈希逐一对上 `人机协作开发工作流研究/docs/evidence/pdw-package-1.3.1.json` |
+| D12.2 | **Skill 位置沿用 `.agents/skills/personal-dev-workflow/` 不移动**（承 D11.4），新增项目根 `pdw.ps1` 壳 | 维持仓库既有引用；`.agents/`、`AGENTS.md` 走 `.git/info/exclude`，迁移不触碰已跟踪文件 |
+| D12.3 | **保留本项目技术栈与安全门禁**：不改 pnpm / vitest / tsdown，不新增依赖，不切换全局工具或登录 | 新版仅需 Node ≥18、用标准库；`.pdw/config.json` 只填本机实测可用的 CLI 路径与模型 |
+| D12.4 | **旧状态不转换、不冒充**：`.agent-state/run-state.json` 与 `RUN_STATE.md` 冻结为历史记录 | 无自动转换工具；迁移不改写旧计数、不重置或抬高预算，新任务各用其契约限额 |
+| D12.5 | **自动执行后端只认 OC / Codex / AGY**：本项目 implement 用本机 Codex CLI，DSH、CC 不启用 | 新版 `drivers.mjs` 仅实现三种 backend；「Skill 可读」不等于适配器兼容，不擅自开发新适配器 |
+
+**影响与边界**：`.pdw/` 为本机运行记录，已加入 `.gitignore`，不入版本库、不做永久清理。旧 1.0.0 技能与状态整体备份在 `.tmp/pdw-migration-1.3.1/backup/`（`.tmp/` 已忽略）。迁移交接与回滚步骤见 `.tmp/pdw-migration-1.3.1/HANDOVER.md`。真实跨 CLI 接力（OC / Codex / AGY 实际调用）本次未执行，仅 doctor 与夹具验证，不宣称已通过。
+
+| D12.6 | **implement 走全局安装的官方 Codex CLI**：`npm i -g @openai/codex@0.163.0`，`.pdw/config.json` 指向包内原生 `…\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe`（`codex-cli 0.163.0`），不再指向 Codex Desktop 自带的版本哈希路径 | 稳定路径，不再随应用升级失效；官方包自带 `codex-windows-sandbox-setup.exe` / `codex-command-runner.exe` / `codex-code-mode-host.exe` 等配套二进制，已实测 `--sandbox read-only` + `--output-schema` 正常。**两条硬约束**：① Windows 上 PDW 拒绝 `.cmd/.bat/.ps1`，npm 的 `codex.cmd` 壳不可用，必须指原生 exe；② 应用自带的那份 Codex 运行时不删（属 Codex Desktop），只把 PDW 的指向切走 |
+| D12.7 | **implement 默认取最低档：`gpt-6-luna` + `reasoning_effort: none`**（按需求可随时改，见 `.pdw/config.json`） | 依 OpenAI 官方文档：Luna 是最省的模型（$0.1 / $0.5 每 MTok，对比 6.1 Sol $2 / $10、Astra $10 / $50），其支持档位为 `none / low / medium / high / xhigh / max`（不支持 ultra），取其中最低的 `none`。程序只负责传参并在 attempt 里记录请求值，不证明提供方采用；来源 `developers.openai.com/api/docs/models/gpt-6-luna` 与 `/codex/models`，2026-10-16 核对 |
+
+**影响与边界（D12.6 补充）**：`findExecutable('codex')` 在本机仍返回 `null`（npm 只装 `codex`/`codex.cmd`/`codex.ps1` 壳，没有 `.exe`），所以新项目 `init` 仍不会自动发现 Codex，需要手填原生 exe 路径。全局包版本（0.163.0）与 Codex Desktop 自带版本（0.163.0-alpha.10.2）可能不同步，升级时各自更新，`doctor` 会报出版本。
+
+---
+
+## D13 — 看板连接探测器的度量口径与所有权（2026-10-16）
+
+**状态**：已生效（P6–P8 已落地并提交 `6d8ee45` / `231d5e5` / `8bf492b`）
+
+| 编号 | 取舍与决策 | 理由与落地 |
+|---|---|---|
+| D13.1 | **一个页面只允许一个探测器**：新增 `components/connection-probe-provider.tsx`，由布局挂载并持有唯一实例与 15s 节奏（`document.hidden` 时跳过）；`(main)` 与 `embed` 两套布局各挂一个，顶栏与页面控件都读它 | 原先 `topbar.tsx` 与 `live-refresh.tsx` 各自建探测器，同一节奏发两个 `/api/mik/connections`，同屏两个读数可能不一致（实测 1301 vs 1290、186 vs 187）。合并后 34s 内**恰好 3 次**、最小间隔 **15.6s**，17 次采样两处**完全一致**。`createConnectionProbe` 收敛到一个模块，由测试守卫 |
+| D13.2 | **计时起点放在 `publish({ status: "pending" })` 之后**（`6d8ee45`） | 原先起点在其之前，把自己的状态更新（及其重渲染）算进了往返时延。实测该部分仅约 3ms、落在噪声内，但顺序缺陷可证，故仍修正并加回归测试（旧顺序下该测试为红） |
+| D13.3 | **读数以浏览器自测的 `PerformanceResourceTiming` 为准，wall-clock 只作兜底**（`8bf492b`） | wall-clock 会把主线程阻塞计入。配对实测：首读显示 109ms 而浏览器自测 54ms（**差 +55ms**，水合期），稳定期只差 +1ms；改后首读 45 对 45（**差 0**）。新增 `pickResourceDuration` / `readResourceDuration`，按「不早于派发标记」选最新条目，避免误取上一次探测的记录；无条目（跨域无 TAO、旧环境）时回落 wall-clock |
+| D13.4 | **不合并嵌入页之间的探测**：`/embed/*` 仍各自跑一个探测器（由嵌入布局提供 provider） | 6 个视图都在 `PageHeader actions` 里**无条件**渲染 `LiveRefresh`，嵌入页改动前**各自**就在跑一个；本卡只消除**同页重复**，不改变嵌入页行为。漏挂 provider 会让嵌入页 500，由路由级视口门禁（14 路由）拦下 |
+| D13.5 | **加载后首读仍可能高于稳定期，视为真实差异** | 显示值现在就是该请求的浏览器实测时长；首次请求确实与水合期流量争抢资源（实测 45ms vs 稳定 20ms），虚假部分已消除。不得据此重新引入平滑、取中位数或钳位 |
+
+**影响与边界**：改动限于 `apps/dashboard/lib/connection-probe.ts`、`components/connection-probe-provider.tsx`、两套布局与两个消费者组件。`packages/mik` 未改，公共接口不变（仍是 `rttMs: number | null`），按发布闸门**不发版**。**未做入口文档更新**：实测 `docs/`、根 README、包内 README 均未描述该指标，也无对外文案变化，故无使用说明/接口/配置文档需要同步。门禁：看板单测 194/194、双侧 typecheck 0、build 成功、e2e 全通过、视口 56/56。完整交付记录见 [`../tasks/EVO-G147-dashboard-visual-migration.md`](../tasks/EVO-G147-dashboard-visual-migration.md) 的 P6–P8 小节。

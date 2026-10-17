@@ -1,5 +1,13 @@
 # CHANGELOG — model-infra-kit
 
+## Local candidate — EVO-G147 (2026-10-16)
+
+- Move the console onto the approved visual language: a left sidebar with full text labels that collapses to a 64px icon rail, a flat minimal skin, and a three-way theme control (follow system / light / dark) that follows the system theme by default.
+- Route surfaces, borders and semantic colours through tokens — 22 hardcoded Tailwind utilities and one inline hex removed — unify card and table radii, and resolve "reasoning" having three definitions in two colours.
+- Let wide tables scroll horizontally inside their card below 768px instead of collapsing to one character per line, and extend the viewport gate to all 14 routes including the four `/embed/*` widgets.
+- Give each page a single connection probe instead of one per readout: a 15s cadence now costs one request rather than two, and the header and the page control cannot disagree.
+- Report the gateway round trip from the browser's own Resource Timing rather than a wall clock, which billed main-thread stalls and read several times the real latency on first load (109ms shown for a 54ms request).
+
 ## Local candidate — EVO-G143 (2026-10-14)
 
 - State the provider rack's real configuration source (startup config with `isolatedProviders` by default) and spell out that active probes and the instance-local passive breaker are independent dimensions.
