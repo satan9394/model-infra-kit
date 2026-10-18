@@ -33,18 +33,18 @@
 
 ---
 
-## v1.7.0 local candidate
+## v1.8.0 local candidate
 
-The local main candidate adds adaptive QoS weighted routing, deterministic
-normalized response caching with integer micro-dollar savings, and streaming
-gzip archives with offline verification and atomic safe pruning. Schema v7
-retains authoritative integer cost columns and adds cache_savings_micros.
-Cache replay 0ms is a metadata marker, not a wall-clock guarantee. Runtime
-exports remain exactly root 42 / auto 2 / cli 29 / server 11, verified from a
-separately installed tarball against [docs/interfaces.md](docs/interfaces.md).
+The local main candidate introduces hierarchical multi-tenant quota isolation
+with rolling-window rate limits (RPM/TPM) and positive 429 backpressure,
+asynchronous signed webhook delivery bus with retry and dead-letter queue, and
+heuristic MinHash fingerprinting for approximate semantic caching (<100µs)
+with authoritative micro-dollar savings accounting. Runtime exports remain
+exactly root 42 / auto 2 / cli 29 / server 11, verified from a separately
+installed candidate tarball against [docs/interfaces.md](docs/interfaces.md).
 Database migration is additive; preserve backups before archive maintenance.
 The dashboard remains repository-only. Push, remote CI and npm publication
-await human approval. Evidence: [v1.7.0 report](docs/releases/v1.7.0-candidate.md).
+await human approval. Evidence: [v1.8.0 report](docs/releases/v1.8.0-candidate.md).
 
 ## 架构可视化
 

@@ -1106,7 +1106,7 @@ no third-party application data discovery, and no background service.
 
 <!-- release-battery-runtime-exports:v1 -->
 
-v1.7.0 candidate runtime contract: root **42**, auto **2**, CLI **29**, server
+v1.8.0 candidate runtime contract: root **42**, auto **2**, CLI **29**, server
 **11**. The release battery compares exact sorted names from a separately
 installed candidate tgz, checks all nine export targets and the package file
 whitelist, then exercises G125–G127 pricing/cascading/trees and G129–G131

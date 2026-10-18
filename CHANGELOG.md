@@ -1,5 +1,12 @@
 # CHANGELOG — model-infra-kit
 
+## 1.8.0 — 本地发版候选 / Local release candidate (2026-10-18)
+
+- EVO-G133: 多租户组织级层级配额隔离与滑动窗口硬限流（Hierarchical Tenant Quotas & Token Bucket Rate Limiting）。支持 Organization -> Application 配额继承、RPM/TPM 精确滑动窗口与微美元硬预算熔断；超限统一拦截并输出标准 HTTP 429 反压头部（`Retry-After`、`X-Mik-RateLimit-Reset`），记录零微美元 `RATE_LIMITED` 审计账本。
+- EVO-G134: 异步用量事件 Webhook 分发与企业审计告警通知总线（Usage Webhooks Notification Bus）。可靠 HMAC-SHA256 签名投递、重试与死信保护，管理接口与看板监控。
+- EVO-G135: 启发式分词指纹与局部相似度模糊语义缓存（Approximate Semantic Caching & Heuristic Shingling Fingerprint）。纯内存 64 维 MinHash + Jaccard 相似度匹配（<100µs），仅在 `temperature === 0` 且 `cache.approximate === true` 下安全生效；支持 `X-Mik-Approx-Threshold` 自定义置信度控制；精确计算微美元节省额并输出 `[Approx Hit: xx%]` 看板徽标。
+- EVO-G136: v1.8.0 发版全量电池回归、产物验证与发布闸门（Release Gate & Packaging Battery v1.8.0）。在独立干净环境中打包并安装 `model-infra-kit-1.8.0.tgz`，真实验证运行时导出契约（root 42 / auto 2 / cli 29 / server 11）、多租户 429 拦截、异步 Webhook 签名投递与模糊语义缓存微美元核算。全套机械门禁全绿，本地 main 停靠待命。
+
 ## Local candidate — EVO-G147 (2026-10-16)
 
 - Move the console onto the approved visual language: a left sidebar with full text labels that collapses to a 64px icon rail, a flat minimal skin, and a three-way theme control (follow system / light / dark) that follows the system theme by default.

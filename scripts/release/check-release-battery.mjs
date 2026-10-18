@@ -130,7 +130,7 @@ function contractFromDocs() {
     assert.ok(Array.isArray(symbols), `${entrypoint} runtime export contract must be an array`)
     assert.deepEqual(symbols, [...new Set(symbols)].sort(), `${entrypoint} runtime export contract must be sorted and unique`)
     assert.ok(symbols.every((symbol) => typeof symbol === "string" && symbol.length > 0), `${entrypoint} runtime export contract contains an invalid symbol`)
-    assert.equal(symbols.length, EXPECTED_RUNTIME_COUNTS[entrypoint], `${entrypoint} v1.7.0 runtime export count mismatch`)
+    assert.equal(symbols.length, EXPECTED_RUNTIME_COUNTS[entrypoint], `${entrypoint} v1.8.0 runtime export count mismatch`)
   }
   return contract.entrypoints
 }
@@ -666,7 +666,7 @@ try {
   await hub.generate({ model: "p:discount", messages: message, traceId: "tree", spanId: "reason", spanType: "reasoning", stepIndex: 0 })
   await hub.generate({ model: "p:discount", messages: message, batch: true, traceId: "tree", spanId: "output", parentSpanId: "reason", stepIndex: 1 })
   store = await Store.open({ path: db })
-  assert.equal(store.driver.prepare("SELECT MAX(version) AS version FROM schema_migrations").get().version, 7)
+  assert.equal(store.driver.prepare("SELECT MAX(version) AS version FROM schema_migrations").get().version, 8)
   const ledger = () => store.driver.prepare("SELECT cost_micros, cost_low_micros, cost_high_micros, typeof(cost_micros) AS storage FROM usage_events ORDER BY rowid").all()
   assert.deepEqual(ledger().map(row => row.cost_micros), [1000, 500])
   assert.ok(ledger().every(row => row.storage === "integer" && row.cost_low_micros === row.cost_micros && row.cost_high_micros === row.cost_micros))
@@ -808,7 +808,7 @@ try {
   for (let i = 0; i < 29; i++) assert.equal((await hub.generate(request("hello world"))).cacheHit, true)
   assert.equal(calls.length, 2)
   store = await Store.open({ path: db })
-  assert.equal(store.driver.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v, 7)
+  assert.equal(store.driver.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v, 8)
   const ledger = store.driver.prepare("SELECT cost_micros, cache_savings_micros, typeof(cost_micros) AS c, typeof(cache_savings_micros) AS s FROM usage_events ORDER BY rowid").all()
   assert.equal(ledger.length, 33)
   assert.ok(ledger.every(row => row.c === "integer" && row.s === "integer"))
@@ -1028,6 +1028,141 @@ try {
 `
 }
 
+function v180SmokeSource() {
+  return String.raw`
+import assert from "node:assert/strict"
+import { createServer } from "node:http"
+import { join } from "node:path"
+import { ModelInfra, Store, redact } from "model-infra-kit"
+import { createServer as createGateway } from "model-infra-kit/server"
+
+let calls = 0
+const upstream = createServer(async (req, res) => {
+  for await (const chunk of req) {}
+  calls++
+  res.writeHead(200, { "content-type": "application/json" })
+  res.end(JSON.stringify({
+    id: "v180", object: "chat.completion", created: 1, model: "model",
+    choices: [{ index: 0, message: { role: "assistant", content: "battery-180-answer" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+  }))
+})
+await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve))
+const origin = "http://127.0.0.1:" + upstream.address().port
+const db = join(process.cwd(), "v180.db")
+const cacheDir = join(process.cwd(), "v180-cache")
+const secret = process.env.MIK_RELEASE_BATTERY_KEY
+let hub, gateway, store
+try {
+  hub = await ModelInfra.init({
+    appId: "v180",
+    db,
+    cache: { approximate: true },
+    cacheDir,
+    syncCatalog: false,
+    pricingAutoSync: false,
+    pricingFetch: async () => { throw new Error("offline") },
+    maxRetries: 0,
+    onWarn: () => {},
+    env: { BATTERY_UPSTREAM_KEY: secret },
+    providers: [{ id: "p", protocol: "openai-compatible", baseUrl: origin, apiKeyRef: "env:BATTERY_UPSTREAM_KEY" }],
+    defaultModel: "p:model",
+  })
+  hub.pricing.setOverride({ modelId: "model", inputPerM: 2, outputPerM: 3 })
+
+  // 1. Quota flow control test (EVO-G133)
+  gateway = await createGateway({
+    hub,
+    port: 0,
+    quotas: { applications: [{ appId: "v180", maxRpm: 2 }] },
+    tokens: [{ token: secret, appId: "v180", scopes: ["write:chat", "read:usage", "admin"] }]
+  })
+  const headers = { authorization: "Bearer " + secret, "content-type": "application/json" }
+  const post = () => fetch(gateway.url + "/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model: "p:model", messages: [{ role: "user", content: "quota test" }] }),
+    signal: AbortSignal.timeout(5000),
+  })
+
+  // First 2 requests succeed
+  const r1 = await post()
+  assert.equal(r1.status, 200)
+  const r2 = await post()
+  assert.equal(r2.status, 200)
+
+  // 3rd request hit quota limit -> 429 RATE_LIMITED
+  const r3 = await post()
+  assert.equal(r3.status, 429)
+  assert.ok(r3.headers.get("retry-after"))
+  const body3 = await r3.json()
+  assert.equal(body3.error?.code, "RPM_EXCEEDED")
+
+  // Check SQLite ledger for 429 zero cost audit
+  store = await Store.open({ path: db })
+  const blocked = store.driver.prepare("SELECT * FROM usage_events WHERE status = 'RATE_LIMITED'").all()
+  assert.equal(blocked.length, 1)
+  assert.equal(blocked[0].cost_micros, 0)
+  store.close(); store = undefined
+  await gateway.close(); gateway = undefined
+
+  // 2. Approximate semantic caching test (EVO-G135)
+  // Base prompt with 100 shingles (Jaccard against 7-extra is exactly 63/64 = 0.984375)
+  const basePrompt = Array.from({ length: 100 }, (_, i) => "word" + i).join(" ")
+  const p1 = await hub.generate({ model: "p:model", temperature: 0, messages: [{ role: "user", content: basePrompt }] })
+  assert.ok(!p1.cacheHit)
+
+  // Slight lexical variation: hits approximate cache with default threshold (0.95)
+  const changed = basePrompt + " " + Array.from({ length: 7 }, (_, i) => "extra" + i).join(" ")
+  const p2 = await hub.generate({ model: "p:model", temperature: 0, messages: [{ role: "user", content: changed }] })
+  assert.equal(p2.cacheHit, true)
+  assert.equal(p2.cost.usd, 0)
+  const approxEventInMemory = hub.usage.query().events.find(event => event.cacheHit)
+  assert.ok(approxEventInMemory)
+  assert.equal(approxEventInMemory.tags._mik_approx_cache_hit, "true")
+  assert.equal(approxEventInMemory.tags._mik_approx_similarity, "0.984375")
+
+  // Another distinct variant with threshold 0.99 > 0.984375 -> bypasses approximate cache
+  const changed2 = basePrompt + " " + Array.from({ length: 7 }, (_, i) => "other" + i).join(" ")
+  const p3 = await hub.generate({
+    model: "p:model",
+    temperature: 0,
+    messages: [{ role: "user", content: changed2 }],
+    headers: { "x-mik-approx-threshold": "0.99" }
+  })
+  assert.ok(!p3.cacheHit)
+
+  // 3. Ledger verification
+  store = await Store.open({ path: db })
+  const ledger = store.driver.prepare("SELECT cost_micros, cache_savings_micros, typeof(cost_micros) AS c, typeof(cache_savings_micros) AS s FROM usage_events ORDER BY rowid").all()
+  assert.ok(ledger.every(row => row.c === "integer" && row.s === "integer"))
+  const approxEvent = store.driver.prepare("SELECT * FROM usage_events WHERE tags_json LIKE '%_mik_approx_cache_hit%'").get()
+  assert.ok(approxEvent)
+  assert.equal(approxEvent.cost_micros, 0)
+  assert.ok(approxEvent.cache_savings_micros > 0)
+
+  // 4. Secret isolation
+  const allRows = JSON.stringify(store.driver.prepare("SELECT * FROM usage_events").all()) + JSON.stringify(store.driver.prepare("SELECT * FROM providers").all())
+  assert.ok(!allRows.includes(secret))
+
+  console.log(redact(JSON.stringify({
+    tenantQuota429: true,
+    rateLimitedZeroCost: true,
+    approxCacheHit: true,
+    approxSimilarity: approxEventInMemory.tags._mik_approx_similarity,
+    approxThresholdFilter: true,
+    integerMicrosConservation: true,
+    credentialIsolation: true
+  })))
+} finally {
+  if (gateway) await gateway.close()
+  if (hub) await hub.close()
+  if (store) store.close()
+  await new Promise(resolve => { upstream.close(resolve); upstream.closeAllConnections() })
+}
+`
+}
+
 async function main() {
   if (process.argv.includes("--self-test-auto")) {
     autoArtifactFailureSelfCheck()
@@ -1042,8 +1177,8 @@ async function main() {
   const expected = contractFromDocs()
   const sourcePackageJson = readJson(PACKAGE_JSON_PATH)
   assert.equal(sourcePackageJson.name, "model-infra-kit")
-  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.7.0", "root release version mismatch")
-  assert.equal(sourcePackageJson.version, "1.7.0", "package release version mismatch")
+  assert.equal(readJson(join(REPO_ROOT, "package.json")).version, "1.8.0", "root release version mismatch")
+  assert.equal(sourcePackageJson.version, "1.8.0", "package release version mismatch")
   assert.match(readFileSync(join(PACKAGE_ROOT, "tsdown.config.ts"), "utf8"), /clean:\s*false/, "build must retain generated files")
   assertAbsoluteCwd(REPO_ROOT, "repository")
   assertAbsoluteCwd(PACKAGE_ROOT, "package")
@@ -1125,6 +1260,9 @@ async function main() {
   const webhookPath = join(consumerDir, "webhooks-smoke.mjs")
   writeAbsolute(webhookPath, webhookSmokeSource())
   await run("node", [webhookPath], { cwd: consumerDir, label: "installed G134 signed webhook and admin management", env: smokeEnv, redactSecrets: [batteryKey] })
+  const v180Path = join(consumerDir, "v180-smoke.mjs")
+  writeAbsolute(v180Path, v180SmokeSource())
+  await run("node", [v180Path], { cwd: consumerDir, label: "installed v1.8.0 tenant quotas, 429 rate limit and approx cache", env: smokeEnv, redactSecrets: [batteryKey] })
   process.stdout.write(`[result] release battery passed; retained clean room=${cleanRoom}\n`)
 }
 
