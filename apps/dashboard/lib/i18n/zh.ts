@@ -529,6 +529,8 @@ export const zh = {
   "cache.savingsMicros": "缓存节省（微美元）",
   "cache.localHitRate": "本地缓存请求命中率",
   "cache.localHitDetail": "本地缓存请求命中 {0} / {1} 次",
+  "cache.approxHit": "近似缓存命中",
+  "cache.approxHitBadge": "[近似命中：{0}]",
   "cache.hitBadge": "缓存命中：0ms",
   "budget.hardReady": "硬熔断已就绪",
   "budget.hardBlocked": "预算超额，已熔断",

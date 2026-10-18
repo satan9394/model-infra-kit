@@ -8,7 +8,7 @@ import { useI18n } from "@/lib/i18n/provider"
 
 import { useModalDialog } from "@/lib/use-modal-dialog"
 import { useFocusTrap } from "@/components/focus-trap"
-import { CacheHitBadge } from "@/components/cache-metrics"
+import { ApproxCacheHitBadge, CacheHitBadge } from "@/components/cache-metrics"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { apiCall } from "@/lib/client-api"
@@ -103,7 +103,7 @@ function DetailDrawer({ requestId, onClose }: { requestId: string; onClose: () =
               <KeyValue label={t("s83")}>
                 <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
                 <ErrorClassBadge event={event} />
-                {event.cacheHit ? <span className="ml-2"><CacheHitBadge label={t("cache.hitBadge")} /></span> : null}
+                {event.cacheHit ? <span className="ml-2"><CacheHitBadge label={t("cache.hitBadge")} /></span> : null}{event.tags?._mik_approx_cache_hit === "true" ? <span className="ml-2"><ApproxCacheHitBadge similarity={event.tags._mik_approx_similarity} label={t("cache.approxHitBadge", "{0}")} /></span> : null}
               </KeyValue>
               <KeyValue label={t("s84")}>{event.isStreaming ? t("s85") : t("s86")}</KeyValue>
               <KeyValue label={t("s87")}>{event.providerId}</KeyValue>
@@ -257,7 +257,7 @@ export function LogsClient({
                   <Badge tone={event.status === "ok" ? "ok" : "bad"}>{t(event.status === "ok" ? "s68" : "s69")}</Badge>
                   <div className="mt-1"><ErrorClassBadge event={event} /></div>
                   {logicalId(event) && <div className="mt-1 text-[11px] text-subtle">{t("diagnostics.pageAttempts", group.length)}</div>}
-                  {event.cacheHit ? <div className="mt-1"><CacheHitBadge label={t("cache.hitBadge")} /></div> : null}
+                  {event.cacheHit ? <div className="mt-1"><CacheHitBadge label={t("cache.hitBadge")} /></div> : null}{event.tags?._mik_approx_cache_hit === "true" ? <span className="ml-2"><ApproxCacheHitBadge similarity={event.tags._mik_approx_similarity} label={t("cache.approxHitBadge", "{0}")} /></span> : null}
                 </Td>
                 <Td className="max-w-[160px] truncate font-mono text-[11px] text-subtle"><button type="button" aria-label={`${t("s78")}: ${event.requestId}`} aria-haspopup="dialog" aria-expanded={openId === event.requestId} onClick={() => setOpenId(event.requestId)} className="underline">{event.requestId}</button></Td>
               </tr>

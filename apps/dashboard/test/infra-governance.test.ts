@@ -204,8 +204,8 @@ test("EVO-G143 dictionary additions keep zh/en parity and identical placeholders
   // Pre-change baseline was 679 keys; additions may only grow the surface.
   assert.ok(enKeys.length >= 679, `expected >= 679 keys, saw ${enKeys.length}`)
   // G144 appended its own documented keys on top of the G143 set, and G145 added
-  // the embed bridge + a11y announcements.
-  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length)
+  // the embed bridge + a11y announcements. G135 adds the approximate-hit labels.
+  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length + 2)
   for (const key of [...ADDED_KEYS, ...G145_KEYS]) {
     assert.ok(enKeys.includes(key), `missing dictionary key: ${key}`)
     assert.ok(en_(key).trim() && zh_(key).trim(), key)

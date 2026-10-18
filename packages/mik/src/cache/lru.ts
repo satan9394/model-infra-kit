@@ -1,14 +1,15 @@
 import type { StorageAdapter } from "../store/adapter.js"
 
-export interface CacheOptions { ttlMs?: number; maxEntries?: number }
+export interface CacheOptions { ttlMs?: number; maxEntries?: number; approximate?: boolean }
 export function readCacheOptions(value: unknown): false | CacheOptions | undefined {
   if (value === undefined || value === false) return value
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new RangeError("cache must be false or an object")
   const record = value as Record<string, unknown>
   for (const [key, limit] of Object.entries(record)) {
+    if (key === "approximate" && typeof limit === "boolean") continue
     if (!["ttlMs", "maxEntries"].includes(key) || typeof limit !== "number" || !Number.isSafeInteger(limit) || limit <= 0) throw new RangeError("Invalid cache limit")
   }
-  return { ...(record.ttlMs === undefined ? {} : { ttlMs: record.ttlMs as number }), ...(record.maxEntries === undefined ? {} : { maxEntries: record.maxEntries as number }) }
+  return { ...(record.ttlMs === undefined ? {} : { ttlMs: record.ttlMs as number }), ...(record.maxEntries === undefined ? {} : { maxEntries: record.maxEntries as number }), approximate: record.approximate === true }
 }
 interface Entry<T> { value: T; expiresAt: number }
 

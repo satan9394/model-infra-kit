@@ -170,7 +170,7 @@ export default async function TracesView({ params }: { params: SearchParams }) {
                   </section>}
               <TraceWaterfall events={events} query={`${query}&${groupBy === "trace" ? "traceId" : "sessionId"}=${encodeURIComponent(selectedId ?? "")}`} />
               <ul aria-label={t("cache.status")} className="my-3 space-y-1">
-                {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} localHit={event.cacheHit} localHitLabel={t("cache.hitBadge")} />)}
+                {events.map(event => <CacheStatus key={event.requestId} requestId={event.requestId} tokens={event.usage.cacheRead} hit={t("cache.hit")} miss={t("cache.miss")} localHit={event.cacheHit} localHitLabel={t("cache.hitBadge")} approxHit={event.tags?._mik_approx_cache_hit === "true"} similarity={event.tags?._mik_approx_similarity} approxHitLabel={t("cache.approxHitBadge", "{0}")} />)}
               </ul>
               <p className="text-xs text-subtle">Reasoning {formatInt(events.reduce((sum, event) => sum + event.usage.reasoning, 0))}</p>
             </div>

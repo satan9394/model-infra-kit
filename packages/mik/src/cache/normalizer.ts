@@ -79,7 +79,7 @@ export function normalizePromptForCache(messages: unknown, options: CacheKeyOpti
     if (options.cache === false || (options.temperature !== 0 && options.cache !== true)) return null
     for (const [key, value] of Object.entries(options.headers ?? {})) {
       if (key.toLowerCase() === "x-mik-no-cache" && value.trim().toLowerCase() === "true") return null
-      if (!["x-mik-no-cache", "x-mik-model-tier"].includes(key.toLowerCase())) return null
+      if (!["x-mik-no-cache", "x-mik-model-tier", "x-mik-approx-threshold"].includes(key.toLowerCase())) return null
     }
     const tools = options.tools
     if (tools && typeof tools === "object" && Object.values(tools).some(tool => tool && typeof tool === "object" && typeof (tool as Record<string, unknown>).execute === "function")) return null

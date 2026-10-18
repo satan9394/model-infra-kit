@@ -529,6 +529,8 @@ export const en = {
   "cache.savingsMicros": "Cache savings (µUSD)",
   "cache.localHitRate": "Local cache request hit rate",
   "cache.localHitDetail": "{0} / {1} local cache requests hit",
+  "cache.approxHit": "Approximate cache hit",
+  "cache.approxHitBadge": "[Approx Hit: {0}]",
   "cache.hitBadge": "Cache Hit: 0ms",
   "budget.hardReady": "Hard cap ready",
   "budget.hardBlocked": "Budget exceeded: generation blocked",

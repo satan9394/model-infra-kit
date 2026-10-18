@@ -2,6 +2,7 @@ import { compatibleProtocols, isRetryableRouteFailure, ProviderCircuitBreaker, t
 import type { StorageAdapterFactory } from "./store/adapter.js"
 import { LruCache, readCacheOptions, type CacheOptions } from "./cache/lru.js"
 import { normalizePromptForCache, safeCacheValue } from "./cache/normalizer.js"
+import { createMinHashSignature, estimateJaccard, extractShingles, type MinHashSignature } from "./cache/approximate.js"
 import { randomUUID } from "node:crypto"
 import { defaultCacheDir, defaultDbPath, expandPath } from "./util/paths.js"
 import { NotificationBus } from "./events/bus.js"
@@ -392,6 +393,8 @@ export class ModelInfra {
   private readonly reasoningTimeoutMs: number | undefined
   private readonly keyCooldownMs: number
   private readonly responseCache: LruCache<ModelResponse> | undefined
+  private readonly approximateOptions: CacheOptions | undefined
+  private readonly approximateEntries = new Map<string, { scope: string; signature: MinHashSignature; expiresAt: number }>()
   private readonly budgetConfig: BudgetConfig | undefined
   private closePromise: Promise<void> | undefined
   private baseUrlValue: string
@@ -474,6 +477,7 @@ export class ModelInfra {
       else this.notificationBus.defer(publish)
     })
     this.responseCache = deps.cache === false ? undefined : new LruCache(deps.cache, deps.store.driver, deps.appId)
+    this.approximateOptions = deps.cache && deps.cache.approximate ? deps.cache : undefined
 
     const forward = createMikFetch({
       // Checked here as well as in `resolveModel`: the adapter resolves the
@@ -909,7 +913,7 @@ export class ModelInfra {
               tools: request.tools,
               temperature: request.temperature,
               maxOutputTokens: request.maxTokens,
-              headers: request.headers && Object.fromEntries(Object.entries(request.headers).filter(([key]) => key.toLowerCase() !== "x-mik-model-tier")),
+              headers: request.headers && Object.fromEntries(Object.entries(request.headers).filter(([key]) => !["x-mik-model-tier", "x-mik-approx-threshold"].includes(key.toLowerCase()))),
               abortSignal,
               maxRetries: this.maxRetries,
               stopWhen: stepCountIs(this.maxSteps),
@@ -968,7 +972,7 @@ export class ModelInfra {
             this.providerHealth.success(healthKey)
             this.observeQoS(candidate.resolved, performance.now() - attemptStarted, true, firstTokenMs)
             // Executable tools have no cache key; non-executing tool calls are replayable data.
-            if (candidateIndex === 0) this.storeCache(cacheKey, response)
+            if (candidateIndex === 0) this.storeCache(cacheKey, response, request, primary)
             return response
           } catch (error) {
             if (!request.signal?.aborted) this.observeQoS(candidate.resolved, performance.now() - attemptStarted, false)
@@ -1136,7 +1140,7 @@ export class ModelInfra {
             }
             if (event.type === "finish") {
               this.providerHealth.success(healthKey)
-              if (candidateIndex === 0 && event.response.steps === 1) this.storeCache(cacheKey, event.response)
+              if (candidateIndex === 0 && event.response.steps === 1) this.storeCache(cacheKey, event.response, request, primary)
             }
             if (committed || event.type === "finish" || event.type === "usage") yield event
             else buffered.push(event)
@@ -1275,7 +1279,7 @@ export class ModelInfra {
         tools: request.tools,
         temperature: request.temperature,
         maxOutputTokens: request.maxTokens,
-        headers: request.headers && Object.fromEntries(Object.entries(request.headers).filter(([key]) => key.toLowerCase() !== "x-mik-model-tier")),
+        headers: request.headers && Object.fromEntries(Object.entries(request.headers).filter(([key]) => !["x-mik-model-tier", "x-mik-approx-threshold"].includes(key.toLowerCase()))),
         abortSignal: timeoutSignal,
         maxRetries: this.maxRetries,
         stopWhen: stepCountIs(this.maxSteps),
@@ -1576,15 +1580,56 @@ export class ModelInfra {
       model: `${this.usage.currentAppId}:${resolved.providerId}:${resolved.modelId}:${provider.updatedAt}` })
   }
 
-  private storeCache(key: string | null, response: ModelResponse): void {
+  private approximateInput(request: ModelRequest, resolved: ResolvedModelRef): { scope: string; signature: MinHashSignature } | undefined {
+    // ponytail: opt-in lexical reuse is limited to a single plain user turn without tools.
+    if (!this.approximateOptions || request.temperature !== 0 || request.tools
+      || request.messages.length !== 1) return undefined
+    const message = request.messages[0]!
+    if (message.role !== "user" || typeof message.content !== "string"
+      || Object.keys(message).some(key => !["role", "content"].includes(key))
+      || !extractShingles(message.content).size) return undefined
+    const scope = this.cacheKey({ ...request, messages: [] }, resolved)
+    return scope ? { scope, signature: createMinHashSignature(message.content) } : undefined
+  }
+
+  private storeCache(key: string | null, response: ModelResponse, request: ModelRequest, resolved: ResolvedModelRef): void {
     if (!key || !safeCacheValue(response)) return
-    safely(() => this.responseCache!.set(key, response), this.warn)
+    safely(() => {
+      this.responseCache!.set(key, response)
+      const input = this.approximateInput(request, resolved)
+      if (!input || response.toolCalls.length || (response.steps !== undefined && response.steps !== 1)) return
+      this.approximateEntries.delete(key)
+      this.approximateEntries.set(key, { ...input, expiresAt: Date.now() + (this.approximateOptions!.ttlMs ?? 86_400_000) })
+      while (this.approximateEntries.size > (this.approximateOptions!.maxEntries ?? 10_000)) {
+        this.approximateEntries.delete(this.approximateEntries.keys().next().value!)
+      }
+    }, this.warn)
   }
 
   private replayCache(key: string | null, request: ModelRequest, resolved: ResolvedModelRef, streaming: boolean): ModelResponse | undefined {
     if (!key) return undefined
     let cached: ModelResponse | undefined
-    safely(() => { cached = this.responseCache!.get(key) }, this.warn)
+    let similarity: number | undefined
+    safely(() => {
+      cached = this.responseCache!.get(key)
+      if (cached) return
+      const input = this.approximateInput(request, resolved)
+      if (!input) return
+      const header = Object.entries(request.headers ?? {}).find(([name]) => name.toLowerCase() === "x-mik-approx-threshold")?.[1]
+      const parsed = header?.trim() ? Number(header) : NaN
+      const threshold = Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : 0.95
+      for (const [candidateKey, candidate] of this.approximateEntries) {
+        if (candidate.expiresAt <= Date.now()) { this.approximateEntries.delete(candidateKey); continue }
+        if (candidate.scope !== input.scope) continue
+        const score = estimateJaccard(input.signature, candidate.signature)
+        if (score < threshold || (similarity !== undefined && score <= similarity)) continue
+        const value = this.responseCache!.get(candidateKey)
+        if (!value) { this.approximateEntries.delete(candidateKey); continue }
+        if (value.toolCalls.length || (value.steps !== undefined && value.steps !== 1)) continue
+        cached = value
+        similarity = score
+      }
+    }, this.warn)
     if (!cached) return undefined
     const at = Date.now()
     const savings = this.pricingService.localCacheSavings({ model: cached.model.actual, providerId: cached.provider,
@@ -1593,7 +1638,8 @@ export class ModelInfra {
     const response = { ...cached, model: { ...cached.model, requested: resolved.requested }, cost, cacheHit: true, latencyMs: 0, firstTokenMs: 0 }
     this.record({ requestId: randomUUID(), at, source: streaming ? "stream" : "generate", resolved,
       actual: cached.model.actual, usage: cached.usage, cost, latencyMs: 0, firstTokenMs: 0, status: "ok", isStreaming: streaming,
-      request, diagnosticTags: { _mik_local_cache_hit: "true", _mik_cache_savings_micros: String(savings) } })
+      request, diagnosticTags: { _mik_local_cache_hit: "true", _mik_cache_savings_micros: String(savings),
+        ...(similarity === undefined ? {} : { _mik_approx_cache_hit: "true", _mik_approx_similarity: String(similarity) }) } })
     return response
   }
 
@@ -1630,6 +1676,7 @@ export class ModelInfra {
     const hostTags = sanitizeTags(input.request?.tags)
     if (hostTags) for (const key of Object.keys(hostTags)) if (key.startsWith("_mik_attempt_") || key === "_mik_logical_request_id" || key === "_mik_failure_class" || key === "_mik_fallback_reason" || key === "_mik_fallback_class") Reflect.deleteProperty(hostTags, key)
     if (hostTags) { Reflect.deleteProperty(hostTags, "_mik_cache_savings_micros"); Reflect.deleteProperty(hostTags, "_mik_local_cache_hit") }
+    if (hostTags) { Reflect.deleteProperty(hostTags, "_mik_approx_cache_hit"); Reflect.deleteProperty(hostTags, "_mik_approx_similarity") }
     const merged = diagnostic && Object.keys(diagnostic).length > 0 ? { ...hostTags, ...diagnostic } : hostTags
     const event: Omit<UsageEvent, "appId"> = {
       requestId: input.requestId,

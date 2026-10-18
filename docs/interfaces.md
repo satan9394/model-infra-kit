@@ -1642,7 +1642,7 @@ asserts warmed sampling+weighting average <1µs and observed individual updates
 
 ## EVO-G130 deterministic local response cache
 
-`ModelInfraConfig.cache` accepts `false` (disabled) or `{ ttlMs?, maxEntries? }`;
+`ModelInfraConfig.cache` accepts `false` (disabled) or `{ ttlMs?, maxEntries?, approximate? }`;
 positive safe integer limits default to 24h and 10,000 entries. CLI JSON and
 hot-reload use the same validation. `ModelRequest.cache: true` declares a request
 deterministic; `false` bypasses. Otherwise only `temperature === 0` is eligible.
@@ -1684,6 +1684,50 @@ boundary: archived requests are excluded from the local ratio. `cacheSavingsMicr
 discounts and full local replay savings.
 
 The normalizer and LRU are internal modules, not new package root exports.
+
+### EVO-G135 approximate local replay (Phase 2)
+
+`cache.approximate` is a validated boolean, default `false`. Embedded
+`generate()` and `stream()` try exact replay first, then MinHash lookup only
+when `cache.approximate === true` and `request.temperature === 0`. Explicit
+`request.cache: true` alone never enables approximate reuse. All exact-cache
+bypass guards still apply, including `cache: false`, `X-Mik-No-Cache`, credentials,
+custom headers, media and secret-bearing inputs.
+
+Approximate candidates are limited to one plain string user message with no
+extra message fields and no tools. Empty shingle sets, multi-turn conversations,
+tool-call responses and multi-step responses do not participate. Candidates
+must share the exact non-message fingerprint: system text, generation limits,
+batch/reasoning settings, app, physical provider/model and provider revision.
+The 64-dimensional MinHash score estimates lexical shingle overlap, in increments
+of 1/64; it is not proof of semantic equivalence. Opt-in callers accept that small
+changes in negation, numbers or word order can still score highly.
+
+Embedded callers may set `request.headers["x-mik-approx-threshold"]` (header
+name is case-insensitive). The value is parsed as a finite number in `(0, 1]`;
+blank, invalid and out-of-range values fall back to `0.95`. Only scores greater
+than or equal to the threshold qualify; the highest live candidate wins.
+The control header is excluded from cache keys and stripped from both upstream
+SDK paths. Exact hits are unaffected by this threshold. HTTP endpoints do not
+currently ingest this header; raw forwarding and `mik.fetch` do not implement
+approximate replay or consume this control header.
+
+The signature-to-key index is process-local, bounded by `maxEntries`, and expires
+at the cache write TTL. It stores only fingerprints and digests, never prompt
+text. Restart leaves the approximate index cold while persisted exact entries
+remain available. Missing/expired cache values cannot be replayed; approximate
+hits do not insert new aliases or extend TTL. Index eviction may reduce hit rate.
+
+Approximate hits share the complete exact replay response and accounting path:
+no upstream scheduling, `cacheHit: true`, zero `usd/low/high`, and a new usage
+event with integer `cost_micros = 0` and full baseline `cache_savings_micros`.
+Diagnostic string tags are `_mik_local_cache_hit: "true"`,
+`_mik_approx_cache_hit: "true"`, and `_mik_approx_similarity` (decimal score,
+e.g. `"0.984375"`). Host-supplied versions of these tags are discarded. Event
+status stays `"ok"`; the approximate tag identifies the replay. Approximate
+hits count toward `UsageEvent.cacheHit` and the existing local hit metrics and
+savings totals, under the current request's app/session/trace attribution.
+
 Cache eligibility bypasses cyclic, accessor-bearing message graphs, non-finite
 numbers, sparse/undefined array entries and oversized inputs (32 nesting levels,
 4096 visited values, 65536 aggregate string/key characters). The same bounds

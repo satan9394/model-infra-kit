@@ -502,8 +502,8 @@ export interface BudgetConfig {
 export interface ModelInfraConfig {
   /** Trusted host configuration only; secrets remain process-local. */
   webhooks?: import("./events/webhook.js").WebhookConfig[]
-  /** Deterministic response cache. False disables; defaults 24h / 10,000 entries. */
-  cache?: false | { ttlMs?: number; maxEntries?: number }
+  /** Deterministic response cache. False disables; defaults 24h / 10,000 entries. Approximate lexical reuse defaults false. */
+  cache?: false | { ttlMs?: number; maxEntries?: number; approximate?: boolean }
   /** Scheduling within a virtual model's eligible priority tier. Default weighted. */
   routing?: import("./router/load-balancer.js").RoutingMode
   /** Semantic virtual models; cheap requests use tier1 with bounded tier2 escalation. */
