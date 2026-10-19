@@ -3,7 +3,10 @@
 import { useI18n } from "@/lib/i18n/provider"
 
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { buildProviderUpdatePayload, PROVIDER_PROTOCOLS, type ProviderDraft, type ProviderUpdatePayload } from "@/lib/provider-presets"
+import { buildProviderUpdatePayload, isValidApiKeyRef, PROVIDER_PROTOCOLS, type ProviderDraft, type ProviderUpdatePayload } from "@/lib/provider-presets"
+import { apiCall } from "@/lib/client-api"
+import { providerProbeError, providerStatusText } from "@/lib/provider-status"
+import type { ProviderStatus } from "@/lib/types"
 import type { ProviderRecord } from "@/lib/types"
 
 const inputClass =
@@ -34,18 +37,50 @@ export function EditProviderModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [probing, setProbing] = useState(false)
+  const [probeMessage, setProbeMessage] = useState<string | null>(null)
+  const probeController = useRef<AbortController | null>(null)
+  const cancelProbe = () => { probeController.current?.abort(); probeController.current = null }
+  const close = () => { cancelProbe(); onClose() }
+
+  const probe = async () => {
+    if (!isValidApiKeyRef(draft.apiKeyRef)) { setProbeMessage(t("provider.probeCredential")); return }
+    cancelProbe()
+    const controller = new AbortController()
+    probeController.current = controller
+    setProbing(true); setProbeMessage(null)
+    const timer = window.setTimeout(() => controller.abort(), 5000)
+    try {
+      const result = await apiCall<{ status: ProviderStatus & { errorCode?: string } }>("/providers/probe", {
+        method: "POST", signal: controller.signal,
+        body: { protocol: draft.protocol, baseUrl: draft.baseUrl.trim(), apiKeyRef: draft.apiKeyRef.trim() },
+      })
+      if (probeController.current !== controller) return
+      setProbeMessage(controller.signal.aborted ? t("provider.probeTimeout") : !result.ok
+        ? providerProbeError({ message: result.error }, t)
+        : result.data.status.ok ? providerStatusText(result.data.status, t) : providerProbeError(result.data.status, t))
+    } finally {
+      window.clearTimeout(timer)
+      if (probeController.current === controller) { probeController.current = null; setProbing(false) }
+    }
+  }
+
   useEffect(() => {
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const dialog = dialogRef.current
     if (!dialog) return
     if (!dialog.open) dialog.showModal()
     return () => {
+      cancelProbe()
       if (dialog.open) dialog.close()
       trigger?.focus()
     }
   }, [])
 
-  const updateDraft = (patch: Partial<ProviderDraft>) => setDraft((current) => ({ ...current, ...patch }))
+  const updateDraft = (patch: Partial<ProviderDraft>) => {
+    cancelProbe(); setProbing(false); setProbeMessage(null)
+    setDraft((current) => ({ ...current, ...patch }))
+  }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -55,12 +90,13 @@ export function EditProviderModal({
       return
     }
 
+    cancelProbe(); setProbing(false)
     setSaving(true)
     setError(null)
     try {
       const saveError = await onSave(parsed.value)
       if (saveError) setError(saveError)
-      else onClose()
+      else close()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError))
     } finally {
@@ -75,7 +111,7 @@ export function EditProviderModal({
       className="m-auto max-h-[min(92vh,48rem)] w-[min(100%-2rem,42rem)] overflow-y-auto rounded-xl border border-border bg-surface p-0 text-foreground shadow-2xl backdrop:bg-scrim"
       onCancel={(event) => {
         event.preventDefault()
-        if (!saving) onClose()
+        if (!saving) close()
       }}
     >
       <form onSubmit={(event) => void submit(event)}>
@@ -86,7 +122,7 @@ export function EditProviderModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             disabled={saving}
             aria-label={t("s45")}
             className="rounded-md px-2 py-1 text-lg leading-none text-subtle hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
@@ -130,13 +166,21 @@ export function EditProviderModal({
           <label className="block text-xs font-medium text-muted-foreground"> {t("s11")} <input
               className={`${inputClass} font-mono text-xs`}
               value={draft.apiKeyRef}
+                aria-invalid={!isValidApiKeyRef(draft.apiKeyRef)}
+                aria-describedby="provider-key-help"
               onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
               placeholder={t("s47")}
               autoComplete="off"
               spellCheck={false}
             />
             <span className="mt-1 block font-normal text-[11px] text-subtle"> {t("s48")} <code>env:NAME</code> {t("s12")} <code>file:path</code> {t("s49")} </span>
-          </label>
+          {!isValidApiKeyRef(draft.apiKeyRef) ? <span id="provider-key-help" role="status" className="mt-2 block rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs font-normal text-danger">{t("provider.probeCredential")}</span> : null}
+            </label>
+
+          <section aria-label={t("provider.probe")} className="space-y-2" data-testid="provider-probe">
+            <button type="button" onClick={() => void probe()} disabled={saving || probing} className="rounded-md border border-border-strong px-3 py-2 text-xs font-medium hover:bg-surface-hover disabled:opacity-50">{probing ? t("provider.probing") : t("provider.probe")}</button>
+            {probeMessage ? <p role="status" className="break-words text-xs text-muted-foreground">{probeMessage}</p> : null}
+          </section>
 
           <label className="block text-xs font-medium text-muted-foreground"> {t("s50")} <textarea
               className={`${inputClass} min-h-24 resize-y font-mono text-xs`}
@@ -165,7 +209,7 @@ export function EditProviderModal({
         </div>
 
         <footer className="flex flex-wrap justify-end gap-2 border-t border-border bg-surface-muted/60 px-5 py-4">
-          <button type="button" onClick={onClose} disabled={saving} className="rounded-md border border-border-strong px-3 py-2 text-xs font-medium text-foreground hover:bg-surface-hover disabled:opacity-50"> {t("s20")} </button>
+          <button type="button" onClick={close} disabled={saving} className="rounded-md border border-border-strong px-3 py-2 text-xs font-medium text-foreground hover:bg-surface-hover disabled:opacity-50"> {t("s20")} </button>
           <button type="submit" disabled={saving} className="rounded-md border border-primary bg-primary px-3 py-2 text-xs font-semibold text-surface hover:opacity-90 disabled:cursor-wait disabled:opacity-60">
             {saving ? t("s54") : t("s55")}
           </button>

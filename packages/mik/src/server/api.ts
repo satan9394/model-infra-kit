@@ -18,6 +18,7 @@ import { registerQoSRoutes } from "./routes/qos.js"
 import { registerWebhookRoutes } from "./routes/webhooks.js"
 import { SseStream } from "./sse.js"
 import { probeProvider } from "./provider-probe.js"
+import { CREDENTIAL_REFERENCE_ERROR, isCredentialReference } from "../credential/store.js"
 
 function isProtocol(value: unknown): value is Protocol {
   return typeof value === "string" && Object.hasOwn(PROTOCOL_PACKAGES, value)
@@ -43,6 +44,10 @@ function readProviderFields(body: Record<string, unknown>): Partial<ProviderConf
   if (typeof body.apiKeyRef === "string") fields.apiKeyRef = body.apiKeyRef
   else if (Array.isArray(body.apiKeyRef) && body.apiKeyRef.every((item) => typeof item === "string")) {
     fields.apiKeyRef = body.apiKeyRef as string[]
+  }
+  const refs = Array.isArray(fields.apiKeyRef) ? fields.apiKeyRef : [fields.apiKeyRef]
+  if (refs.some(ref => ref?.trim() && !isCredentialReference(ref))) {
+    throw new HttpError(400, CREDENTIAL_REFERENCE_ERROR, "INVALID_REQUEST")
   }
   if (typeof body.npmPackage === "string") fields.npmPackage = body.npmPackage
   if (typeof body.presetId === "string") fields.presetId = body.presetId

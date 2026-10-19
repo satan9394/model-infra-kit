@@ -499,7 +499,7 @@ export const zh = {
   "ping.dnsPreflight": "独立的系统 DNS 预查询，可能命中缓存，不代表 SDK 连接的 DNS 阶段。",
   "ping.dnsUnavailable": "DNS 预查询不可用；模型请求仍会执行。",
   "provider.probeAuth": "鉴权失败，请检查密钥引用及访问权限。",
-  "provider.probeCredential": "无法读取密钥引用，请检查环境变量或密钥文件。",
+  "provider.probeCredential": "密钥引用无效或不可用。此处不能直接填入纯文本密钥：请将其存入环境变量或文件，并填入 env:VAR 或 file:PATH 格式。请确认该变量或文件在服务端存在。",
   "provider.probeRateLimit": "供应商请求限流，请稍后重试。",
   "provider.probeProvider": "供应商接口返回错误，请检查接口地址与协议。",
   "provider.probeErrorDetail": "{0} 详情：{1}",

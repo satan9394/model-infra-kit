@@ -219,6 +219,7 @@
     padding: 10px 14px; border-radius: 9px; font-size: 13px;
     color: var(--color-muted-foreground); transition: background-color 120ms ease;
   }
+  .nav-link[data-pending] { background: var(--color-surface-active); color: var(--color-foreground); box-shadow: inset 3px 0 var(--color-primary); cursor: progress; }
   .nav-link:hover { background: var(--color-surface-hover); color: var(--color-foreground); }
   .nav-link-active, .nav-link-active:hover { background: var(--color-surface-active); color: var(--color-foreground); font-weight: 600; }
   .nav-active-dot { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: currentColor; }

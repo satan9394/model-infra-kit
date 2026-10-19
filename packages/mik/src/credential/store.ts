@@ -35,6 +35,14 @@ export interface CredentialStoreOptions {
 
 const REF_PATTERN = /^(env|file|keychain):(.+)$/i
 
+/** Safe to show verbatim: never include the rejected value, even partially. */
+export const CREDENTIAL_REFERENCE_ERROR = "Invalid credential reference: a bare API key or unsupported reference was entered. Use env:VAR or file:PATH instead of the key itself (keychain:service is reserved)."
+
+export function isCredentialReference(ref: string): boolean {
+  const match = REF_PATTERN.exec(ref.trim())
+  return !!match?.[2]?.trim()
+}
+
 /**
  * Resolve a credential reference to its secret.
  *
@@ -58,13 +66,13 @@ export class CredentialStore {
   parse(ref: string): ParsedCredentialRef {
     const trimmed = ref.trim()
     const match = REF_PATTERN.exec(trimmed)
-    if (match) {
+    if (match && match[2]!.trim()) {
       const backend = match[1]!.toLowerCase() as CredentialBackend
       return { backend, target: match[2]!.trim(), raw: trimmed }
     }
     if (this.options.allowLiteral) return { backend: "literal", target: trimmed, raw: trimmed }
     throw new ModelInfraError(
-      `Unsupported credential reference "${maskRef(trimmed)}". Use env:VAR, file:path or keychain:service.`,
+      `Unsupported credential reference "${maskRef(trimmed)}". ${CREDENTIAL_REFERENCE_ERROR}`,
       { code: "CREDENTIAL" },
     )
   }

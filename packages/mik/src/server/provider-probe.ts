@@ -5,6 +5,7 @@ import type { ResolvedProvider } from "../registry/registry.js"
 import type { Protocol, ProviderStatus } from "../types.js"
 import { redact, redactDeep } from "../util/redact.js"
 import { HttpError } from "./context.js"
+import { CREDENTIAL_REFERENCE_ERROR, isCredentialReference } from "../credential/store.js"
 import { assertSafeOutboundUrl } from "./outbound.js"
 
 export interface ProviderProbeInput {
@@ -42,8 +43,8 @@ export function probeModelUrls(baseUrl: string, protocol: Protocol): string[] {
 
 /** Read-only, one-shot discovery: no registry, catalogue, credential or usage writes. */
 export async function probeProvider(input: ProviderProbeInput, resolveCredential: (ref: string) => string): Promise<ProviderProbeResult> {
-  if (input.apiKeyRef?.trim() && !/^(env|file|keychain):.+$/i.test(input.apiKeyRef.trim())) {
-    throw new HttpError(400, "apiKeyRef must use env:, file: or keychain: references.", "INVALID_REQUEST")
+  if (input.apiKeyRef?.trim() && !isCredentialReference(input.apiKeyRef)) {
+    throw new HttpError(400, CREDENTIAL_REFERENCE_ERROR, "INVALID_REQUEST")
   }
   const baseUrl = input.baseUrl?.trim() || getPreset(input.protocol)?.defaultBaseUrl
   if (!baseUrl) throw new HttpError(400, '"baseUrl" is required for this protocol.', "INVALID_REQUEST")

@@ -5,6 +5,7 @@ import { useI18n } from "@/lib/i18n/provider"
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import {
   buildCreateProviderPayload,
+  isValidApiKeyRef,
   draftFromPreset,
   emptyProviderDraft,
   PROVIDER_PRESETS,
@@ -78,6 +79,7 @@ export function AddProviderModal({
   }
 
   const probe = async () => {
+    if (!isValidApiKeyRef(draft.apiKeyRef)) { setProbeError(t("provider.probeCredential")); return }
     cancelProbe()
     const controller = new AbortController()
     probeController.current = controller
@@ -228,6 +230,8 @@ export function AddProviderModal({
             <label className="text-xs font-medium text-muted-foreground"> {t("s11")} <input
                 className={`${inputClass} font-mono text-xs`}
                 value={draft.apiKeyRef}
+                aria-invalid={!isValidApiKeyRef(draft.apiKeyRef)}
+                aria-describedby="provider-key-help"
                 onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
                 placeholder="env:OPENAI_API_KEY"
                 autoComplete="off"
@@ -235,6 +239,7 @@ export function AddProviderModal({
               />
               <span className="mt-1 block text-[10px] font-normal text-subtle">
                 <code>env:NAME</code> {t("s12")} <code>file:path</code> {t("s13")} </span>
+            {!isValidApiKeyRef(draft.apiKeyRef) ? <span id="provider-key-help" role="status" className="mt-2 block rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs font-normal text-danger">{t("provider.probeCredential")}</span> : null}
             </label>
           </div>
 

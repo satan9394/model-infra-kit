@@ -499,7 +499,7 @@ export const en = {
   "ping.dnsPreflight": "Separate OS DNS preflight lookup; may use cache. Not the SDK connection DNS phase.",
   "ping.dnsUnavailable": "DNS preflight unavailable; the model request is still attempted.",
   "provider.probeAuth": "Authentication failed. Check the key reference and access permissions.",
-  "provider.probeCredential": "Unable to resolve the key reference. Check the environment variable or key file.",
+  "provider.probeCredential": "Invalid or unavailable key reference. A bare API key cannot be used here: store it in an environment variable or file, then enter env:VAR or file:PATH. Check that the variable or file exists.",
   "provider.probeRateLimit": "The provider rate limited this request. Retry later.",
   "provider.probeProvider": "The provider returned an error. Check the endpoint and protocol.",
   "provider.probeErrorDetail": "{0} Details: {1}",

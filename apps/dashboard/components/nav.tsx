@@ -3,6 +3,7 @@
 import { useI18n } from "@/lib/i18n/provider"
 import { message } from "@/lib/i18n/core"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "@/components/theme-provider"
@@ -61,6 +62,14 @@ export function Nav() {
   const { t } = useI18n()
 
   const pathname = usePathname()
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  useEffect(() => { setPendingHref(null) }, [pathname])
+  useEffect(() => {
+    if (!pendingHref) return
+    // Recover the affordance if navigation fails without committing a new path.
+    const timer = window.setTimeout(() => setPendingHref(null), 30000)
+    return () => window.clearTimeout(timer)
+  }, [pendingHref])
   const { preference, setPreference } = useTheme()
   const themeOptions: ReadonlyArray<{ value: ThemePreference; icon: string; label: string }> = [
     { value: "light", icon: "M12 3v2 M12 19v2 M3 12h2 M19 12h2 M5.6 5.6 7 7 M17 17l1.4 1.4 M5.6 18.4 7 17 M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0", label: t("s138") },
@@ -70,6 +79,7 @@ export function Nav() {
 
   return (
     <aside className="dashboard-nav">
+      {pendingHref ? <div role="status" className="fixed inset-x-0 top-0 z-50 h-1 bg-primary" data-testid="navigation-pending"><span className="sr-only">{t("s79")}</span></div> : null}
       <Link href="/" className="dashboard-brand" aria-label={t("s141")}>
         <span className="brand-mark" aria-hidden="true"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3 17V7l5 5 4-5v10 M17 7v10 M21 7v10" /></svg></span>
         <span><span className="block text-xl font-semibold tracking-tight">mik<span className="ml-1.5 text-sm font-normal text-subtle">console</span></span><span className="brand-caption"> {t("s142")} </span></span>
@@ -82,8 +92,11 @@ export function Nav() {
               const active = link.href === "/" ? pathname === "/" : (pathname === link.href || pathname.startsWith(link.href + "/"))
               return (
                 <div key={link.href} className="nav-item">
-                  <Link href={link.href} title={t(link.hint)} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "nav-link-active" : ""}`}>
+                  <Link href={link.href} onClick={(event) => {
+                    if (!event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && pathname !== link.href) setPendingHref(link.href)
+                  }} aria-busy={pendingHref === link.href || undefined} data-pending={pendingHref === link.href || undefined} title={t(link.hint)} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "nav-link-active" : ""}`}>
                     <NavIcon path={link.icon} /><span>{t(link.label)}</span>
+                    {pendingHref === link.href ? <span className="ml-auto text-xs" role="status">{t("s79")}</span> : null}
                     {active ? <span className="nav-active-dot" aria-hidden="true" /> : null}
                   </Link>
                 </div>

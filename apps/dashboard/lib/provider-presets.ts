@@ -162,6 +162,12 @@ function isProviderProtocol(value: string): value is ProviderProtocol {
   return (PROVIDER_PROTOCOLS as readonly string[]).includes(value)
 }
 
+/** Empty references are allowed for keyless providers and clearing edits. */
+export function isValidApiKeyRef(value: string): boolean {
+  const match = /^(env|file|keychain):(.+)$/i.exec(value.trim())
+  return !value.trim() || !!match?.[2]?.trim()
+}
+
 export function parseProviderHeaders(value: string): ProviderDraftResult<Record<string, string>> {
   let parsed: unknown
   try {
@@ -189,6 +195,7 @@ function readDraft(draft: ProviderDraft): ProviderDraftResult<ProviderUpdatePayl
   if (!isProviderProtocol(draft.protocol)) {
     return { ok: false, error: message("s406") }
   }
+  if (!isValidApiKeyRef(draft.apiKeyRef)) return { ok: false, error: "provider.probeCredential" }
   const headers = parseProviderHeaders(draft.headersJson)
   if (!headers.ok) return headers
 

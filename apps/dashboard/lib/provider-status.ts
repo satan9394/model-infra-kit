@@ -1,7 +1,8 @@
 import type { ProviderStatus } from "./types"
 
 export function providerStatusText(status: ProviderStatus, t: (key: string, ...args: unknown[]) => string): string {
-  if (!status.ok) return t("provider.offline")
+  if (!status.ok) return status.message && status.modelCount === undefined
+    ? providerProbeError({ message: status.message }, t) : t("provider.offline")
   if (status.modelCount !== undefined && status.latencyMs !== undefined) return t("provider.connectedModelsLatency", status.modelCount, status.latencyMs)
   if (status.modelCount !== undefined) return t("provider.connectedModels", status.modelCount)
   if (status.latencyMs !== undefined) return t("provider.connectedLatency", status.latencyMs)
@@ -18,6 +19,7 @@ export function providerProbeError(status: { errorCode?: string; message: string
     PROVIDER: "provider.probeProvider",
     CONNECTION: "provider.offline",
   }
-  const message = t(keys[status.errorCode ?? ""] ?? "provider.offline")
+  const credentialFormat = status.message.includes("Invalid credential reference:")
+  const message = t(credentialFormat ? "provider.probeCredential" : (keys[status.errorCode ?? ""] ?? "provider.offline"))
   return status.errorCode === "TIMEOUT" || !status.message ? message : t("provider.probeErrorDetail", message, status.message)
 }
