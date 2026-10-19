@@ -200,6 +200,16 @@ export function ProviderLogo({
     )
   }
 
+  if (key.includes("command") || key.includes("gota")) {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} className={className} aria-hidden="true">
+        <rect width="24" height="24" rx="5" fill="#18181B" />
+        <path d="M6 7.5L10.5 12L6 16.5" stroke="#FAD000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="12.5" y1="16.5" x2="18" y2="16.5" stroke="#FAD000" strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
   if (key.includes("together")) {
     return (
       <svg viewBox="0 0 24 24" width={size} height={size} fill="none" className={className} aria-hidden="true">

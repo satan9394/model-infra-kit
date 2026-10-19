@@ -90,6 +90,17 @@ describe("PROVIDER_PRESETS", () => {
     expect(getPreset("deepseek")?.protocol).toBe("deepseek")
     expect(getPreset("nope")).toBeUndefined()
   })
+
+  it("includes Command Code GOAT preset with correct metadata", () => {
+    const preset = getPreset("commandgota")
+    expect(preset).toBeDefined()
+    expect(preset?.name).toBe("Command Code GOAT")
+    expect(preset?.protocol).toBe("openai-compatible")
+    expect(preset?.category).toBe("aggregator")
+    expect(preset?.defaultBaseUrl).toBe("https://api.commandcode.ai/provider/v1")
+    expect(preset?.envKey).toBe("COMMANDCODE_API_KEY")
+    expect(preset?.recommendedModels?.length).toBeGreaterThan(0)
+  })
 })
 
 describe("ProviderRegistry", () => {

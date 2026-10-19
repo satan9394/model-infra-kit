@@ -358,6 +358,24 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     "envKey": "TOGETHER_API_KEY"
   },
   {
+    "id": "commandgota",
+    "name": "Command Code GOAT",
+    "protocol": "openai-compatible",
+    "npmPackage": "@ai-sdk/openai-compatible",
+    "category": "aggregator",
+    "websiteUrl": "https://commandcode.ai",
+    "apiKeyUrl": "https://commandcode.ai",
+    "recommendedModels": [
+      "claude-sonnet-5",
+      "gpt-6-luna",
+      "deepseek/deepseek-v4.1-flash",
+      "Qwen/Qwen3.8-Flash"
+    ],
+    "docUrl": "https://commandcode.ai/docs/provider",
+    "defaultBaseUrl": "https://api.commandcode.ai/provider/v1",
+    "envKey": "COMMANDCODE_API_KEY"
+  },
+  {
     "id": "ollama",
     "name": "Ollama (Local)",
     "protocol": "openai-compatible",

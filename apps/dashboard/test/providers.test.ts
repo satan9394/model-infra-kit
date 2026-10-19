@@ -43,6 +43,7 @@ test("built-in presets provide the expected endpoint, protocol, and key referenc
     google: ["Google Gemini", "google", "https://generativelanguage.googleapis.com/v1beta", "env:GOOGLE_GENERATIVE_AI_API_KEY"],
     openrouter: ["OpenRouter", "openai-compatible", "https://openrouter.ai/api/v1", "env:OPENROUTER_API_KEY"],
     ollama: ["Ollama (Local)", "openai-compatible", "http://localhost:11434/v1", ""],
+    commandgota: ["Command Code GOAT", "openai-compatible", "https://api.commandcode.ai/provider/v1", "env:COMMANDCODE_API_KEY"],
   } as const
 
   assert.ok(PROVIDER_PRESETS.length >= 25)
