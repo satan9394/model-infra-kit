@@ -90,12 +90,23 @@ function parseOpenAiStyleList(payload: unknown): DiscoveredModel[] {
     const entry = asRecord(row)
     const modelId = asString(entry?.id)
     if (!modelId) continue
+    const rawCaps = asRecord(entry?.capabilities)
     models.push({
       modelId,
       displayName: asString(entry?.name),
       contextWindow: asNumber(entry?.context_length) ?? asNumber(entry?.context_window),
       maxOutputTokens: asNumber(entry?.max_output_tokens),
-      capabilities: NON_CHAT_MODEL.test(modelId) ? { text: false, toolCall: false } : undefined,
+      capabilities: rawCaps
+        ? {
+            ...(typeof rawCaps.text === "boolean" ? { text: rawCaps.text } : {}),
+            ...(typeof rawCaps.image === "boolean" ? { image: rawCaps.image } : {}),
+            ...(typeof rawCaps.toolCall === "boolean" ? { toolCall: rawCaps.toolCall } : {}),
+            ...(typeof rawCaps.reasoning === "boolean" ? { reasoning: rawCaps.reasoning } : {}),
+            ...(typeof rawCaps.structuredOutput === "boolean" ? { structuredOutput: rawCaps.structuredOutput } : {}),
+          }
+        : NON_CHAT_MODEL.test(modelId)
+          ? { text: false, toolCall: false }
+          : undefined,
     })
   }
   return models
