@@ -27,7 +27,7 @@ describe("credential format diagnostics", () => {
     const resolve = vi.fn()
     const fetch = vi.spyOn(globalThis, "fetch")
     try {
-      await expect(probeProvider({ protocol: "openai-compatible", apiKeyRef: "bare-test-value" }, resolve))
+      await expect(probeProvider({ baseUrl: "https://api.openai.com/v1", protocol: "openai-compatible", apiKeyRef: "env:  " }, resolve))
         .rejects.toMatchObject({ status: 400, code: "INVALID_REQUEST", message: CREDENTIAL_REFERENCE_ERROR })
       expect(resolve).not.toHaveBeenCalled()
       expect(fetch).not.toHaveBeenCalled()

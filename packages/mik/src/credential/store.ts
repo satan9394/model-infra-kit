@@ -5,7 +5,7 @@ import type { SqlDriver } from "../store/driver.js"
 import { defaultHomeDir, expandPath } from "../util/paths.js"
 import { maskSecret } from "../util/redact.js"
 
-export type CredentialBackend = "env" | "file" | "keychain" | "literal"
+export type CredentialBackend = "env" | "file" | "keychain" | "vault" | "literal"
 
 export interface ParsedCredentialRef {
   backend: CredentialBackend
@@ -17,6 +17,8 @@ export interface ParsedCredentialRef {
 export interface CredentialStoreOptions {
   /** Where relative `file:` refs resolve from. Defaults to the process cwd. */
   fileRoot?: string
+  /** Where auto-vaulted `vault:` keys are stored. Defaults to `~/.model-infra-kit/vault`. */
+  vaultDir?: string
   /** Injected environment snapshot for server configuration generations. */
   env?: NodeJS.ProcessEnv
   /**
@@ -33,10 +35,10 @@ export interface CredentialStoreOptions {
   trashDir?: string
 }
 
-const REF_PATTERN = /^(env|file|keychain):(.+)$/i
+const REF_PATTERN = /^(env|file|keychain|vault):(.+)$/i
 
 /** Safe to show verbatim: never include the rejected value, even partially. */
-export const CREDENTIAL_REFERENCE_ERROR = "Invalid credential reference: a bare API key or unsupported reference was entered. Use env:VAR or file:PATH instead of the key itself (keychain:service is reserved)."
+export const CREDENTIAL_REFERENCE_ERROR = "Invalid credential reference: a bare API key or unsupported reference was entered. Use env:VAR, file:PATH, or vault:ID instead of the key itself (keychain:service is reserved)."
 
 export function isCredentialReference(ref: string): boolean {
   const match = REF_PATTERN.exec(ref.trim())
@@ -116,6 +118,23 @@ export class CredentialStore {
         }
         return value
       }
+      case "vault": {
+        const path = this.resolveVaultPath(parsed.target)
+        if (!existsSync(path)) {
+          throw new ModelInfraError(
+            `Credential file not found for vault reference "${maskRef(parsed.raw)}". Create the file the reference points at.`,
+            { code: "CREDENTIAL" },
+          )
+        }
+        const value = readFileSync(path, "utf8").trim()
+        if (!value) {
+          throw new ModelInfraError(
+            `Credential file is empty for vault reference "${maskRef(parsed.raw)}". The file must contain only the key.`,
+            { code: "CREDENTIAL" },
+          )
+        }
+        return value
+      }
       case "keychain":
         throw new ModelInfraError(
           "The keychain credential backend is not implemented yet. Use env: or file: instead.",
@@ -124,6 +143,36 @@ export class CredentialStore {
       case "literal":
         return parsed.target
     }
+  }
+
+  /** Return the directory where vault credentials reside. */
+  getVaultDir(): string {
+    return expandPath(this.options.vaultDir ?? join(defaultHomeDir(), "vault"))
+  }
+
+  /** Resolve the path on disk for a vault target identifier. */
+  resolveVaultPath(target: string): string {
+    const clean = target.trim().replace(/[^A-Za-z0-9._-]/g, "_")
+    const filename = clean.endsWith(".key") ? clean : `${clean}.key`
+    return join(this.getVaultDir(), filename)
+  }
+
+  /** Write a secret to the vault directory and register its reference. */
+  saveVaultSecret(targetId: string, secret: string): string {
+    const path = this.resolveVaultPath(targetId)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, secret.trim(), { mode: 0o600 })
+    this.register({ backend: "vault", target: targetId, raw: `vault:${targetId}` })
+    return path
+  }
+
+  /** Automatically save a raw key to the vault or return existing reference. */
+  autoVault(providerId: string, secretOrRef: string): string {
+    if (!secretOrRef || !secretOrRef.trim()) return secretOrRef
+    const trimmed = secretOrRef.trim()
+    if (isCredentialReference(trimmed)) return trimmed
+    this.saveVaultSecret(providerId, trimmed)
+    return `vault:${providerId}`
   }
 
   /** Resolve without throwing; returns null when the secret is unavailable. */
@@ -136,11 +185,15 @@ export class CredentialStore {
     }
   }
 
-  /** Store a secret in the `file:` backend and register the ref. */
+  /** Store a secret in the `file:` or `vault:` backend and register the ref. */
   set(ref: string, secret: string): void {
     const parsed = this.parse(ref)
+    if (parsed.backend === "vault") {
+      this.saveVaultSecret(parsed.target, secret)
+      return
+    }
     if (parsed.backend !== "file") {
-      throw new ModelInfraError("Only file: references can be written by this store. Write env/keychain values yourself.", {
+      throw new ModelInfraError("Only file: and vault: references can be written by this store. Write env/keychain values yourself.", {
         code: "CREDENTIAL",
       })
     }
@@ -154,6 +207,9 @@ export class CredentialStore {
     const parsed = this.parse(ref)
     if (parsed.backend === "file") {
       const path = this.resolveFilePath(parsed.target)
+      if (existsSync(path)) this.moveToTrash(path)
+    } else if (parsed.backend === "vault") {
+      const path = this.resolveVaultPath(parsed.target)
       if (existsSync(path)) this.moveToTrash(path)
     }
     this.options.driver?.prepare("DELETE FROM credentials WHERE ref = ?").run(parsed.raw)

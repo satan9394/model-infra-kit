@@ -1,4 +1,4 @@
-import type { CredentialStore } from "../credential/store.js"
+import { isCredentialReference, type CredentialStore } from "../credential/store.js"
 import { ModelInfraError } from "../errors.js"
 import { KeyPool, normalizeRefs } from "../router/key-pool.js"
 import { Store } from "../store/database.js"
@@ -143,9 +143,23 @@ export class ProviderRegistry {
       })
     }
 
+    let apiKeyRef = config.apiKeyRef
+    if (typeof apiKeyRef === "string" && apiKeyRef.trim() && !isCredentialReference(apiKeyRef)) {
+      apiKeyRef = this.deps.credentials.autoVault(config.id, apiKeyRef)
+    } else if (Array.isArray(apiKeyRef)) {
+      apiKeyRef = apiKeyRef.map((ref, index) => {
+        if (typeof ref === "string" && ref.trim() && !isCredentialReference(ref)) {
+          const subId = apiKeyRef!.length > 1 ? `${config.id}_${index + 1}` : config.id
+          return this.deps.credentials.autoVault(subId, ref)
+        }
+        return ref
+      })
+    }
+
     return this.deps.store.providers.upsert(
       {
         ...config,
+        apiKeyRef,
         name: config.name ?? preset?.name,
         protocol,
         baseUrl,

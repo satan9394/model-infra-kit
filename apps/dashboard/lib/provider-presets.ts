@@ -106,10 +106,15 @@ function isProviderProtocol(value: string): value is ProviderProtocol {
   return (PROVIDER_PROTOCOLS as readonly string[]).includes(value)
 }
 
-/** Empty references are allowed for keyless providers and clearing edits. */
+/** Empty references are allowed for keyless providers and clearing edits. Bare keys and vault: references are valid and auto-vaulted. */
 export function isValidApiKeyRef(value: string): boolean {
-  const match = /^(env|file|keychain):(.+)$/i.exec(value.trim())
-  return !value.trim() || !!match?.[2]?.trim()
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  const match = /^(env|file|keychain|vault):(.*)$/i.exec(trimmed)
+  if (match) {
+    return (match[2]?.trim().length ?? 0) > 0
+  }
+  return true
 }
 
 export function parseProviderHeaders(value: string): ProviderDraftResult<Record<string, string>> {

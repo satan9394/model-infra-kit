@@ -382,4 +382,16 @@ describe("ProviderRegistry", () => {
     expect(splitModelRef("nope")).toBeNull()
     expect(splitModelRef(":model")).toBeNull()
   })
+
+  it("auto-vaults raw plaintext keys on add and stores vault: reference in database", () => {
+    const record = registry.add({
+      id: "raw-key-provider",
+      protocol: "openai-compatible",
+      baseUrl: "https://api.example.com/v1",
+      apiKeyRef: "sk-plain-secret-key-9999",
+    })
+    expect(record.apiKeyRef).toBe("vault:raw-key-provider")
+    const resolved = registry.resolve("raw-key-provider")
+    expect(resolved.apiKey).toBe("sk-plain-secret-key-9999")
+  })
 })

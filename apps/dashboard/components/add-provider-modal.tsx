@@ -20,6 +20,7 @@ import { apiCall } from "@/lib/client-api"
 import { providerProbeError, providerStatusText } from "@/lib/provider-status"
 import type { ProviderStatus } from "@/lib/types"
 import { getProviderBrand } from "@/lib/provider-brands"
+import { ProviderLogo, EyeIcon, EyeOffIcon } from "./provider-logo"
 
 const inputClass =
   "mt-1 w-full rounded-md border border-border bg-surface-control px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -37,6 +38,7 @@ export function AddProviderModal({
   const [draft, setDraft] = useState<ProviderDraft>(() => emptyProviderDraft())
   const [selectedPreset, setSelectedPreset] = useState<ProviderPresetId>("custom")
   const [presetSearch, setPresetSearch] = useState("")
+  const [showKey, setShowKey] = useState(false)
   const [probing, setProbing] = useState(false)
   const [probeError, setProbeError] = useState<string | null>(null)
   const [probeStatus, setProbeStatus] = useState<ProviderStatus | null>(null)
@@ -176,10 +178,18 @@ export function AddProviderModal({
             <div className="mt-2 flex flex-wrap gap-1.5">
               {PROVIDER_PRESETS.filter((preset) => `${t(preset.label)} ${t(preset.hint)} ${preset.id}`.toLowerCase().includes(presetSearch.trim().toLowerCase())).map((preset) => {
                 const selected = selectedPreset === preset.id
-                const brand = getProviderBrand(preset.providerId || preset.id)
-                return <button key={preset.id} type="button" aria-pressed={selected} onClick={() => selectPreset(preset.id)} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-hover"}`}>
-                  <span aria-hidden="true" className="size-1.5 rounded-full" style={{ backgroundColor: brand.color }} />{t(preset.label)}
-                </button>
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => selectPreset(preset.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? "border-primary bg-primary-soft text-primary" : "border-border text-muted-foreground hover:bg-surface-hover"}`}
+                  >
+                    <ProviderLogo providerId={preset.providerId || preset.id} presetId={preset.id} size={16} />
+                    <span>{t(preset.label)}</span>
+                  </button>
+                )
               })}
             </div>
           </fieldset>
@@ -229,19 +239,32 @@ export function AddProviderModal({
               <span className="mt-1 block text-[10px] font-normal text-subtle"> {t("s10")} </span>
             </label>
 
-            <label className="text-xs font-medium text-muted-foreground"> {t("s11")} <input
-                className={`${inputClass} font-mono text-xs`}
-                value={draft.apiKeyRef}
-                aria-invalid={!isValidApiKeyRef(draft.apiKeyRef)}
-                aria-describedby="provider-key-help"
-                onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
-                placeholder="env:OPENAI_API_KEY"
-                autoComplete="off"
-                spellCheck={false}
-              />
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("s11")}
+              <div className="relative mt-1">
+                <input
+                  type={showKey ? "text" : "password"}
+                  className={`${inputClass} font-mono text-xs pr-9 mt-0`}
+                  value={draft.apiKeyRef}
+                  aria-invalid={!isValidApiKeyRef(draft.apiKeyRef)}
+                  aria-describedby="provider-key-help"
+                  onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
+                  placeholder="env:OPENAI_API_KEY"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  aria-label={showKey ? t("provider.hideKey") : t("provider.showKey")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded p-0.5"
+                >
+                  {showKey ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                </button>
+              </div>
               <span className="mt-1 block text-[10px] font-normal text-subtle">
                 <code>env:NAME</code> {t("s12")} <code>file:path</code> {t("s13")} </span>
-            {!isValidApiKeyRef(draft.apiKeyRef) ? <span id="provider-key-help" role="status" className="mt-2 block rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs font-normal text-danger">{t("provider.probeCredential")}</span> : null}
+              {!isValidApiKeyRef(draft.apiKeyRef) ? <span id="provider-key-help" role="status" className="mt-2 block rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs font-normal text-danger">{t("provider.probeCredential")}</span> : null}
             </label>
           </div>
 

@@ -92,4 +92,30 @@ describe("CredentialStore", () => {
   it("builds a default secret path for a provider", () => {
     expect(defaultSecretPath("deepseek")).toContain("deepseek-api-key")
   })
+
+  it("writes, reads, and auto-vaults secrets in vault: backend", () => {
+    const dir = tempDir()
+    const vaultDir = join(dir, "vault")
+    const trashDir = join(dir, "trash")
+    const store = new CredentialStore({ vaultDir, trashDir })
+
+    // Auto-vault bare string
+    const ref = store.autoVault("deepseek", "sk-ds-secret-1234")
+    expect(ref).toBe("vault:deepseek")
+    expect(store.resolve(ref)).toBe("sk-ds-secret-1234")
+
+    // Existing reference is unchanged by autoVault
+    expect(store.autoVault("openai", "env:OPENAI_API_KEY")).toBe("env:OPENAI_API_KEY")
+
+    // Direct set and resolve
+    store.set("vault:custom_id", "sk-custom-secret")
+    expect(store.resolve("vault:custom_id")).toBe("sk-custom-secret")
+
+    // Delete moves to trash
+    store.delete("vault:deepseek")
+    expect(() => store.resolve("vault:deepseek")).toThrowError(ModelInfraError)
+    const trashFiles = readdirSync(trashDir)
+    expect(trashFiles.length).toBeGreaterThan(0)
+    expect(trashFiles[0]!.startsWith("deepseek.key.")).toBe(true)
+  })
 })

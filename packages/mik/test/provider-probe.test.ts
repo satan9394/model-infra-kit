@@ -60,13 +60,15 @@ describe("EVO-G120 temporary provider probe", () => {
     expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({ accept: "application/json" })
   })
 
-  it("rejects plaintext credential input before calling even a permissive resolver", async () => {
+  it("allows plaintext credential input directly in memory without calling resolver", async () => {
     const resolve = vi.fn(resolveKey)
-    const fetch = vi.fn()
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => list())
     vi.stubGlobal("fetch", fetch)
-    await expect(probeProvider({ ...input, apiKeyRef: KEY }, resolve)).rejects.toMatchObject({ status: 400, code: "INVALID_REQUEST" })
+    const res = await probeProvider({ ...input, apiKeyRef: KEY }, resolve)
+    expect(res.status.ok).toBe(true)
     expect(resolve).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalled()
+    expect((fetch.mock.calls[0]?.[1]?.headers as Record<string, string>)?.authorization).toBe(`Bearer ${KEY}`)
   })
 
   it("falls back only after a root /v1/models 404 and returns root base URL", async () => {

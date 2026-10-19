@@ -9,7 +9,7 @@ import { EditProviderModal } from "@/components/edit-provider-modal"
 import { createProvider, syncProviderModels } from "@/lib/provider-create"
 import { providerStatusText } from "@/lib/provider-status"
 import { apiCall } from "@/lib/client-api"
-import { getProviderBrand } from "@/lib/provider-brands"
+import { ProviderLogo } from "@/components/provider-logo"
 import type {
   ProviderCreatePayload,
   ProviderUpdatePayload,
@@ -258,7 +258,6 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
             {providers.map((provider) => {
               const row = rows[provider.id] ?? {}
               const modelRackId = `provider-models-${encodeURIComponent(provider.id)}`
-              const brand = getProviderBrand(provider.id, provider.presetId, provider.protocol)
 
               // Status determination
               const isOnline = row.status?.ok === true
@@ -277,11 +276,10 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <div
-                          className="flex size-9 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-bold text-white"
-                          style={{ backgroundColor: brand.color }}
+                          className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-surface-muted/40 p-1"
                           aria-hidden="true"
                         >
-                          {brand.shortTag}
+                          <ProviderLogo providerId={provider.id} presetId={provider.presetId} size={28} />
                         </div>
                         <div className="min-w-0 flex-1 space-y-1.5">
                           <div className="flex min-w-0 flex-wrap items-center gap-2">

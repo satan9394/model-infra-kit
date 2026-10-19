@@ -129,7 +129,7 @@ function listenError(error: NodeJS.ErrnoException, port: number, host: string): 
 }
 
 function isPublicRoute(segments: string[]): boolean {
-  return segments.length === 2 && segments[0] === "api" && segments[1] === "health"
+  return segments.length === 0 || (segments.length === 2 && segments[0] === "api" && segments[1] === "health")
 }
 
 /**
@@ -235,6 +235,26 @@ export async function createServer(options: ServerOptions): Promise<ServerHandle
     if (!options.reload) throw new HttpError(409, "Configuration reload is not enabled.")
     const result = await manager.reloadConfig()
     sendJson(ctx.res, result.reloaded ? 200 : 400, result)
+  })
+  router.add("GET", "/", (ctx) => {
+    const accept = String(ctx.req.headers.accept ?? "")
+    if (accept.includes("text/html")) {
+      ctx.res.writeHead(302, { location: "http://127.0.0.1:3210/providers" })
+      ctx.res.end()
+      return
+    }
+    sendJson(ctx.res, 200, {
+      status: "ok",
+      service: "model-infra-kit",
+      version: "1.8.0",
+      dashboard: "http://127.0.0.1:3210",
+      endpoints: {
+        openai: "/v1",
+        health: "/api/health",
+        providers: "/api/providers",
+        models: "/api/models",
+      },
+    })
   })
   router.add("POST", "/v1/messages", handleMessages)
   router.add("POST", "/v1/responses", ctx => handleNativeCompletion(ctx, "responses"))

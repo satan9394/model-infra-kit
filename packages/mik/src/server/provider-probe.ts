@@ -50,14 +50,17 @@ export function probeModelUrls(baseUrl: string, protocol: Protocol): string[] {
 
 /** Read-only, one-shot discovery: no registry, catalogue, credential or usage writes. */
 export async function probeProvider(input: ProviderProbeInput, resolveCredential: (ref: string) => string): Promise<ProviderProbeResult> {
-  if (input.apiKeyRef?.trim() && !isCredentialReference(input.apiKeyRef)) {
-    throw new HttpError(400, CREDENTIAL_REFERENCE_ERROR, "INVALID_REQUEST")
-  }
   const baseUrl = input.baseUrl?.trim() || getPreset(input.protocol)?.defaultBaseUrl
   if (!baseUrl) throw new HttpError(400, '"baseUrl" is required for this protocol.', "INVALID_REQUEST")
   assertSafeOutboundUrl(baseUrl, "provider baseUrl")
   const urls = probeModelUrls(baseUrl, input.protocol)
   for (const url of urls) assertSafeOutboundUrl(url, "provider model endpoint")
+  if (input.apiKeyRef?.trim()) {
+    const rawRef = input.apiKeyRef.trim()
+    if (/^(env|file|keychain|vault):/i.test(rawRef) && !isCredentialReference(rawRef)) {
+      throw new HttpError(400, CREDENTIAL_REFERENCE_ERROR, "INVALID_REQUEST")
+    }
+  }
   const checkedAt = Date.now()
   let apiKey: string | null = null
   const safe = (text: string) => redact(apiKey ? text.split(apiKey).join("[REDACTED]") : text)
@@ -71,7 +74,10 @@ export async function probeProvider(input: ProviderProbeInput, resolveCredential
   })
   try {
     const result = await Promise.race([deadline, (async () => {
-      if (input.apiKeyRef?.trim()) apiKey = resolveCredential(input.apiKeyRef.trim())
+      if (input.apiKeyRef?.trim()) {
+        const rawRef = input.apiKeyRef.trim()
+        apiKey = isCredentialReference(rawRef) ? resolveCredential(rawRef) : rawRef
+      }
       const record = { id: "probe", appId: "probe", name: "probe", protocol: input.protocol,
         headers: {}, meta: {}, enabled: true, createdAt: checkedAt, updatedAt: checkedAt }
       const resolved: ResolvedProvider = { record, protocol: input.protocol, baseUrl, apiKey,

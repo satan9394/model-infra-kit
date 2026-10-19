@@ -95,6 +95,12 @@ const G137_KEYS = [
   "provider.presetHint",
 ] as const
 
+/** EVO-G148 provider auto-vaulting and key visibility additions. */
+const G148_KEYS = [
+  "provider.showKey",
+  "provider.hideKey",
+] as const
+
 /* ---------------------------------------------- adversarial 1: quota guide */
 
 test("EVO-G143 quota empty state is a structured guide, not a thin blank", () => {
@@ -227,8 +233,9 @@ test("EVO-G143 dictionary additions keep zh/en parity and identical placeholders
   // G144 appended its own documented keys on top of the G143 set, and G145 added
   // the embed bridge + a11y announcements. G135 adds the approximate-hit labels.
   // G137 adds the model picker and provider console/hint labels.
-  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length + 2 + G137_KEYS.length)
-  for (const key of [...ADDED_KEYS, ...G145_KEYS, ...G137_KEYS]) {
+  // G148 adds provider show/hide key labels.
+  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length + 2 + G137_KEYS.length + G148_KEYS.length)
+  for (const key of [...ADDED_KEYS, ...G145_KEYS, ...G137_KEYS, ...G148_KEYS]) {
     assert.ok(enKeys.includes(key), `missing dictionary key: ${key}`)
     assert.ok(en_(key).trim() && zh_(key).trim(), key)
     assert.deepEqual(zh_(key).match(/\{\d+\}/g) ?? [], en_(key).match(/\{\d+\}/g) ?? [], key)

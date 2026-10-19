@@ -10,6 +10,7 @@ import { apiCall } from "@/lib/client-api"
 import { providerProbeError, providerStatusText } from "@/lib/provider-status"
 import type { ProviderStatus } from "@/lib/types"
 import type { ProviderRecord } from "@/lib/types"
+import { ProviderLogo, EyeIcon, EyeOffIcon } from "./provider-logo"
 
 const inputClass =
   "mt-1 w-full rounded-md border border-border bg-surface-control px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -37,6 +38,7 @@ export function EditProviderModal({
     presetId: provider.presetId,
     meta: provider.meta,
   }))
+  const [showKey, setShowKey] = useState(false)
   const [models, setModels] = useState<PickerModel[]>([])
   const [defaultModelId, setDefaultModelId] = useState(typeof provider.meta.defaultModelId === "string" ? provider.meta.defaultModelId : "")
   const [saving, setSaving] = useState(false)
@@ -125,9 +127,14 @@ export function EditProviderModal({
     >
       <form onSubmit={(event) => void submit(event)}>
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div>
-            <h2 id="edit-provider-title" className="text-lg font-semibold tracking-tight"> {t("s43")} </h2>
-            <p className="mt-1 text-xs text-subtle"> {t("s44")} </p>
+          <div className="flex items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-surface-muted/40 p-1">
+              <ProviderLogo providerId={provider.id} presetId={provider.presetId} size={22} />
+            </div>
+            <div>
+              <h2 id="edit-provider-title" className="text-lg font-semibold tracking-tight"> {t("s43")} </h2>
+              <p className="mt-0.5 text-xs text-subtle"> {t("s44")} </p>
+            </div>
           </div>
           <button
             type="button"
@@ -172,19 +179,32 @@ export function EditProviderModal({
             />
           </label>
 
-          <label className="block text-xs font-medium text-muted-foreground"> {t("s11")} <input
-              className={`${inputClass} font-mono text-xs`}
-              value={draft.apiKeyRef}
+          <label className="block text-xs font-medium text-muted-foreground">
+            {t("s11")}
+            <div className="relative mt-1">
+              <input
+                type={showKey ? "text" : "password"}
+                className={`${inputClass} font-mono text-xs pr-9 mt-0`}
+                value={draft.apiKeyRef}
                 aria-invalid={!isValidApiKeyRef(draft.apiKeyRef)}
                 aria-describedby="provider-key-help"
-              onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
-              placeholder={t("s47")}
-              autoComplete="off"
-              spellCheck={false}
-            />
+                onChange={(event) => updateDraft({ apiKeyRef: event.target.value })}
+                placeholder={t("s47")}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                aria-label={showKey ? t("provider.hideKey") : t("provider.showKey")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded p-0.5"
+              >
+                {showKey ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+              </button>
+            </div>
             <span className="mt-1 block font-normal text-[11px] text-subtle"> {t("s48")} <code>env:NAME</code> {t("s12")} <code>file:path</code> {t("s49")} </span>
-          {!isValidApiKeyRef(draft.apiKeyRef) ? <span id="provider-key-help" role="status" className="mt-2 block rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs font-normal text-danger">{t("provider.probeCredential")}</span> : null}
-            </label>
+            {!isValidApiKeyRef(draft.apiKeyRef) ? <span id="provider-key-help" role="status" className="mt-2 block rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs font-normal text-danger">{t("provider.probeCredential")}</span> : null}
+          </label>
 
           <section aria-label={t("provider.probe")} className="space-y-2" data-testid="provider-probe">
             <button type="button" onClick={() => void probe()} disabled={saving || probing} className="rounded-md border border-border-strong px-3 py-2 text-xs font-medium hover:bg-surface-hover disabled:opacity-50">{probing ? t("provider.probing") : t("provider.probe")}</button>

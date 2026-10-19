@@ -6,6 +6,7 @@ import {
   buildProviderUpdatePayload,
   draftFromPreset,
   emptyProviderDraft,
+  isValidApiKeyRef,
   isValidProviderId,
   parseProviderHeaders,
   PROVIDER_PRESETS,
@@ -143,3 +144,17 @@ test("model metadata round-trips without losing unrelated provider metadata", ()
     assert.deepEqual(empty.value.meta, { models: [] })
   }
 })
+
+test("isValidApiKeyRef accepts empty keys, raw keys, and valid refs while rejecting empty prefix targets", () => {
+  assert.equal(isValidApiKeyRef(""), true)
+  assert.equal(isValidApiKeyRef("   "), true)
+  assert.equal(isValidApiKeyRef("sk-proj-1234567890"), true)
+  assert.equal(isValidApiKeyRef("vault:my-provider"), true)
+  assert.equal(isValidApiKeyRef("env:OPENAI_API_KEY"), true)
+  assert.equal(isValidApiKeyRef("file:/path/to/key.txt"), true)
+  assert.equal(isValidApiKeyRef("keychain:my-account"), true)
+  assert.equal(isValidApiKeyRef("env:"), false)
+  assert.equal(isValidApiKeyRef("file:  "), false)
+  assert.equal(isValidApiKeyRef("vault:"), false)
+})
+
