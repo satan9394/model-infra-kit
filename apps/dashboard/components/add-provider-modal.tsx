@@ -1,5 +1,7 @@
 "use client"
 
+import { ModelPicker } from "./model-picker"
+import { selectedModelIds, type PickerModel } from "@/lib/model-picker"
 import { useI18n } from "@/lib/i18n/provider"
 
 import { useEffect, useRef, useState, type FormEvent } from "react"
@@ -38,7 +40,7 @@ export function AddProviderModal({
   const [probing, setProbing] = useState(false)
   const [probeError, setProbeError] = useState<string | null>(null)
   const [probeStatus, setProbeStatus] = useState<ProviderStatus | null>(null)
-  const [models, setModels] = useState<{ modelId: string }[]>([])
+  const [models, setModels] = useState<PickerModel[]>([])
   const [defaultModelId, setDefaultModelId] = useState("")
   const probeController = useRef<AbortController | null>(null)
   const cancelProbe = () => { probeController.current?.abort(); probeController.current = null }
@@ -74,8 +76,7 @@ export function AddProviderModal({
       cancelProbe()
       setProbing(false); setModels([]); setDefaultModelId(""); setProbeStatus(null); setProbeError(null)
     }
-    setDraft((current) => ({ ...current, ...patch }))
-    setSelectedPreset("custom")
+    setDraft((current) => ({ ...current, ...patch, ...(patch.baseUrl !== undefined || patch.apiKeyRef !== undefined || patch.protocol !== undefined ? { meta: undefined } : {}) }))
   }
 
   const probe = async () => {
@@ -83,10 +84,10 @@ export function AddProviderModal({
     cancelProbe()
     const controller = new AbortController()
     probeController.current = controller
-    setProbing(true); setProbeError(null); setProbeStatus(null); setModels([]); setDefaultModelId("")
+    setProbing(true); setProbeError(null); setProbeStatus(null)
     const timer = window.setTimeout(() => controller.abort(), 5000)
     try {
-      const result = await apiCall<{ status: ProviderStatus & { errorCode?: string }; models: { modelId: string }[]; baseUrl?: string }>("/providers/probe", {
+      const result = await apiCall<{ status: ProviderStatus & { errorCode?: string }; models: PickerModel[]; baseUrl?: string }>("/providers/probe", {
         method: "POST", signal: controller.signal,
         body: { protocol: draft.protocol, ...(draft.baseUrl.trim() ? { baseUrl: draft.baseUrl.trim() } : {}), ...(draft.apiKeyRef.trim() ? { apiKeyRef: draft.apiKeyRef.trim() } : {}) },
       })
@@ -96,6 +97,7 @@ export function AddProviderModal({
       setProbeStatus(result.data.status)
       if (result.data.status.ok) {
         setModels(result.data.models)
+        setDraft(current => ({ ...current, meta: { ...current.meta, models: selectedModelIds(current.meta?.models) ?? result.data.models.map(model => model.modelId) } }))
         const baseUrl = result.data.baseUrl
         if (baseUrl) setDraft((current) => ({ ...current, baseUrl }))
       } else setProbeError(providerProbeError(result.data.status, t))
@@ -107,7 +109,7 @@ export function AddProviderModal({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const parsed = buildCreateProviderPayload(draft)
+    const parsed = buildCreateProviderPayload({ ...draft, ...(draft.meta ? { meta: { ...draft.meta, defaultModelId } } : {}) })
     if (!parsed.ok) {
       setError(parsed.error)
       return
@@ -256,6 +258,8 @@ export function AddProviderModal({
             <span className="mt-1 block text-[10px] font-normal text-subtle"> {t("s14")} </span>
           </label>
 
+          {PROVIDER_PRESETS.find(preset => preset.id === selectedPreset)?.apiKeyUrl ? <a className="inline-block text-xs text-primary underline focus-visible:ring-2 focus-visible:ring-primary" href={PROVIDER_PRESETS.find(preset => preset.id === selectedPreset)?.apiKeyUrl} target="_blank" rel="noopener noreferrer">{t("provider.console")}</a> : null}
+
           <section aria-label={t("provider.probe")} className="space-y-2" data-testid="provider-probe">
             <button type="button" onClick={() => void probe()} disabled={probing || saving} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">
               {probing ? <span aria-hidden="true" className="size-3 rounded-full border-2 border-current border-t-transparent motion-safe:animate-spin" /> : <span aria-hidden="true">↓</span>}
@@ -264,14 +268,7 @@ export function AddProviderModal({
             <div aria-live="polite" role="status" className="text-xs">
               {probeError ? <p className="break-all text-danger" role="alert">{t(probeError)}</p> : probeStatus ? <p className="text-success">{providerStatusText(probeStatus, t)}</p> : null}
             </div>
-            {models.length ? <>
-              <p className="text-xs text-subtle">{t("provider.chooseDefault")}</p>
-              <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
-                {models.slice(0, 50).map((model) => <button type="button" key={model.modelId} aria-pressed={defaultModelId === model.modelId} onClick={() => setDefaultModelId(model.modelId)} className={`max-w-full break-all rounded-full border px-2.5 py-1 text-xs focus-visible:ring-2 focus-visible:ring-primary ${defaultModelId === model.modelId ? "border-primary bg-primary-soft text-primary" : "border-border hover:bg-surface-hover"}`}>{model.modelId}</button>)}
-              </div>
-              {models.length > 50 ? <p className="text-xs text-subtle">{t("provider.modelsLimited", models.length)}</p> : null}
-              {defaultModelId ? <p className="break-all text-xs text-primary">{t("s257")}{defaultModelId}</p> : null}
-            </> : null}
+            {selectedModelIds(draft.meta?.models) ? <ModelPicker models={models} selected={selectedModelIds(draft.meta?.models)!} defaultModelId={defaultModelId} vendor={draft.name || draft.id} onChange={ids => setDraft(current => ({ ...current, meta: { ...current.meta, models: ids } }))} onDefault={setDefaultModelId} /> : null}
           </section>
 
           {/* Enabled Switch */}

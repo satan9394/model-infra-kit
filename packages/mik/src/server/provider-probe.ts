@@ -37,7 +37,14 @@ export function probeModelUrls(baseUrl: string, protocol: Protocol): string[] {
   if (path.endsWith("/models")) { url.pathname = path; return [url.href] }
   const options = PROBE_OPTIONS[protocol]
   if (options?.stripChatCompletions) path = path.replace(/\/chat\/completions$/, "")
-  const paths = !path && options?.rootPaths ? options.rootPaths : [`${path}/models`]
+  // Strip only whole, terminal compatibility segments; retain gateway mount paths.
+  const stripped = path.replace(/\/(?:api\/anthropic|anthropic|claudecode|api\/coding)$/, "")
+  const compatibility = stripped !== path
+  path = stripped
+  const versioned = /\/v\d+(?:beta\d*)?$/.test(path)
+  const paths = compatibility
+    ? versioned ? [`${path}/models`] : [`${path}/v1/models`, `${path}/models`]
+    : !path && options?.rootPaths ? options.rootPaths : [`${path}/models`]
   return paths.map(pathname => { const target = new URL(url); target.pathname = pathname; return target.href })
 }
 
@@ -75,8 +82,8 @@ export async function probeProvider(input: ProviderProbeInput, resolveCredential
         const response = await fetch(url, { headers: adapter.headers(resolved), signal: controller.signal, redirect: "error" })
         const text = await response.text()
         // Only an absent endpoint warrants the root-path fallback; auth/network failures do not.
-        if (response.status === 404 && index + 1 < urls.length) continue
-        if (!response.ok) throw new ModelInfraError(safe(text).slice(0, 240) || `HTTP ${response.status}`, {
+        if ((response.status === 404 || response.status === 405) && index + 1 < urls.length) continue
+        if (!response.ok) throw new ModelInfraError(safe(text).slice(0, 512) || `HTTP ${response.status}`, {
           code: response.status === 401 || response.status === 403 ? "AUTH" : response.status === 429 ? "RATE_LIMIT" : "PROVIDER",
           status: response.status,
         })

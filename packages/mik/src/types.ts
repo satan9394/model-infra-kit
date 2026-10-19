@@ -57,6 +57,10 @@ export type PriceSource = "override" | "modelsdev" | "openrouter" | "fallback" |
 export type PriceBasis = "exact" | "flat" | "blended" | "unknown"
 
 export interface ProviderPreset {
+  apiKeyUrl?: string
+  websiteUrl?: string
+  category?: string
+  recommendedModels?: readonly string[]
   id: string
   name: string
   protocol: Protocol

@@ -1,5 +1,7 @@
 "use client"
 
+import { ModelPicker } from "./model-picker"
+import { selectedModelIds, type PickerModel } from "@/lib/model-picker"
 import { useI18n } from "@/lib/i18n/provider"
 
 import { useEffect, useRef, useState, type FormEvent } from "react"
@@ -33,7 +35,10 @@ export function EditProviderModal({
     headersJson: JSON.stringify(provider.headers ?? {}, null, 2),
     enabled: provider.enabled,
     presetId: provider.presetId,
+    meta: provider.meta,
   }))
+  const [models, setModels] = useState<PickerModel[]>([])
+  const [defaultModelId, setDefaultModelId] = useState(typeof provider.meta.defaultModelId === "string" ? provider.meta.defaultModelId : "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,11 +56,15 @@ export function EditProviderModal({
     setProbing(true); setProbeMessage(null)
     const timer = window.setTimeout(() => controller.abort(), 5000)
     try {
-      const result = await apiCall<{ status: ProviderStatus & { errorCode?: string } }>("/providers/probe", {
+      const result = await apiCall<{ status: ProviderStatus & { errorCode?: string }; models: PickerModel[]; baseUrl?: string }>("/providers/probe", {
         method: "POST", signal: controller.signal,
         body: { protocol: draft.protocol, baseUrl: draft.baseUrl.trim(), apiKeyRef: draft.apiKeyRef.trim() },
       })
       if (probeController.current !== controller) return
+      if (!controller.signal.aborted && result.ok && result.data.status.ok) {
+        setModels(result.data.models)
+        setDraft(current => ({ ...current, baseUrl: result.data.baseUrl ?? current.baseUrl, meta: { ...current.meta, models: selectedModelIds(current.meta?.models) ?? result.data.models.map(model => model.modelId) } }))
+      }
       setProbeMessage(controller.signal.aborted ? t("provider.probeTimeout") : !result.ok
         ? providerProbeError({ message: result.error }, t)
         : result.data.status.ok ? providerStatusText(result.data.status, t) : providerProbeError(result.data.status, t))
@@ -84,7 +93,7 @@ export function EditProviderModal({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const parsed = buildProviderUpdatePayload(draft)
+    const parsed = buildProviderUpdatePayload({ ...draft, ...(selectedModelIds(draft.meta?.models) ? { meta: { ...draft.meta, defaultModelId } } : {}) })
     if (!parsed.ok) {
       setError(parsed.error)
       return
@@ -152,7 +161,7 @@ export function EditProviderModal({
           </div>
 
           <label className="block text-xs font-medium text-muted-foreground">
-            Base URL
+            {t("provider.baseUrl")}
             <input
               className={`${inputClass} font-mono text-xs`}
               value={draft.baseUrl}
@@ -180,6 +189,7 @@ export function EditProviderModal({
           <section aria-label={t("provider.probe")} className="space-y-2" data-testid="provider-probe">
             <button type="button" onClick={() => void probe()} disabled={saving || probing} className="rounded-md border border-border-strong px-3 py-2 text-xs font-medium hover:bg-surface-hover disabled:opacity-50">{probing ? t("provider.probing") : t("provider.probe")}</button>
             {probeMessage ? <p role="status" className="break-words text-xs text-muted-foreground">{probeMessage}</p> : null}
+            {selectedModelIds(draft.meta?.models) ? <ModelPicker models={models} selected={selectedModelIds(draft.meta?.models)!} defaultModelId={defaultModelId} vendor={draft.name || draft.id} onChange={ids => setDraft(current => ({ ...current, meta: { ...current.meta, models: ids } }))} onDefault={setDefaultModelId} /> : null}
           </section>
 
           <label className="block text-xs font-medium text-muted-foreground"> {t("s50")} <textarea

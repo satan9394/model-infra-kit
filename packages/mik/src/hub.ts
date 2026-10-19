@@ -675,7 +675,21 @@ export class ModelInfra {
         const discovered = await bridge.discoverModels(providerId)
         // An empty result means the probe failed; wiping the stored catalogue
         // over a network hiccup would lose data for no reason.
-        if (discovered.length > 0) store.models.replaceForProvider(providerId, discovered)
+        const configured = providers.get(providerId)?.meta.models
+        const selected = Array.isArray(configured) && configured.every(id => typeof id === "string" && id.trim())
+          ? new Set(configured as string[]) : undefined
+        if (discovered.length > 0 || selected) {
+          const byId = new Map([...store.models.list(providerId), ...discovered].map(model => [model.modelId, model]))
+          const enabled = selected ? [...selected].map(modelId => byId.get(modelId) ?? {
+            providerId, modelId, ref: `${providerId}:${modelId}`, displayName: modelId, source: "manual" as const,
+            capabilities: { text: true, image: false, reasoning: false, toolCall: false, structuredOutput: false },
+          }) : discovered
+          store.models.replaceForProvider(providerId, enabled)
+          const currentDefault = providers.defaultModel()
+          if (selected && currentDefault?.startsWith(`${providerId}:`) && !selected.has(currentDefault.slice(providerId.length + 1))) {
+            store.settings.delete("default_model")
+          }
+        }
         return store.models.list(providerId)
       },
     }

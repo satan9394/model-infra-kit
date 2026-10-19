@@ -198,3 +198,33 @@ describe("EVO-G120 temporary provider probe", () => {
     } finally { await server.close(); await hub.close() }
   })
 })
+
+
+describe("EVO-G137 version-aware model probing", () => {
+  it.each(["/v1", "/v4", "/api/v4", "/v1beta"])("does not nest versions in %s", path => {
+    expect(probeModelUrls(BASE + path, "openai-compatible")).toEqual([BASE + path + "/models"])
+  })
+  it.each(["/api/anthropic", "/anthropic", "/claudecode", "/api/coding"])("strips only terminal compatibility segments: %s", suffix => {
+    expect(probeModelUrls(BASE + suffix, "anthropic")).toEqual([BASE + "/v1/models", BASE + "/models"])
+    expect(probeModelUrls(BASE + "/gateway" + suffix, "openai-compatible")).toEqual([BASE + "/gateway/v1/models", BASE + "/gateway/models"])
+    expect(probeModelUrls(BASE + "/v4" + suffix, "openai-compatible")).toEqual([BASE + "/v4/models"])
+  })
+  it.each(["/anthropic-proxy", "/my-coding/api", "/tenant/anthropic/data"])("does not over-strip %s", path => {
+    expect(probeModelUrls(BASE + path, "openai-compatible")).toEqual([BASE + path + "/models"])
+  })
+  it.each([404, 405, 500])("redacts before bounding HTTP %s error bodies to 512 characters", async status => {
+    const secret = "s".repeat(700)
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>" + secret + "x".repeat(2000), { status })))
+    const result = await probeProvider(input, () => secret)
+    expect(result.status.ok).toBe(false)
+    expect(result.status.message).toHaveLength(512)
+    expect(result.status.message).toContain("[REDACTED]")
+    expect(result.status.message).not.toContain("s".repeat(100))
+  })
+  it("uses the same fallback for an unsupported model-list method", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response("absent", { status: 405 })).mockResolvedValueOnce(list())
+    vi.stubGlobal("fetch", fetch)
+    expect((await probeProvider(input, resolveKey)).status.ok).toBe(true)
+    expect(fetch.mock.calls.map(call => call[0])).toEqual([BASE + "/v1/models", BASE + "/models"])
+  })
+})

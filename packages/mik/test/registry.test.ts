@@ -15,6 +15,8 @@ const REQUIRED_PRESET_IDS = [
   "xai",
   "openrouter",
   "custom-openai-compatible",
+  "zhipu", "qwen", "doubao", "qianfan", "hunyuan", "minimax", "yi", "stepfun", "modelscope",
+  "groq", "mistral", "perplexity", "cohere", "siliconflow", "together", "ollama", "lmstudio", "vllm",
 ]
 
 const ALL_PROTOCOLS: Protocol[] = ["openai", "anthropic", "google", "deepseek", "moonshotai", "xai", "openai-compatible"]
@@ -51,6 +53,8 @@ function withEnv(name: string, value: string | undefined, fn: () => void): void 
 describe("PROVIDER_PRESETS", () => {
   it("covers every provider required by the card", () => {
     const ids = PROVIDER_PRESETS.map((preset) => preset.id)
+    expect(ids.length).toBeGreaterThanOrEqual(25)
+    expect(new Set(ids).size).toBe(ids.length)
     for (const id of REQUIRED_PRESET_IDS) expect(ids).toContain(id)
   })
 
@@ -61,6 +65,11 @@ describe("PROVIDER_PRESETS", () => {
       expect(ALL_PROTOCOLS).toContain(preset.protocol)
       expect(preset.npmPackage).toBe(PROTOCOL_PACKAGES[preset.protocol])
       expect(preset.docUrl).toMatch(/^https:\/\//)
+      expect(preset.apiKeyUrl).toMatch(/^https:\/\//)
+      expect(preset.websiteUrl).toMatch(/^https:\/\//)
+      expect(["cn_official", "global_official", "aggregator", "local"]).toContain(preset.category)
+      expect(new Set(preset.recommendedModels).size).toBe(preset.recommendedModels?.length)
+      if (preset.id !== "custom-openai-compatible") expect(preset.recommendedModels?.length).toBeGreaterThan(0)
     }
   })
 

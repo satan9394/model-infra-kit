@@ -74,6 +74,27 @@ const G145_KEYS = [
   "a11y.liveDisconnected",
 ] as const
 
+/** EVO-G137 provider presets and model picker additions. */
+const G137_KEYS = [
+  "picker.title",
+  "picker.count",
+  "picker.search",
+  "picker.all",
+  "picker.none",
+  "picker.onlySelected",
+  "picker.empty",
+  "picker.fromProvider",
+  "picker.custom",
+  "picker.context",
+  "picker.vision",
+  "picker.reasoning",
+  "picker.tools",
+  "picker.default",
+  "picker.setDefault",
+  "provider.console",
+  "provider.presetHint",
+] as const
+
 /* ---------------------------------------------- adversarial 1: quota guide */
 
 test("EVO-G143 quota empty state is a structured guide, not a thin blank", () => {
@@ -205,8 +226,9 @@ test("EVO-G143 dictionary additions keep zh/en parity and identical placeholders
   assert.ok(enKeys.length >= 679, `expected >= 679 keys, saw ${enKeys.length}`)
   // G144 appended its own documented keys on top of the G143 set, and G145 added
   // the embed bridge + a11y announcements. G135 adds the approximate-hit labels.
-  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length + 2)
-  for (const key of [...ADDED_KEYS, ...G145_KEYS]) {
+  // G137 adds the model picker and provider console/hint labels.
+  assert.equal(enKeys.length, 679 + ADDED_KEYS.length + G144_KEYS.length + G145_KEYS.length + 2 + G137_KEYS.length)
+  for (const key of [...ADDED_KEYS, ...G145_KEYS, ...G137_KEYS]) {
     assert.ok(enKeys.includes(key), `missing dictionary key: ${key}`)
     assert.ok(en_(key).trim() && zh_(key).trim(), key)
     assert.deepEqual(zh_(key).match(/\{\d+\}/g) ?? [], en_(key).match(/\{\d+\}/g) ?? [], key)

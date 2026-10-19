@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { AddProviderModal } from "@/components/add-provider-modal"
 import { EditProviderModal } from "@/components/edit-provider-modal"
-import { createProvider } from "@/lib/provider-create"
+import { createProvider, syncProviderModels } from "@/lib/provider-create"
 import { providerStatusText } from "@/lib/provider-status"
 import { apiCall } from "@/lib/client-api"
 import { getProviderBrand } from "@/lib/provider-brands"
@@ -138,7 +138,10 @@ export function ProvidersClient({ providers }: { providers: ProviderRecord[] }) 
       body: payload,
     })
     if (!result.ok) return result.error
-    setNotice({ tone: "ok", text: t("s186", provider.id) })
+    const synced = Array.isArray(payload.meta?.models) ? await syncProviderModels(provider.id,
+      typeof payload.meta.defaultModelId === "string" ? payload.meta.defaultModelId || undefined : undefined) : null
+    const syncError = synced && (synced.ok ? synced.data.defaultError : synced.error)
+    setNotice(syncError ? { tone: "bad", text: t("provider.savedDefaultFailed", provider.id, syncError) } : { tone: "ok", text: t("s186", provider.id) })
     setEditingProvider(null)
     router.refresh()
     return null

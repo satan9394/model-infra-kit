@@ -833,6 +833,27 @@ describe("stream", () => {
 })
 
 describe("models", () => {
+  it("refreshes only selected models and retains custom model identities", async () => {
+    const hub = await makeHub()
+    const provider = hub.providers.get("ok")!
+    hub.providers.add({ ...provider, meta: { models: ["deepseek-chat", "custom-private"] } })
+    const refreshed = await hub.models.refresh("ok")
+    expect(refreshed.map(model => model.modelId)).toEqual(["custom-private", "deepseek-chat"])
+    expect(refreshed.find(model => model.modelId === "custom-private")?.source).toBe("manual")
+    expect((await hub.models.refresh("ok")).map(model => model.modelId)).toEqual(["custom-private", "deepseek-chat"])
+  })
+
+  it("honors an explicit empty selection and ignores malformed selection metadata", async () => {
+    const hub = await makeHub()
+    const provider = hub.providers.get("ok")!
+    for (const models of ["invalid", [42], undefined]) {
+      hub.providers.add({ ...provider, meta: { models } })
+      expect(await hub.models.refresh("ok")).toHaveLength(2)
+    }
+    hub.providers.add({ ...provider, meta: { models: [] } })
+    expect(await hub.models.refresh("ok")).toEqual([])
+  })
+
   it("lists nothing until the catalogue is refreshed", async () => {
     const hub = await makeHub()
     expect(hub.models.list()).toEqual([])

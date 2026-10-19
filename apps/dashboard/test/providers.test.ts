@@ -44,7 +44,8 @@ test("built-in presets provide the expected endpoint, protocol, and key referenc
     ollama: ["Ollama (Local)", "openai-compatible", "http://localhost:11434/v1", ""],
   } as const
 
-  assert.equal(PROVIDER_PRESETS.length, 7, "the six service presets and custom option should be present")
+  assert.ok(PROVIDER_PRESETS.length >= 25)
+  assert.equal(new Set(PROVIDER_PRESETS.map(preset => preset.id)).size, PROVIDER_PRESETS.length)
   for (const [id, [name, protocol, baseUrl, apiKeyRef]] of Object.entries(expected)) {
     const draft = draftFromPreset(id as keyof typeof expected)
     assert.equal(draft.id, id)
@@ -128,4 +129,17 @@ test("payload builders reject invalid IDs, protocols, and header JSON", () => {
   assert.equal(buildCreateProviderPayload({ ...emptyProviderDraft(), id: "bad:id" }).ok, false)
   assert.equal(buildProviderUpdatePayload({ ...emptyProviderDraft(), id: "openai", protocol: "not-a-protocol" }).ok, false)
   assert.equal(buildProviderUpdatePayload({ ...emptyProviderDraft(), id: "openai", headersJson: "{nope" }).ok, false)
+})
+
+
+test("model metadata round-trips without losing unrelated provider metadata", () => {
+  const meta = { models: ["a", "custom"], defaultModelId: "a", routing: "preserve" }
+  for (const build of [buildCreateProviderPayload, buildProviderUpdatePayload]) {
+    const payload = build({ ...draftFromPreset("deepseek"), meta })
+    assert.ok(payload.ok)
+    assert.deepEqual(payload.value.meta, meta)
+    const empty = build({ ...draftFromPreset("deepseek"), meta: { models: [] } })
+    assert.ok(empty.ok)
+    assert.deepEqual(empty.value.meta, { models: [] })
+  }
 })

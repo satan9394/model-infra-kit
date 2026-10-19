@@ -1964,3 +1964,15 @@ Credential file is empty for reference "<masked ref>". The file must contain onl
 | 公开运行时导出 | 本文件文末 `mik-runtime-exports/v1` | `src/index.ts`、`src/auto.ts`、`src/cli/index.ts`、`src/server/index.ts` | `scripts/verify-contracts.mjs`（`--self-test` 自证）、`scripts/release/check-release-battery.mjs` | 宿主 / 发版 |
 | 架构图代码引用 | `docs/plans/architecture-improvement-plan.md` §12 | `docs/diagrams/*.json` 的 `sources[]` | `scripts/verify-contracts.mjs` | 文档读者 |
 
+
+
+## EVO-G137 — 预设供应商全量扩充与模型多选管理系统
+
+- `ProviderPreset` 在 `packages/mik/src/types.ts` 新增 4 个可选元数据字段：
+  - `apiKeyUrl?: string`：官方控制台申请页直达链接
+  - `websiteUrl?: string`：官方首页或文档地址
+  - `category?: string`：分类（`cn_official`、`global_official`、`aggregator`、`local`）
+  - `recommendedModels?: readonly string[]`：离线推荐模型列表
+- 预设矩阵扩展至 25+ 主流海内外供应商（覆盖国内官方 DeepSeek、Moonshot/Kimi、智谱 GLM、阿里百炼/通义千问、火山引擎/豆包、百度千帆、腾讯混元、MiniMax、零一万物、阶跃星辰、魔搭；海外官方 OpenAI、Anthropic、Gemini、xAI Grok、Groq、Mistral、Perplexity、Cohere；聚合平台 硅基流动、OpenRouter、Together AI；本地部署 Ollama、LM Studio、vLLM 等）。
+- 探测算法升级（`probeModelUrls`）：版本段识别（`/v1`、`/v4` 避免嵌套）、兼容中转后缀剥离（`/api/anthropic`、`/anthropic`、`/claudecode`、`/api/coding`、`/chat/completions` 回退到根路径），错误响应体严格保持“先脱敏后截断 (`safe(text).slice(0, 512)`)”至 512 字符。
+- 模型多选选择器与持久化：看板提供 `ModelPicker` 支持实时过滤、全选/全不选、仅看已选、自适应视窗滚动与默认模型指定；选中的模型集合通过 Provider `meta.models` 持久化，`hub.ts` 的 `models.refresh(providerId)` 刷新时优先过滤并保留选中模型子集。

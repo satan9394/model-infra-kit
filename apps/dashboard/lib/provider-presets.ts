@@ -1,3 +1,4 @@
+import { PROVIDER_PRESETS as BUILTIN_PRESETS } from "../../../packages/mik/src/registry/presets.ts"
 import { message } from "./i18n/core.ts"
 import type { Protocol } from "./types"
 
@@ -11,83 +12,23 @@ export const PROVIDER_PROTOCOLS = [
   "xai",
 ] as const satisfies readonly Protocol[]
 
-export const PROVIDER_PRESETS = [
-  {
-    id: "deepseek",
-    label: "DeepSeek",
-    providerId: "deepseek",
-    name: "DeepSeek",
-    protocol: "deepseek",
-    baseUrl: "https://api.deepseek.com/v1",
-    apiKeyRef: "env:DEEPSEEK_API_KEY",
-    presetId: "deepseek",
-    hint: message("s393"),
-  },
-  {
-    id: "openai",
-    label: "OpenAI",
-    providerId: "openai",
-    name: "OpenAI",
-    protocol: "openai",
-    baseUrl: "https://api.openai.com/v1",
-    apiKeyRef: "env:OPENAI_API_KEY",
-    presetId: "openai",
-    hint: message("s394"),
-  },
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    providerId: "anthropic",
-    name: "Anthropic",
-    protocol: "anthropic",
-    baseUrl: "https://api.anthropic.com/v1",
-    apiKeyRef: "env:ANTHROPIC_API_KEY",
-    presetId: "anthropic",
-    hint: message("s395"),
-  },
-  {
-    id: "google",
-    label: "Google Gemini",
-    providerId: "google",
-    name: "Google Gemini",
-    protocol: "google",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-    apiKeyRef: "env:GOOGLE_GENERATIVE_AI_API_KEY",
-    presetId: "google",
-    hint: message("s396"),
-  },
-  {
-    id: "openrouter",
-    label: "OpenRouter",
-    providerId: "openrouter",
-    name: "OpenRouter",
-    protocol: "openai-compatible",
-    baseUrl: "https://openrouter.ai/api/v1",
-    apiKeyRef: "env:OPENROUTER_API_KEY",
-    presetId: "openrouter",
-    hint: message("s397"),
-  },
-  {
-    id: "ollama",
-    label: message("s398"),
-    providerId: "ollama",
-    name: "Ollama (Local)",
-    protocol: "openai-compatible",
-    baseUrl: "http://localhost:11434/v1",
-    apiKeyRef: "",
-    hint: message("s399"),
-  },
-  {
-    id: "custom",
-    label: message("s400"),
-    providerId: "",
-    name: "",
-    protocol: "openai-compatible",
-    baseUrl: "",
-    apiKeyRef: "",
-    hint: message("s401"),
-  },
-] as const
+export const PROVIDER_PRESETS = BUILTIN_PRESETS.map((preset) => {
+  const custom = preset.id === "custom-openai-compatible"
+  return {
+    id: custom ? "custom" : preset.id,
+    label: custom ? message("s400") : preset.name,
+    providerId: custom ? "" : preset.id,
+    name: custom ? "" : preset.name,
+    protocol: preset.protocol,
+    baseUrl: preset.defaultBaseUrl ?? "",
+    apiKeyRef: preset.envKey ? `env:${preset.envKey}` : "",
+    // Keyless local presets do not need preset resolution on the server.
+    presetId: custom || preset.category === "local" ? undefined : preset.id,
+    hint: message(custom ? "s401" : preset.category === "local" ? "s399" : "provider.presetHint"),
+    apiKeyUrl: preset.apiKeyUrl,
+    recommendedModels: preset.recommendedModels,
+  }
+})
 
 export type ProviderPresetId = (typeof PROVIDER_PRESETS)[number]["id"]
 export type ProviderProtocol = (typeof PROVIDER_PROTOCOLS)[number]
@@ -100,6 +41,7 @@ export interface ProviderDraft {
   apiKeyRef: string
   headersJson: string
   enabled: boolean
+  meta?: Record<string, unknown>
   presetId?: string
 }
 
@@ -110,6 +52,7 @@ export interface ProviderUpdatePayload {
   apiKeyRef: string
   headers: Record<string, string>
   enabled: boolean
+  meta?: Record<string, unknown>
   presetId?: string
 }
 
@@ -121,6 +64,7 @@ export interface ProviderCreatePayload {
   apiKeyRef?: string
   headers: Record<string, string>
   enabled: boolean
+  meta?: Record<string, unknown>
   presetId?: string
 }
 
@@ -209,6 +153,7 @@ function readDraft(draft: ProviderDraft): ProviderDraftResult<ProviderUpdatePayl
       apiKeyRef: draft.apiKeyRef.trim(),
       headers: headers.value,
       enabled: draft.enabled,
+      ...(draft.meta ? { meta: draft.meta } : {}),
       ...(draft.presetId?.trim() ? { presetId: draft.presetId.trim() } : {}),
     },
   }
@@ -225,6 +170,7 @@ export function buildCreateProviderPayload(draft: ProviderDraft): ProviderDraftR
       protocol: fields.protocol,
       headers: fields.headers,
       enabled: fields.enabled,
+      ...(fields.meta ? { meta: fields.meta } : {}),
       ...(fields.name ? { name: fields.name } : {}),
       ...(fields.baseUrl ? { baseUrl: fields.baseUrl } : {}),
       ...(fields.apiKeyRef ? { apiKeyRef: fields.apiKeyRef } : {}),

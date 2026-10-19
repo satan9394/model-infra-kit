@@ -67,10 +67,11 @@ test("default discovery failure preserves saved provider and never retries creat
   assert.deepEqual(paths, ["/api/mik/providers", "/api/mik/providers/gateway/models/refresh"])
 })
 
-test("modal preserves provider anchor, caps tags and invalidates stale probe results", () => {
+test("modal preserves provider anchor, renders the picker and invalidates stale probe results", () => {
   const source = readFileSync(new URL("../components/add-provider-modal.tsx", import.meta.url), "utf8")
   assert.match(source, /id="provider-id"/)
-  assert.match(source, /models\.slice\(0, 50\)/)
+  assert.match(source, /<ModelPicker /)
+  assert.doesNotMatch(source, /models\.slice\(0, 50\)/)
   assert.match(source, /setTimeout\(\(\) => controller\.abort\(\), 5000\)/)
   assert.match(source, /probeController\.current !== controller/)
   assert.match(source, /patch\.baseUrl !== undefined \|\| patch\.apiKeyRef !== undefined \|\| patch\.protocol !== undefined/)
