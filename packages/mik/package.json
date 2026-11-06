@@ -55,8 +55,8 @@
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "dependencies": {
-    "ai": "^7.0.133",
-    "llm-pricing": "^0.19.0"
+    "ai": "^7.0.162",
+    "llm-pricing": "^0.20.0"
   },
   "peerDependencies": {
     "@ai-sdk/anthropic": "^4.0.0",
@@ -91,7 +91,7 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.45",
+    "@ai-sdk/openai-compatible": "^3.0.84",
     "@ai-sdk/test-server": "^2.0.4"
   }
 }
