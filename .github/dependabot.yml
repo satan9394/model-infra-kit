@@ -16,11 +16,17 @@ updates:
           - "minor"
           - "patch"
     ignore:
-      # 大版本升级要单独评估（Next 16 / Vitest 5 均有破坏性变更），
-      # 不进入每周自动 PR；需要时手动升级并跑全量门禁。
+      # 大版本升级要单独评估（Next 16 / Vitest 5 / TypeScript 7 / @types/node 26
+      # 均有破坏性变更或需要配套调整），不进入每周自动 PR；
+      # 需要时手动升级并跑全量门禁。安全修复若真的只在大版本里，
+      # 仍会以 security update 形式单独出现。
       - dependency-name: "next"
         update-types: ["version-update:semver-major"]
       - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
