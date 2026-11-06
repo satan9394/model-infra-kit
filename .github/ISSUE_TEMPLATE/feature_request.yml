@@ -1,0 +1,60 @@
+name: 功能建议
+description: 提出一个新能力或改进
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提出前请先确认这不是**网关平台**类需求。本项目的定位是可嵌入的模型层，
+        不做网关平台、不做企业级 AI Gateway、不读第三方应用的数据文件。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的问题
+      description: 先去讲场景与痛点，不要直接跳到实现方案。
+      placeholder: 我在宿主项目里想按租户看到成本，现在只能看到全局汇总。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的方案
+      description: 你希望 API / CLI / 看板长什么样？有替代方案也一并写。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 涉及的面
+      options:
+        - 库 API
+        - CLI
+        - HTTP 服务
+        - 看板
+        - 计量 / 计价
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract
+    attributes:
+      label: 是否影响公共契约
+      description: |
+        如果会改动 `docs/interfaces.md` 里的导出名或字段语义，请写清变化。
+        例如「新增字段」「字段从总在变成条件存在」——后者会让调用方的 `.toFixed()` 抛错。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已搜索过已有 Issue 与 `docs/decisions.md`，没有找到相同提议
+          required: true

@@ -1,0 +1,83 @@
+name: Bug 报告
+description: 报告一个可复现的缺陷
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先搜索已有 Issue，避免重复。
+        **安全漏洞请不要走这里**，按 [SECURITY.md](https://github.com/satan9394/model-infra-kit/blob/main/SECURITY.md) 私下上报。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么？期望是什么？
+      placeholder: 期望 `mik usage summary` 输出成本区间，实际只输出了一个点。
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 最小可复现命令或代码。涉及密钥请用 `sk-xxx` 占位。
+      render: shell
+      placeholder: |
+        npm i model-infra-kit
+        npx mik init --yes
+        npx mik usage summary --days 7
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: model-infra-kit 版本
+      description: '`npm ls model-infra-kit` 或 `npx mik --version` 的输出'
+      placeholder: 1.8.0
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node 版本与操作系统
+      placeholder: Node 22.13.0 / Windows 11
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 出问题的面
+      options:
+        - 库 API（`ModelInfra` / `mik.fetch`）
+        - CLI（`mik` 命令）
+        - HTTP 服务（`mik serve`）
+        - 看板（`mik dashboard`）
+        - 计量 / 计价金额
+        - 文档
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志 / 报错
+      description: 请先确认没有携带 API key、token 或个人路径。
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已搜索过已有 Issue，没有找到相同问题
+          required: true
+        - label: 我已移除日志中的密钥与个人信息
+          required: true

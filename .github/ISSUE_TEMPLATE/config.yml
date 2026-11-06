@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞
+    url: https://github.com/satan9394/model-infra-kit/security/policy
+    about: 请不要开公开 Issue，按 SECURITY.md 的私下渠道上报。
+  - name: 使用问题与讨论
+    url: https://github.com/satan9394/model-infra-kit/blob/main/README.md
+    about: 先看 README 的快速开始与边界声明，再看 docs/。
