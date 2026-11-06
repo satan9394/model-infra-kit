@@ -25,6 +25,6 @@
     "@types/react-dom": "^19.3.0",
     "model-infra-kit": "workspace:*",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.2"
+    "typescript": "^7.0.2"
   }
 }
