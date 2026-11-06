@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "model-infra-kit": "workspace:*",
-    "openai": "^7.12.1"
+    "openai": "^7.47.0"
   }
 }
