@@ -4,14 +4,35 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    # 2026-11-05：把同类更新合并成一个 PR，避免一周堆出 5+ 个待评审分支。
+    # 安全更新不走分组，仍然单独出 PR 以便尽快合并。
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      npm-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # 大版本升级要单独评估（Next 16 / Vitest 5 均有破坏性变更），
+      # 不进入每周自动 PR；需要时手动升级并跑全量门禁。
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
