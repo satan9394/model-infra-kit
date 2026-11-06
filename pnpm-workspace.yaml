@@ -16,6 +16,9 @@ overrides:
   zod: ^4.6.7
   undici: ^7.30.2
   vite: ^7.3.7
+  # Dependabot GHSA-68fv-2mgg-jv7q (high): indexed source-map section offsets
+  # allow an event-loop denial of service. Force the patched 1.2.2+ line.
+  source-map-js: ">=1.2.2"
 
 allowBuilds:
   esbuild: true

@@ -52,6 +52,12 @@
 - Correct provider ID validation in modern browsers and allow same-origin loopback Playground requests while retaining cross-origin rejection.
 - Improve light-theme secondary-text contrast on normal page and card surfaces.
 
+## 2026-10-10 — 仓库健康修复（安全 / CI 稳定性）
+
+- 供应链：通过 `pnpm.overrides` 将传递依赖 `source-map-js` 提升至 `>=1.2.2`，修复 GHSA-68fv-2mgg-jv7q（indexed source-map section offsets 导致的 event-loop 拒绝服务，high）。
+- CI 稳定性：重写 `packages/mik/test/server.test.ts` 的 SSE keepalive 用例——移除对 250ms 响应头竞速的依赖，改为等待响应并用 `AbortSignal.timeout(10_000)` 与 15s 用例超时构造上界，消除 macOS/Windows runner 上的间歇性超时。
+- 依据：2026-10-10 仓库健康体检（Dependabot 告警与 PR CI 失败根因）。
+
 ## Local candidate — EVO-G134
 
 - Add asynchronous signed usage/audit webhooks, bounded retries/dead letters, cancellable delivery and admin status/test APIs. Costs use Schema v7 integer strings.

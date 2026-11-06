@@ -10,7 +10,7 @@
     "pitfalls": "node --experimental-transform-types --disable-warning=ExperimentalWarning --import ../../scripts/e2e/loader.mjs pitfalls.ts"
   },
   "dependencies": {
-    "ai": "^7.0.94",
+    "ai": "^7.0.133",
     "model-infra-kit": "workspace:*"
   }
 }
