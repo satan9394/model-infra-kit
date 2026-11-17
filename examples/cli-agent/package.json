@@ -9,7 +9,7 @@
     "start:built": "node index.ts"
   },
   "dependencies": {
-    "ai": "^7.0.162",
+    "ai": "^7.0.164",
     "model-infra-kit": "workspace:*"
   }
 }
